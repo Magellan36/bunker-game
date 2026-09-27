@@ -246,12 +246,28 @@ func get_trash_material() -> String:
 ## pot is hosted (that suppression exists so the POT's own candidate entry
 ## doesn't duplicate the STOVE's panel), which was exactly why the DONE
 ## prompt never appeared while the pot sat on a stove. Confirmed Aug 2026 fix.
+
+## Raised world-space anchor for the hover panel (Sep 2026). The pot is a
+## low, floor/bench-height RigidBody3D, so the generic default anchor (its
+## origin + InteractPrompt's flat 1.2m offset) renders the panel too low —
+## especially on a stove, where the pot sits low against a tall appliance.
+## Return our own raised point so InteractionSystem's CASE-2 anchor lookup
+## (which honors get_prompt_world_pos()) parks the panel above the default:
+## 0.45m from our own origin + InteractPrompt's 1.2m WORLD_OFFSET ≈ 1.65m
+## total — still above the default 1.2m raise of most objects while staying
+## comfortably on-screen (reduced from 0.7 per feedback).
+func get_prompt_world_pos() -> Vector3:
+	return global_position + Vector3(0.0, 0.45, 0.0)
+
 func get_dish_ready_text() -> String:
 	if not _is_cooked:
 		return ""
+	## Multi-line layout (Sep 2026) — dish name / filling / status on separate
+	## centered lines so the panel reads tall, not wide (the prompt label is
+	## centered + non-wrapping, so newlines grow the panel vertically).
 	if _dish_hydration > 0.0:
-		return "DONE  —  [E] Take Dish  (%s, %.1f Filling, %.1f Hydration)" % [_dish_name, _dish_value, _dish_hydration]
-	return "DONE  —  [E] Take Dish  (%s, %.1f Filling)" % [_dish_name, _dish_value]
+		return "%s\nFilling: %.1f\nDONE  —  [E] Take Dish  (Hydration %.1f)" % [_dish_name, _dish_value, _dish_hydration]
+	return "%s\nFilling: %.1f\nDONE  —  [E] Take Dish" % [_dish_name, _dish_value]
 
 
 func get_interact_prompt() -> String:
@@ -270,10 +286,15 @@ func get_interact_prompt() -> String:
 			unique_keys.append(entry["ingredient_key"])
 	var preview_name: String = resolve_dish_name(unique_keys)
 	var bonus_txt: String = "" if totals["bonus_pct"] <= 0.0 else "  (+%d%% Diversity)" % int(round(totals["bonus_pct"] * 100.0))
-	var base_txt: String = "%s  —  Filling: %.1f%s" % [preview_name, totals["total"], bonus_txt]
+	## Multi-line layout (Sep 2026) — dish name, then filling, then cooking
+	## status on separate centered lines so the panel reads tall, not wide.
+	var lines: Array[String] = [
+		preview_name,
+		"Filling: %.1f%s" % [totals["total"], bonus_txt],
+	]
 	if _host_stove != null and _host_stove.has_method("is_cooking") and _host_stove.is_cooking():
-		return "%s  —  COOKING  (%.0f/%.0fs)" % [base_txt, _cook_progress, cook_time_required()]
-	return base_txt
+		lines.append("COOKING  (%.0f/%.0fs)" % [_cook_progress, cook_time_required()])
+	return "\n".join(lines)
 
 func _physics_process(delta: float) -> void:
 	super._physics_process(delta)
@@ -474,6 +495,8 @@ func try_add_item(item: Node) -> bool:
 		rb.collision_mask   = 0
 		rb.linear_velocity  = Vector3.ZERO
 		rb.angular_velocity = Vector3.ZERO
+		if item.has_method("deactivate_dynamic_state"):
+			item.deactivate_dynamic_state()
 	if "is_held" in item:
 		item.is_held = false
 	if "_hold_point" in item:
@@ -502,10 +525,12 @@ func _eject_emptied_container(item: Node) -> void:
 		rb.freeze           = false
 		rb.freeze_mode      = RigidBody3D.FREEZE_MODE_KINEMATIC
 		rb.gravity_scale    = 1.0
-		rb.collision_layer  = 1
-		rb.collision_mask   = 1
+		rb.collision_layer  = rb.rest_collision_layer()
+		rb.collision_mask   = rb._rest_collision_mask()
 		rb.linear_velocity  = Vector3.ZERO
 		rb.angular_velocity = Vector3.ZERO
+		if item.has_method("restore_dynamic_state"):
+			item.restore_dynamic_state()
 	if "is_held" in item:
 		item.is_held = false
 	if "_hold_point" in item:
@@ -559,6 +584,24 @@ func restore_saved_state(extra: Dictionary) -> void:
 	_dish_name      = String(extra.get("dish_name", "Cooked Dish"))
 	_dish_hydration = float(extra.get("dish_hydration", 0.0))
 	_update_pot_visual()
+
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+## A loose CookingPot (on a shelf, not on a stove) reuses the exact same
+## get_save_extra()/restore_saved_state() contract the Stove uses for its
+## hosted pot. restore_saved_state() calls _update_pot_visual(), so the real
+## restore is deferred to the post-ready sync hook (apply runs pre-_ready).
+var _pending_restore_extra: Dictionary = {}
+
+func get_item_save_state() -> Dictionary:
+	return {"pot": get_save_extra()}
+
+func apply_item_save_state(state: Dictionary) -> void:
+	_pending_restore_extra = state.get("pot", {})
+
+func sync_saved_state_visuals() -> void:
+	if not _pending_restore_extra.is_empty():
+		restore_saved_state(_pending_restore_extra)
+		_pending_restore_extra = {}
 
 
 ## ─── Ingredient icon previews (Part K) ────────────────────────────────────
@@ -638,10 +681,12 @@ func remove_item(slot_idx: int) -> Node:
 		rb.freeze           = false
 		rb.freeze_mode      = RigidBody3D.FREEZE_MODE_KINEMATIC
 		rb.gravity_scale    = 1.0
-		rb.collision_layer  = 1
-		rb.collision_mask   = 1
+		rb.collision_layer  = rb.rest_collision_layer()
+		rb.collision_mask   = rb._rest_collision_mask()
 		rb.linear_velocity  = Vector3.ZERO
 		rb.angular_velocity = Vector3.ZERO
+		if item.has_method("restore_dynamic_state"):
+			item.restore_dynamic_state()
 	item.global_position = global_position + Vector3(0.0, 0.3, 0.0)
 
 	item_removed.emit(slot_idx, item)

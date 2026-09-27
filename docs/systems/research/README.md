@@ -53,8 +53,17 @@ north wall (confirmed: the wall nearer player spawn), offset +4 from the
 wall's center, at game start, never purchasable, never deconstructable,
 movable only (identical treatment to Build Station). `[E] Open Research
 Station` opens the modal `ResearchStationModernUI`. See
-`docs/systems/furniture-items/README.md` for the wiring summary, exact
-placement formula, and the inherited save-position limitation.
+`docs/systems/furniture-items/README.md` for the wiring summary and exact
+placement formula.
+
+**Persistence (Save/Load overhaul, Sep 2026):** research progress now
+round-trips via the `research` save field
+(`ResearchStation.get_research_save_data()`/`restore_research_save_data()`)
+— completed tiers (`tier_progress`), stored materials, and any in-progress
+research (active upgrade re-resolved from its `.tres`, plus elapsed/
+consumed/pause state). The station's relocated position survives via the
+`moved_level_objects` field (it's excluded from the normal placed-objects
+save).
 
 **Material feed chute (Aug 2026):** the station is now 1.5x its original
 width (3 units instead of 2) — the added left portion is a chute that

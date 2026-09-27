@@ -613,6 +613,9 @@ func _rebuild_auto_wires(boundary_edges: Dictionary,
 		var dead_wire_keys: Array[String] = []
 		for pw_key: String in _owner._player_wire_segs:
 			var pw: Dictionary = _owner._player_wire_segs[pw_key]
+			var live: Variant = pw.get("seg_node")
+			if is_instance_valid(live) and live is WireSegment and not live.is_queued_for_deletion() and live.player_placed and pm.has_wire_edge(live.edge_id) and (not is_equal_approx(live.point_a.y, WIRE_Y) or not is_equal_approx(live.point_b.y, WIRE_Y)):
+				continue
 			var pa: Vector3 = pw["pos_a"]
 			var pb: Vector3 = pw["pos_b"]
 			var a_ok: bool = _near_boundary.call(pa)
@@ -752,7 +755,7 @@ func _rebuild_auto_wires(boundary_edges: Dictionary,
 
 	## Log Pass A results
 	_owner._wdbg("  PassA: %d node positions after dedup" % node_positions.size())
-	if _owner.WIRE_DEBUG:
+	if DebugOutput.enabled:
 		var sorted_npos: Array[Vector3] = node_positions.duplicate()
 		sorted_npos.sort_custom(func(a: Vector3, b: Vector3) -> bool:
 			return a.x < b.x if absf(a.x - b.x) > 0.001 else a.z < b.z)
@@ -902,7 +905,7 @@ func _rebuild_auto_wires(boundary_edges: Dictionary,
 							mid_cx,
 							str(mid_cx)+","+str(cz_below), str(below),
 							str(mid_cx)+","+str(cz_above), str(above)]
-					elif _owner.WIRE_DEBUG:
+					elif DebugOutput.enabled:
 						_owner._wdbg("  B2 HORIZ KEEP  pa=(%.3f,%.3f) pb=(%.3f,%.3f)  mid_cx=%d  below[%s]=%s  above[%s]=%s" % [
 							pa.x, pa.z, pb.x, pb.z, mid_cx,
 							str(mid_cx)+","+str(cz_below), str(below),
@@ -920,7 +923,7 @@ func _rebuild_auto_wires(boundary_edges: Dictionary,
 							mid_cz,
 							str(cx_left)+","+str(mid_cz), str(left_c),
 							str(cx_right)+","+str(mid_cz), str(right_c)]
-					elif _owner.WIRE_DEBUG:
+					elif DebugOutput.enabled:
 						_owner._wdbg("  B2 VERT KEEP  pa=(%.3f,%.3f) pb=(%.3f,%.3f)  mid_cz=%d  left[%s]=%s  right[%s]=%s" % [
 							pa.x, pa.z, pb.x, pb.z, mid_cz,
 							str(cx_left)+","+str(mid_cz), str(left_c),
@@ -1063,11 +1066,11 @@ func _rebuild_auto_wires(boundary_edges: Dictionary,
 	## Reconciler retired (Stage 5) — no notify needed.
 
 	## ── Stage 0 oracle ────────────────────────────────────────────────────────
-	## Runs only when _owner.WIRE_DEBUG = true.  Call after the full rebuild so the graph
+	## Runs only when DebugOutput.enabled = true.  Call after the full rebuild so the graph
 	## is in its final state.  Failures print [ORACLE FAIL] to Output and the
 	## wire debug log — they do NOT crash the game.  Used to validate correctness
 	## of the current system before the incremental refactor modifies anything.
-	if _owner.WIRE_DEBUG:
+	if DebugOutput.enabled:
 		_verify_graph_matches_boundary(boundary_edges, pillar_positions, pm)
 
 ## ── Stage 1: boundary edge diff ──────────────────────────────────────────────
@@ -1093,7 +1096,7 @@ func _compute_boundary_diff(boundary_new: Dictionary) -> Dictionary:
 		if not boundary_new.has(ekey):
 			removed.append(ekey)
 
-	if _owner.WIRE_DEBUG:
+	if DebugOutput.enabled:
 		_owner._wdbg("[diff]  added=%d  removed=%d  total_prev=%d  total_new=%d" % [
 			added.size(), removed.size(),
 			_owner._boundary_edges_prev.size(), boundary_new.size()])
@@ -1164,7 +1167,7 @@ func _compute_node_positions(boundary_edges: Dictionary,
 ##    valid). Corner/pillar nodes are exempt from this check because they are
 ##    keyed by pillar_positions, not boundary_edges.
 ##
-## _owner.WIRE_DEBUG gate is checked by the caller — this function always runs the full
+## DebugOutput.enabled gate is checked by the caller — this function always runs the full
 ## check.  It emits prints and log lines but NEVER pushes errors or asserts.
 func _verify_graph_matches_boundary(
 		boundary_edges: Dictionary,
@@ -1225,8 +1228,9 @@ func _verify_graph_matches_boundary(
 			inv1_fails += 1
 			_owner._wdbg("[ORACLE FAIL] INV1 — boundary edge UNCOVERED  ekey=%s  pos=(%.3f,%.3f)" % [
 				ekey, ep.x, ep.z])
-			print("[ORACLE FAIL] INV1 — boundary edge UNCOVERED  ekey=%s  pos=(%.3f,%.3f)" % [
-				ekey, ep.x, ep.z])
+			if DebugOutput.enabled:
+				print("[ORACLE FAIL] INV1 — boundary edge UNCOVERED  ekey=%s  pos=(%.3f,%.3f)" % [
+					ekey, ep.x, ep.z])
 
 	## Pillar coverage check
 	var inv1p_fails: int = 0
@@ -1242,8 +1246,9 @@ func _verify_graph_matches_boundary(
 			inv1p_fails += 1
 			_owner._wdbg("[ORACLE FAIL] INV1p — pillar UNCOVERED  pkey=%s  pos=(%.3f,%.3f)" % [
 				pkey, pp.x, pp.z])
-			print("[ORACLE FAIL] INV1p — pillar UNCOVERED  pkey=%s  pos=(%.3f,%.3f)" % [
-				pkey, pp.x, pp.z])
+			if DebugOutput.enabled:
+				print("[ORACLE FAIL] INV1p — pillar UNCOVERED  pkey=%s  pos=(%.3f,%.3f)" % [
+					pkey, pp.x, pp.z])
 
 	## ── INVARIANT 2: every joint node is near a boundary/pillar (no orphans) ─
 	var inv2_fails: int = 0
@@ -1263,17 +1268,19 @@ func _verify_graph_matches_boundary(
 			inv2_fails += 1
 			_owner._wdbg("[ORACLE FAIL] INV2 — ORPHAN joint node  cache_key=%s  pm_key=%s  pos=(%.3f,%.3f)" % [
 				cache_key, pm_key, node_pos.x, node_pos.z])
-			print("[ORACLE FAIL] INV2 — ORPHAN joint node  cache_key=%s  pm_key=%s  pos=(%.3f,%.3f)" % [
-				cache_key, pm_key, node_pos.x, node_pos.z])
+			if DebugOutput.enabled:
+				print("[ORACLE FAIL] INV2 — ORPHAN joint node  cache_key=%s  pm_key=%s  pos=(%.3f,%.3f)" % [
+					cache_key, pm_key, node_pos.x, node_pos.z])
 
 	## ── Summary ───────────────────────────────────────────────────────────────
 	var pass_fail: String = "PASS" if (inv1_fails + inv1p_fails + inv2_fails == 0) else "FAIL"
 	_owner._wdbg("[ORACLE %s]  INV1_edge=%d fails  INV1_pillar=%d fails  INV2_orphan=%d fails  boundary_edges=%d  pillars=%d  joints=%d" % [
 		pass_fail, inv1_fails, inv1p_fails, inv2_fails,
 		boundary_edges.size(), pillar_positions.size(), joint_xz_list.size()])
-	print("[ORACLE %s]  edge_fails=%d  pillar_fails=%d  orphan_fails=%d  joints=%d  boundaries=%d+%d" % [
-		pass_fail, inv1_fails, inv1p_fails, inv2_fails,
-		joint_xz_list.size(), boundary_edges.size(), pillar_positions.size()])
+	if DebugOutput.enabled:
+		print("[ORACLE %s]  edge_fails=%d  pillar_fails=%d  orphan_fails=%d  joints=%d  boundaries=%d+%d" % [
+			pass_fail, inv1_fails, inv1p_fails, inv2_fails,
+			joint_xz_list.size(), boundary_edges.size(), pillar_positions.size()])
 
 ## Returns true if point `p` lies ON the axis-aligned span a↔b (between the two
 ## endpoints, not at either end).  Used by PassB2 to detect a breaker node that

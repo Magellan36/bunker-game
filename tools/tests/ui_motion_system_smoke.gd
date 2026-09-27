@@ -44,6 +44,39 @@ func _run() -> void:
 	var display_draw: PackedFloat32Array = graph.get("_display_draw_history")
 	_check(display_draw[1] > 200.0 and display_draw[1] < 400.0,
 		"newest graph sample eases without rewriting history")
+	var phase: float = graph.get("_sample_phase")
+	graph.call("set_history", PackedFloat32Array([100.0, 400.0]), PackedFloat32Array([500.0, 700.0]))
+	_check(float(graph.get("_sample_phase")) == phase,
+		"unchanged refresh preserves graph scroll phase")
+	var straight := PackedVector2Array([Vector2.ZERO, Vector2(600, 0)])
+	var dense := PackedVector2Array()
+	for index: int in range(201):
+		dense.append(Vector2(index * 3.0, 0))
+	var lengths: Array[float] = []
+	for points: PackedVector2Array in [straight, dense]:
+		var dashes: PackedVector2Array = graph.call("_dash_segments", points)
+		var covered: float = 0.0
+		for index: int in range(0, dashes.size(), 2):
+			var length: float = dashes[index].distance_to(dashes[index + 1])
+			_check(length <= 6.01, "capacity dash never exceeds six pixels")
+			covered += length
+		lengths.append(covered)
+	_check(is_equal_approx(lengths[0], 360.0) and is_equal_approx(lengths[0], lengths[1]),
+		"capacity dash density is independent of sample count")
+	graph.set("_sample_phase", 0.0)
+	var plot := Rect2(0, 0, 600, 200)
+	var history := PackedFloat32Array()
+	history.resize(61)
+	history.fill(100.0)
+	var short_points: PackedVector2Array = graph.call("_series_points", PackedFloat32Array([100.0, 100.0]), plot, 1000.0)
+	var full_points: PackedVector2Array = graph.call("_series_points", history, plot, 1000.0)
+	_check(is_equal_approx(short_points[1].x - short_points[0].x, 10.0) \
+		and is_equal_approx(full_points[1].x - full_points[0].x, 10.0),
+		"history uses a fixed seconds-per-pixel scale from first samples onward")
+	graph.set("_sample_phase", 0.5)
+	var scrolling_points: PackedVector2Array = graph.call("_series_points", PackedFloat32Array([100.0, 100.0]), plot, 1000.0)
+	_check(is_equal_approx(scrolling_points[0].x, short_points[0].x - 5.0),
+		"history scrolls continuously between samples")
 
 	var generator_panel: Control = GENERATOR_SCENE.instantiate() as Control
 	root.add_child(generator_panel)

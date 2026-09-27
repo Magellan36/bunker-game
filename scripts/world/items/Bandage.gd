@@ -110,6 +110,13 @@ func get_use_prompt() -> String:
 func has_charges_left() -> bool:
 	return _charges_left > 0
 
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+func get_item_save_state() -> Dictionary:
+	return {"charges": _charges_left}
+
+func apply_item_save_state(state: Dictionary) -> void:
+	_charges_left = int(state.get("charges", _charges_left))
+
 # ─── Use — opens the injury-selection submenu instead of applying directly ──
 ## Which body part to treat is itself a player choice, so E doesn't apply
 ## treatment immediately the way FoodCan's E-to-eat does — it hands off to

@@ -40,11 +40,41 @@ func _ready() -> void:
 	add_to_group("inventory_item")
 	add_to_group("basket_storable")
 	add_to_group("cookpot_storable")
-	_mesh = get_node_or_null("MeshInstance3D")
+	## Sep 2026 — the visual is now an instanced GLB; "MeshInstance3D" is a
+	## Node3D wrapper holding it. Resolve _mesh to the real MeshInstance3D
+	## beneath so the empty-tint material_override still applies.
+	_mesh = null
+	var wrapper: Node3D = get_node_or_null("MeshInstance3D") as Node3D
+	if wrapper != null:
+		_mesh = _find_first_mesh(wrapper)
+
+## Recursively finds the first MeshInstance3D under `n` (the instanced GLB
+## wraps meshes under a generated root node).
+func _find_first_mesh(n: Node) -> MeshInstance3D:
+	if n is MeshInstance3D:
+		return n as MeshInstance3D
+	for child: Node in n.get_children():
+		var found: MeshInstance3D = _find_first_mesh(child)
+		if found != null:
+			return found
+	return null
 
 # ─── Empty check (computed, not a latch) ──────────────────────────────────────
 func _is_empty() -> bool:
 	return current_fill_mL <= 0.0
+
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+func get_item_save_state() -> Dictionary:
+	return {"fill": current_fill_mL, "quality": stored_water_quality}
+
+func apply_item_save_state(state: Dictionary) -> void:
+	current_fill_mL     = float(state.get("fill", current_fill_mL))
+	stored_water_quality = float(state.get("quality", stored_water_quality))
+
+## _ready() resolves _mesh but doesn't tint it; apply the empty/full tint now
+## that _mesh exists.
+func sync_saved_state_visuals() -> void:
+	_update_empty_tint()
 
 ## Aug 2026 — Cleaning's generic trash convention (see JobBoard._is_trash_item()'s
 ## own comment). Same reasoning as FoodCan.is_trash() — an empty bottle

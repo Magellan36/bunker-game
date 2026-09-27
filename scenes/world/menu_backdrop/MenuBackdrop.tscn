@@ -1,0 +1,350 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/world/menu_backdrop/MenuBackdrop.gd" id="1_backdrop"]
+[ext_resource type="Script" path="res://scripts/world/menu_backdrop/MenuCameraRig.gd" id="2_rig"]
+[ext_resource type="Script" path="res://scripts/world/menu_backdrop/LightningStorm.gd" id="3_storm"]
+[ext_resource type="Script" path="res://scripts/world/menu_backdrop/WindAmbience.gd" id="4_wind"]
+[ext_resource type="Script" path="res://scripts/world/menu_backdrop/BackdropAssetSlot.gd" id="5_slot"]
+[ext_resource type="Script" path="res://scripts/world/menu_backdrop/FlickerLamp.gd" id="6_lamp"]
+[ext_resource type="PackedScene" path="res://assets/models/industrial_wall_lamp.glb" id="7_lamp_model"]
+
+[sub_resource type="ProceduralSkyMaterial" id="overcast_sky"]
+sky_top_color = Color(0.17, 0.182, 0.178, 1)
+sky_horizon_color = Color(0.5, 0.51, 0.44, 1)
+sky_curve = 0.085
+ground_bottom_color = Color(0.05, 0.054, 0.05, 1)
+ground_horizon_color = Color(0.34, 0.35, 0.3, 1)
+ground_curve = 0.04
+sun_angle_max = 0.0
+sun_curve = 0.0
+use_debanding = true
+
+[sub_resource type="Sky" id="sky"]
+sky_material = SubResource("overcast_sky")
+
+[sub_resource type="Environment" id="surface_environment"]
+background_mode = 2
+sky = SubResource("sky")
+ambient_light_source = 3
+ambient_light_energy = 0.55
+reflected_light_source = 2
+tonemap_mode = 3
+tonemap_white = 6.0
+ssao_enabled = true
+ssao_radius = 2.0
+ssao_intensity = 1.5
+glow_enabled = true
+glow_intensity = 0.55
+glow_bloom = 0.04
+glow_hdr_threshold = 1.2
+fog_enabled = true
+fog_light_color = Color(0.4, 0.415, 0.36, 1)
+fog_density = 0.0055
+fog_aerial_perspective = 0.35
+fog_sky_affect = 0.2
+fog_height = 3.0
+fog_height_density = 0.035
+volumetric_fog_enabled = true
+volumetric_fog_density = 0.016
+volumetric_fog_albedo = Color(0.66, 0.68, 0.6, 1)
+volumetric_fog_emission = Color(0.01, 0.011, 0.009, 1)
+volumetric_fog_anisotropy = 0.45
+volumetric_fog_length = 140.0
+volumetric_fog_ambient_inject = 0.45
+volumetric_fog_sky_affect = 0.25
+adjustment_enabled = true
+adjustment_brightness = 0.97
+adjustment_contrast = 1.1
+adjustment_saturation = 0.72
+
+[sub_resource type="Gradient" id="ash_dot_gradient"]
+offsets = PackedFloat32Array(0, 0.5, 1)
+colors = PackedColorArray(1, 1, 1, 1, 1, 1, 1, 0.4, 1, 1, 1, 0)
+
+[sub_resource type="GradientTexture2D" id="ash_dot"]
+gradient = SubResource("ash_dot_gradient")
+width = 32
+height = 32
+fill = 1
+fill_from = Vector2(0.5, 0.5)
+fill_to = Vector2(1, 0.5)
+
+[sub_resource type="StandardMaterial3D" id="ash_material"]
+transparency = 1
+shading_mode = 0
+vertex_color_use_as_albedo = true
+albedo_color = Color(0.6, 0.6, 0.56, 0.55)
+albedo_texture = SubResource("ash_dot")
+billboard_mode = 3
+billboard_keep_scale = true
+distance_fade_mode = 1
+distance_fade_min_distance = 1.5
+distance_fade_max_distance = 4.5
+
+[sub_resource type="QuadMesh" id="ash_quad"]
+material = SubResource("ash_material")
+size = Vector2(0.05, 0.05)
+
+[sub_resource type="Gradient" id="ash_life_gradient"]
+offsets = PackedFloat32Array(0, 0.15, 0.8, 1)
+colors = PackedColorArray(1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0)
+
+[sub_resource type="GradientTexture1D" id="ash_life"]
+gradient = SubResource("ash_life_gradient")
+
+[sub_resource type="ParticleProcessMaterial" id="ash_process"]
+emission_shape = 3
+emission_box_extents = Vector3(34, 9, 22)
+direction = Vector3(-1, -0.12, 0.2)
+spread = 25.0
+initial_velocity_min = 1.2
+initial_velocity_max = 3.4
+gravity = Vector3(-0.35, -0.2, 0)
+scale_min = 0.5
+scale_max = 1.7
+color_ramp = SubResource("ash_life")
+turbulence_enabled = true
+turbulence_noise_strength = 1.4
+turbulence_noise_scale = 7.0
+turbulence_influence_min = 0.04
+turbulence_influence_max = 0.16
+
+[node name="MenuBackdrop" type="Node3D" node_paths=PackedStringArray("camera_rig", "storm", "wind", "world_environment")]
+script = ExtResource("1_backdrop")
+camera_rig = NodePath("CameraRig")
+storm = NodePath("Storm")
+wind = NodePath("Wind")
+world_environment = NodePath("WorldEnvironment")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("surface_environment")
+
+[node name="OvercastLight" type="DirectionalLight3D" parent="."]
+rotation = Vector3(-0.418879, 2.93215, 0)
+light_color = Color(0.74, 0.77, 0.72, 1)
+light_energy = 0.45
+light_angular_distance = 7.0
+shadow_enabled = true
+directional_shadow_max_distance = 220.0
+sky_mode = 1
+
+[node name="LightningLight" type="DirectionalLight3D" parent="."]
+rotation = Vector3(-0.349066, 3.14159, 0)
+visible = false
+light_color = Color(0.76, 0.83, 1, 1)
+light_energy = 0.0
+light_volumetric_fog_energy = 1.6
+light_angular_distance = 0.6
+shadow_enabled = true
+directional_shadow_max_distance = 320.0
+sky_mode = 1
+
+[node name="CameraRig" type="Node3D" parent="." node_paths=PackedStringArray("camera")]
+position = Vector3(-1.5, 2, 9)
+rotation = Vector3(0.139626, -0.0872665, 0)
+script = ExtResource("2_rig")
+camera = NodePath("Camera3D")
+
+[node name="Camera3D" type="Camera3D" parent="CameraRig"]
+current = true
+fov = 50.0
+near = 0.1
+far = 1500.0
+
+[node name="Storm" type="Node" parent="." node_paths=PackedStringArray("world_environment", "flash_light")]
+script = ExtResource("3_storm")
+world_environment = NodePath("../WorldEnvironment")
+flash_light = NodePath("../LightningLight")
+
+[node name="Wind" type="Node" parent="." node_paths=PackedStringArray("particles")]
+script = ExtResource("4_wind")
+particles = [NodePath("../AshFall")]
+
+[node name="AshFall" type="GPUParticles3D" parent="."]
+position = Vector3(0, 5, -20)
+amount = 1400
+lifetime = 12.0
+preprocess = 12.0
+visibility_aabb = AABB(-60, -20, -60, 120, 40, 120)
+process_material = SubResource("ash_process")
+draw_pass_1 = SubResource("ash_quad")
+
+[node name="Slots" type="Node3D" parent="."]
+
+[node name="RightFlank" type="Node3D" parent="Slots"]
+
+[node name="LeftFlank" type="Node3D" parent="Slots"]
+
+[node name="Distance" type="Node3D" parent="Slots"]
+
+[node name="Foreground" type="Node3D" parent="Slots"]
+
+[node name="Ground" type="Node3D" parent="Slots"]
+position = Vector3(0, -0.2, -150)
+script = ExtResource("5_slot")
+greybox_size = Vector3(900, 0.2, 900)
+greybox_broken = false
+brief = "Street/ground: cracked asphalt, rubble drifts, ash. Large tiling terrain or road strip with a 4k trim/tiling set. Runs from under the camera to the far skyline."
+
+[node name="HeroFacadeRight" type="Node3D" parent="Slots/RightFlank"]
+position = Vector3(19, 0, -12)
+rotation = Vector3(0, -0.139626, 0)
+script = ExtResource("5_slot")
+greybox_size = Vector3(10, 17, 12)
+greybox_broken = true
+brief = "Nearest ruin, cropped by the right frame edge. Highest detail: exposed floor slabs, rebar, broken windows with dark interiors. ~40-80k tris, 2-3 materials."
+
+[node name="RuinRight2" type="Node3D" parent="Slots/RightFlank"]
+position = Vector3(21, 0, -40)
+rotation = Vector3(0, 0.0698132, 0)
+script = ExtResource("5_slot")
+greybox_size = Vector3(12, 12, 14)
+greybox_broken = true
+brief = "Mid-ground block, partially collapsed top floors."
+
+[node name="RuinRight3" type="Node3D" parent="Slots/RightFlank"]
+position = Vector3(24, 0, -72)
+rotation = Vector3(0, -0.0523599, 0)
+script = ExtResource("5_slot")
+greybox_size = Vector3(14, 9, 12)
+greybox_broken = true
+brief = "Low collapsed structure, reads mostly as silhouette in fog."
+
+[node name="SkylineTower" type="Node3D" parent="Slots/RightFlank"]
+position = Vector3(48, 0, -125)
+rotation = Vector3(0, 0.20944, 0)
+script = ExtResource("5_slot")
+greybox_size = Vector3(18, 64, 18)
+greybox_broken = true
+brief = "FOCAL POINT on the right-third line: a snapped high-rise with a jagged top against the storm. Silhouette matters more than surface detail."
+
+[node name="LeaningPole" type="Node3D" parent="Slots/RightFlank"]
+position = Vector3(9.5, 0, -24)
+rotation = Vector3(0, 0, -0.20944)
+script = ExtResource("5_slot")
+greybox_size = Vector3(0.35, 10, 0.35)
+greybox_broken = false
+brief = "Utility pole leaning ~12 deg with sagging cable: a strong diagonal line."
+
+[node name="RuinLeft1" type="Node3D" parent="Slots/LeftFlank"]
+position = Vector3(-18, 0, -15)
+rotation = Vector3(0, 0.10472, 0)
+script = ExtResource("5_slot")
+greybox_size = Vector3(10, 4.5, 12)
+greybox_broken = true
+brief = "Behind the menu text: keep it low, dark and low-contrast."
+
+[node name="RuinLeft2" type="Node3D" parent="Slots/LeftFlank"]
+position = Vector3(-22, 0, -42)
+rotation = Vector3(0, -0.0872665, 0)
+script = ExtResource("5_slot")
+greybox_size = Vector3(12, 8, 14)
+greybox_broken = true
+brief = "Behind the menu text: low contrast silhouette."
+
+[node name="RuinLeft3" type="Node3D" parent="Slots/LeftFlank"]
+position = Vector3(-22, 0, -76)
+rotation = Vector3(0, 0.0523599, 0)
+script = ExtResource("5_slot")
+greybox_size = Vector3(14, 13, 14)
+greybox_broken = true
+brief = "Recedes into fog; silhouette only."
+
+[node name="RuinCentreFar" type="Node3D" parent="Slots/Distance"]
+position = Vector3(-8, 0, -160)
+script = ExtResource("5_slot")
+greybox_size = Vector3(26, 34, 18)
+greybox_broken = true
+brief = "Terminates the street's vanishing point; heavily fogged."
+
+[node name="Skyline1" type="Node3D" parent="Slots/Distance"]
+position = Vector3(-230, 0, -300)
+script = ExtResource("5_slot")
+greybox_size = Vector3(46, 40, 30)
+greybox_broken = true
+brief = "Distant skyline silhouette."
+
+[node name="Skyline2" type="Node3D" parent="Slots/Distance"]
+position = Vector3(-140, 0, -340)
+script = ExtResource("5_slot")
+greybox_size = Vector3(40, 72, 30)
+greybox_broken = true
+brief = "Distant skyline silhouette."
+
+[node name="Skyline3" type="Node3D" parent="Slots/Distance"]
+position = Vector3(-60, 0, -310)
+script = ExtResource("5_slot")
+greybox_size = Vector3(52, 28, 30)
+greybox_broken = true
+brief = "Distant skyline silhouette."
+
+[node name="Skyline4" type="Node3D" parent="Slots/Distance"]
+position = Vector3(30, 0, -360)
+script = ExtResource("5_slot")
+greybox_size = Vector3(38, 56, 30)
+greybox_broken = true
+brief = "Distant skyline silhouette."
+
+[node name="Skyline5" type="Node3D" parent="Slots/Distance"]
+position = Vector3(110, 0, -330)
+script = ExtResource("5_slot")
+greybox_size = Vector3(34, 88, 30)
+greybox_broken = true
+brief = "Distant skyline silhouette."
+
+[node name="Skyline6" type="Node3D" parent="Slots/Distance"]
+position = Vector3(180, 0, -300)
+script = ExtResource("5_slot")
+greybox_size = Vector3(50, 36, 30)
+greybox_broken = true
+brief = "Distant skyline silhouette."
+
+[node name="Skyline7" type="Node3D" parent="Slots/Distance"]
+position = Vector3(260, 0, -350)
+script = ExtResource("5_slot")
+greybox_size = Vector3(44, 62, 30)
+greybox_broken = true
+brief = "Distant skyline silhouette."
+
+[node name="WreckedCar" type="Node3D" parent="Slots/Foreground"]
+position = Vector3(-2.5, 0, -17)
+rotation = Vector3(0, 0.383972, 0)
+script = ExtResource("5_slot")
+greybox_size = Vector3(4.4, 1.4, 1.9)
+greybox_broken = false
+brief = "Burnt-out car, glass gone, sitting on its rims. Ash on the roof."
+
+[node name="RubbleLeft" type="Node3D" parent="Slots/Foreground"]
+position = Vector3(-8.5, 0, -6)
+script = ExtResource("5_slot")
+greybox_size = Vector3(5, 1.1, 4)
+greybox_broken = false
+brief = "Concrete rubble pile with rebar; frames the lower-left corner."
+
+[node name="RubbleRight" type="Node3D" parent="Slots/Foreground"]
+position = Vector3(8, 0, -3.5)
+script = ExtResource("5_slot")
+greybox_size = Vector3(3.6, 0.8, 3)
+greybox_broken = false
+brief = "Small rubble and debris near the bunker entrance."
+
+[node name="BunkerEntrance" type="Node3D" parent="Slots/Foreground"]
+position = Vector3(4.2, 0, -5.5)
+rotation = Vector3(0, -0.244346, 0)
+script = ExtResource("5_slot")
+greybox_size = Vector3(2.8, 1.5, 3.2)
+greybox_broken = false
+brief = "THE STORY BEAT: the bunker's surface entrance (concrete pillbox, steel hatch). Its warm lamp is the only warm light in the scene - it is 'home'."
+
+[node name="EntranceLamp" parent="Slots/Foreground/BunkerEntrance" instance=ExtResource("7_lamp_model")]
+position = Vector3(0, 1.25, 1.62)
+
+[node name="EntranceLight" type="OmniLight3D" parent="Slots/Foreground/BunkerEntrance"]
+position = Vector3(0, 1.1, 2)
+light_color = Color(1, 0.63, 0.32, 1)
+light_energy = 2.6
+light_volumetric_fog_energy = 2.2
+shadow_enabled = true
+omni_range = 9.0
+omni_attenuation = 1.4
+script = ExtResource("6_lamp")

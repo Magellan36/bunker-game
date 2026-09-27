@@ -3,7 +3,6 @@ extends CanvasLayer
 ## objects keep ownership of slots and transfers; this file only presents
 ## their existing contract, so physical-slot mappings remain authoritative.
 
-const SMOOTH_BAR: GDScript = preload("res://scripts/ui/common/BunkerSmoothProgressBar.gd")
 
 const DEFAULTS := {
 	"title": "Storage", "slot_count": 6, "grid_cols": 2, "grid_rows": 3,
@@ -22,8 +21,6 @@ var _config := {}
 var _root: Control
 var _panel: PanelContainer
 var _title: Label
-var _capacity: Label
-var _capacity_bar: ProgressBar
 var _scroll_viewport: Control
 var _scroll: ScrollContainer
 var _grid: GridContainer
@@ -32,8 +29,8 @@ var _selection_detail: Label
 var _selection_panel: PanelContainer
 var _selection_eyebrow: Label
 var _state_row: HBoxContainer
-var _state_label: Label
-var _state_bar: ProgressBar
+var _state_meter: ItemStateMeter
+var _footer_hint: Label
 var _carry: Button
 var _inventory: Button
 var _close: Button
@@ -43,6 +40,7 @@ var _signatures: Array[String] = []
 var _shown_ids: Array[int] = []
 var _selected_visual := -1
 var _proximity: Node
+var _controller_nav: ControllerUINavigation
 var _refresh_elapsed := 0.0
 
 func _ready() -> void:
@@ -50,9 +48,9 @@ func _ready() -> void:
 	_build()
 	visible = false
 	set_process(false)
-	var nav := ControllerUINavigation.new()
-	nav.ui_root = self
-	add_child(nav)
+	_controller_nav = ControllerUINavigation.new()
+	_controller_nav.ui_root = self
+	add_child(_controller_nav)
 	_proximity = (load("res://scripts/ui/common/UIProximityClose.gd") as GDScript).new()
 	_proximity.ui = self
 	add_child(_proximity)
@@ -97,33 +95,6 @@ func _build() -> void:
 	_close.pressed.connect(close)
 	header.add_child(_close)
 	BunkerUIComponents.divider(body)
-	var capacity_panel := PanelContainer.new()
-	capacity_panel.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(
-		Color("17232a"), BunkerPanelStyle.BLUE.darkened(0.32), 7, 1, 8))
-	body.add_child(capacity_panel)
-	var capacity_body := VBoxContainer.new()
-	capacity_body.add_theme_constant_override("separation", 5)
-	capacity_panel.add_child(capacity_body)
-	var cap_row := HBoxContainer.new()
-	capacity_body.add_child(cap_row)
-	var cap_label := Label.new()
-	cap_label.text = "STORAGE CAPACITY"
-	cap_label.add_theme_font_size_override("font_size", 11)
-	cap_label.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
-	cap_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	cap_row.add_child(cap_label)
-	_capacity = Label.new()
-	_capacity.add_theme_font_size_override("font_size", 14)
-	_capacity.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
-	cap_row.add_child(_capacity)
-	_capacity_bar = SMOOTH_BAR.new() as ProgressBar
-	_capacity_bar.show_percentage = false
-	_capacity_bar.custom_minimum_size.y = 7
-	_capacity_bar.add_theme_stylebox_override("background", BunkerPanelStyle.box(
-		BunkerPanelStyle.BG, Color.TRANSPARENT, 3, 0))
-	_capacity_bar.add_theme_stylebox_override("fill", BunkerPanelStyle.box(
-		BunkerPanelStyle.BLUE, Color.TRANSPARENT, 3, 0))
-	capacity_body.add_child(_capacity_bar)
 	var contents_heading: Dictionary = BunkerUIComponents.section_header(body, "Contents")
 	(contents_heading["meta"] as Label).text = "SELECT AN ITEM"
 	_scroll_viewport = Control.new()
@@ -139,18 +110,11 @@ func _build() -> void:
 	_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	_scroll.follow_focus = true
 	_scroll_viewport.add_child(_scroll)
-	var scroll_inset := MarginContainer.new()
-	scroll_inset.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll_inset.add_theme_constant_override("margin_left", 2)
-	scroll_inset.add_theme_constant_override("margin_top", 2)
-	scroll_inset.add_theme_constant_override("margin_right", 10)
-	scroll_inset.add_theme_constant_override("margin_bottom", 2)
-	_scroll.add_child(scroll_inset)
 	_grid = GridContainer.new()
 	_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_grid.add_theme_constant_override("h_separation", 8)
 	_grid.add_theme_constant_override("v_separation", 8)
-	scroll_inset.add_child(_grid)
+	BunkerUIComponents.scroll_content(_scroll, _grid)
 	BunkerUIComponents.divider(body)
 	_selection_panel = PanelContainer.new()
 	_selection_panel.add_theme_stylebox_override("panel", BunkerUIComponents.status_style(false))
@@ -173,62 +137,44 @@ func _build() -> void:
 	_state_row = HBoxContainer.new()
 	_state_row.add_theme_constant_override("separation", 9)
 	selected_body.add_child(_state_row)
-	_state_label = Label.new()
-	_state_label.custom_minimum_size.x = 72
-	BunkerPanelStyle.muted(_state_label, 11)
-	_state_row.add_child(_state_label)
-	_state_bar = SMOOTH_BAR.new() as ProgressBar
-	_state_bar.show_percentage = false
-	_state_bar.max_value = 100.0
-	_state_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_state_bar.custom_minimum_size.y = 7
-	_state_bar.add_theme_stylebox_override("background", BunkerPanelStyle.box(
-		BunkerPanelStyle.BG, Color.TRANSPARENT, 3, 0))
-	_state_bar.add_theme_stylebox_override("fill", BunkerPanelStyle.box(
-		BunkerPanelStyle.BLUE, Color.TRANSPARENT, 3, 0))
-	_state_row.add_child(_state_bar)
+	_state_meter = ItemStateMeter.new()
+	_state_row.add_child(_state_meter)
 	_state_row.hide()
 	var actions := HBoxContainer.new()
-	actions.add_theme_constant_override("separation", 10)
+	actions.add_theme_constant_override("separation", 6)
 	body.add_child(actions)
 	_carry = Button.new()
 	_carry.text = "Carry item"
-	_carry.custom_minimum_size.y = 46
+	_carry.custom_minimum_size.y = 36
 	_carry.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	BunkerPanelStyle.icon_button(_carry, "move")
 	_carry.pressed.connect(_take_for_carry)
 	actions.add_child(_carry)
 	_inventory = Button.new()
 	_inventory.text = "Add to inventory"
-	_inventory.custom_minimum_size.y = 46
+	_inventory.custom_minimum_size.y = 36
 	_inventory.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	BunkerPanelStyle.icon_button(_inventory, "plus", true)
 	_inventory.pressed.connect(_take_for_inventory)
 	actions.add_child(_inventory)
-	var hints := HBoxContainer.new()
-	hints.alignment = BoxContainer.ALIGNMENT_CENTER
-	hints.add_theme_constant_override("separation", 12)
-	BunkerUIComponents.key_hint(hints, "A", "Carry")
-	BunkerUIComponents.key_hint(hints, "Y", "Inventory")
-	BunkerUIComponents.key_hint(hints, "B / ESC", "Close")
-	body.add_child(hints)
+	_footer_hint = Label.new()
+	_footer_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	BunkerPanelStyle.muted(_footer_hint, 12)
+	body.add_child(_footer_hint)
+
 	get_viewport().size_changed.connect(_layout)
 
 func _layout() -> void:
 	if _panel == null:
 		return
 	var viewport := get_viewport().get_visible_rect().size
-	var width := minf(440.0, viewport.x - 48.0)
 	var rows := ceili(float(int(_config.get("slot_count", 6))) \
 		/ maxf(float(int(_config.get("grid_cols", 2))), 1.0))
 	var desired := minf(760.0, 340.0 + float(rows) * 152.0)
-	var height := minf(desired, viewport.y - 48.0)
 	## In-world inspector rail: preserve the bunker view and keep the panel at
 	## comfortable eye level rather than pinning it to a screen corner.
-	var panel_size := Vector2(width, height)
-	_panel.custom_maximum_size = panel_size
-	_panel.position = Vector2(viewport.x - width - 24.0, (viewport.y - height) * 0.5)
-	_panel.size = panel_size
+	UIPanelLayout.fit(_panel, viewport, Vector2(440.0, desired),
+		Vector2(24.0, 24.0), 1.0, 0.5)
 
 func _ensure_pool(needed: int) -> void:
 	while _cards.size() < needed:
@@ -252,6 +198,7 @@ func open(target: Node3D) -> void:
 			push_warning("StorageUI: target is missing %s" % required)
 			return
 	_target = target
+	UIPanelLifecycle.prepare_open(self)
 	_config = DEFAULTS.duplicate(true)
 	_config.merge(target.get_ui_config(), true)
 	var slots := maxi(1, int(_config["slot_count"]))
@@ -278,7 +225,8 @@ func open(target: Node3D) -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 func close() -> void:
-	visible = false
+	if not is_open:
+		return
 	is_open = false
 	set_process(false)
 	if _proximity != null:
@@ -287,8 +235,11 @@ func close() -> void:
 	_selected_visual = -1
 	if interaction_system != null:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	UIPanelLifecycle.dismiss(self, _panel)
 
 func _process(delta: float) -> void:
+	_footer_hint.text = "[A] Select · D-pad / R-stick: navigate · [B] Close" if InputMode.is_controller() else "Enter / Space: select · Esc / E: close"
+
 	_refresh_elapsed += delta
 	if _refresh_elapsed >= 0.1:
 		_refresh_elapsed = 0.0
@@ -309,7 +260,6 @@ func _refresh(force: bool) -> void:
 		close()
 		return
 	var slots := int(_config["slot_count"])
-	var occupied := 0
 	for i in _cards.size():
 		var card: Button = _cards[i]
 		card.visible = i < slots
@@ -318,8 +268,6 @@ func _refresh(force: bool) -> void:
 		var shown := _slot(i)
 		var item: Node = shown[0]
 		var count := int(shown[1])
-		if item != null and is_instance_valid(item):
-			occupied += 1
 		var sig := ItemPresentation.signature(item, count)
 		if force or sig != _signatures[i]:
 			var new_id := item.get_instance_id() if item != null and is_instance_valid(item) else 0
@@ -337,9 +285,7 @@ func _refresh(force: bool) -> void:
 				card.focus_mode = Control.FOCUS_NONE
 		if i == _selected_visual:
 			card.button_pressed = true
-	_capacity.text = "%d / %d" % [occupied, slots]
-	_capacity_bar.max_value = slots
-	SMOOTH_BAR.apply(_capacity_bar, occupied)
+	_configure_focus_neighbors()
 	_refresh_selection()
 	var focus: Control = get_viewport().gui_get_focus_owner()
 	if focus != null and focus in _cards and focus.focus_mode == Control.FOCUS_NONE:
@@ -386,39 +332,9 @@ func _refresh_selection() -> void:
 		or (inventory.has_method("is_full") and inventory.is_full())
 
 func _refresh_item_state(item: Node) -> void:
-	_state_row.hide()
-	if item == null or not is_instance_valid(item):
-		return
-	if item.has_method("get_bottle_badge_info"):
-		var info: Dictionary = item.call("get_bottle_badge_info")
-		var quality := clampf(float(info.get("quality", 0.0)), 0.0, 100.0)
-		_state_label.text = "QUALITY"
-		SMOOTH_BAR.apply(_state_bar, quality)
-		var color := BunkerPanelStyle.GREEN if quality >= 70.0 \
-			else (BunkerPanelStyle.BRASS.lightened(0.25) \
-			if quality >= 35.0 else BunkerPanelStyle.RED)
-		_state_bar.add_theme_stylebox_override("fill", BunkerPanelStyle.box(
-			color, Color.TRANSPARENT, 3, 0))
-		_state_row.show()
-	elif "_charges" in item and "_max_charges" in item and int(item.get("_max_charges")) > 0:
-		_state_label.text = "REMAINING"
-		SMOOTH_BAR.apply(_state_bar, 100.0 * float(item.get("_charges")) \
-			/ float(item.get("_max_charges")))
-		_state_bar.add_theme_stylebox_override("fill", BunkerPanelStyle.box(
-			BunkerPanelStyle.BLUE, Color.TRANSPARENT, 3, 0))
-		_state_row.show()
-	elif "_fuel_remaining" in item:
-		_state_label.text = "FUEL"
-		SMOOTH_BAR.apply(_state_bar, clampf(float(item.get("_fuel_remaining")), 0.0, 100.0))
-		_state_bar.add_theme_stylebox_override("fill", BunkerPanelStyle.box(
-			BunkerPanelStyle.BRASS.lightened(0.28), Color.TRANSPARENT, 3, 0))
-		_state_row.show()
-	elif "_battery" in item:
-		_state_label.text = "BATTERY"
-		SMOOTH_BAR.apply(_state_bar, clampf(float(item.get("_battery")), 0.0, 100.0))
-		_state_bar.add_theme_stylebox_override("fill", BunkerPanelStyle.box(
-			BunkerPanelStyle.BLUE, Color.TRANSPARENT, 3, 0))
-		_state_row.show()
+	_state_meter.state = ItemPresentation.hud_state(item)
+	_state_row.visible = String(_state_meter.state.get("kind", "none")) != "none"
+	_state_meter.queue_redraw()
 
 func _take_for_carry() -> void:
 	if not _selection_valid() or _carry.disabled:
@@ -457,6 +373,72 @@ func _focus_initial_item() -> void:
 			_cards[i].grab_focus()
 			return
 	_close.grab_focus()
+
+
+func _configure_focus_neighbors() -> void:
+	## The slot grid can contain non-focusable empty cells. Explicit geometry
+	## keeps horizontal D-pad motion in its row instead of letting a nearby
+	## lower card win the generic spatial search.
+	var count := mini(int(_config.get("slot_count", 0)), _cards.size())
+	var columns := maxi(1, int(_config.get("grid_cols", 2)))
+	var active: Array[int] = []
+	for index in count:
+		if _cards[index].visible and _cards[index].focus_mode != Control.FOCUS_NONE:
+			active.append(index)
+	for index in active:
+		var card: Button = _cards[index]
+		var row := floori(float(index) / float(columns))
+		var column := index % columns
+		var left := _find_focus_slot(active, row, column, columns, Vector2i.LEFT)
+		var right := _find_focus_slot(active, row, column, columns, Vector2i.RIGHT)
+		var up := _find_focus_slot(active, row, column, columns, Vector2i.UP)
+		var down := _find_focus_slot(active, row, column, columns, Vector2i.DOWN)
+		card.focus_neighbor_left = card.get_path_to(_cards[left]) if left >= 0 else NodePath(".")
+		card.focus_neighbor_right = card.get_path_to(_cards[right]) if right >= 0 else (card.get_path_to(_scroll.get_v_scroll_bar()) if _scroll.get_v_scroll_bar().visible else NodePath("."))
+		card.focus_neighbor_top = card.get_path_to(_cards[up]) if up >= 0 else card.get_path_to(_close)
+		var lower_action: Button = _carry if column < ceili(float(columns) * 0.5) else _inventory
+		card.focus_neighbor_bottom = card.get_path_to(_cards[down]) if down >= 0 \
+			else card.get_path_to(lower_action)
+	var first := active[0] if not active.is_empty() else -1
+	var last_left := _last_focus_slot(active, columns, 0)
+	var last_right := _last_focus_slot(active, columns, mini(1, columns - 1))
+	_close.focus_neighbor_bottom = _close.get_path_to(_cards[first]) if first >= 0 else _close.get_path_to(_carry)
+	_carry.focus_neighbor_left = NodePath(".")
+	_carry.focus_neighbor_right = _carry.get_path_to(_inventory)
+	_carry.focus_neighbor_top = _carry.get_path_to(_cards[last_left]) if last_left >= 0 else _carry.get_path_to(_close)
+	_carry.focus_neighbor_bottom = NodePath(".")
+	_inventory.focus_neighbor_left = _inventory.get_path_to(_carry)
+	_inventory.focus_neighbor_right = NodePath(".")
+	_inventory.focus_neighbor_top = _inventory.get_path_to(_cards[last_right]) if last_right >= 0 else _inventory.get_path_to(_close)
+	_inventory.focus_neighbor_bottom = NodePath(".")
+
+
+func _find_focus_slot(active: Array[int], row: int, column: int, columns: int,
+		direction: Vector2i) -> int:
+	var best := -1
+	var best_distance := 1_000_000
+	for candidate in active:
+		var candidate_row := floori(float(candidate) / float(columns))
+		var candidate_column := candidate % columns
+		var matches := (direction.x < 0 and candidate_row == row and candidate_column < column) \
+			or (direction.x > 0 and candidate_row == row and candidate_column > column) \
+			or (direction.y < 0 and candidate_column == column and candidate_row < row) \
+			or (direction.y > 0 and candidate_column == column and candidate_row > row)
+		if not matches:
+			continue
+		var distance := absi(candidate_column - column) + absi(candidate_row - row)
+		if distance < best_distance:
+			best = candidate
+			best_distance = distance
+	return best
+
+
+func _last_focus_slot(active: Array[int], columns: int, preferred_column: int) -> int:
+	var best := -1
+	for candidate in active:
+		if candidate % columns == preferred_column and candidate > best:
+			best = candidate
+	return best if best >= 0 else (active[-1] if not active.is_empty() else -1)
 
 func _input(event: InputEvent) -> void:
 	if not is_open or not (event is InputEventJoypadButton) or not event.pressed:

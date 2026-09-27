@@ -12,19 +12,62 @@ extends Node
 ## WallLight.gd, GrowLight.gd, CharacterPreviewViewport.gd, ...).
 
 signal settings_changed
+signal graphics_change_rejected(reason: String)
 
 enum Preset { LOW, MEDIUM, HIGH, ULTRA, CUSTOM }
 
 const CFG_PATH: String = "user://graphics_settings.cfg"
 
-## Aug 2026 — Rendering Driver switch (Vulkan/D3D12). See
-## docs/systems/graphics/README.md "Rendering driver switch" for the full
-## design — short version: the driver is locked in at engine startup and
-## CANNOT change mid-session (Godot hard limitation, not something this
-## code works around), so this is a restart-based setting: save the
-## choice, relaunch to apply it. Windows-only (this project's stated
-## target platform) — matches project.godot's `driver.windows` key.
+# Headroom below which raising memory-heavy settings is refused.
+# Sep 2026 — was 2 GiB, which blocked almost every raise on a 12 GB system
+# once the game + OS pushed available memory under it, even with memory to
+# spare. Lowered to 512 MiB so the guard only trips when memory is genuinely
+# about to run out (prevents OOM), not as a routine throttle. This is a
+# pressure guard, not a promise that High fits every GPU or scene.
+const GRAPHICS_MEMORY_HEADROOM: int = 512 * 1024 * 1024
+## Settings whose raise can meaningfully inflate memory/VRAM and crash a low-
+## memory machine. Sep 2026 — trimmed to the true allocators (SDFGI voxel
+## GI, SSIL buffers, volumetric fog volume). Removed flashlight_volumetrics
+## (light-scoped, tiny), shadow_casting_enabled (now only gates dynamic
+## per-mesh shadows — small), dof_enabled (screen-space tilt-shift) and
+## use_taa (modest temporal buffer) so a raise of those isn't refused.
+const MEMORY_HEAVY_EFFECTS: Array[String] = [
+	"sdfgi_enabled", "ssil_enabled", "volumetric_fog_enabled",
+]
+
+func _available_graphics_memory() -> int:
+	# On Linux use reclaimable RAM, not MemFree (which omits caches) or swap.
+	if OS.get_name() == "Linux" and FileAccess.file_exists("/proc/meminfo"):
+		for line: String in FileAccess.get_file_as_string("/proc/meminfo").split("\n"):
+			if line.begins_with("MemAvailable:"):
+				var parts: PackedStringArray = line.split(" ", false)
+				if parts.size() >= 2 and parts[1].is_valid_int():
+					return int(parts[1]) * 1024
+	return int(OS.get_memory_info().get("available", -1))
+
+func _reject_memory_increase(changes: Dictionary) -> bool:
+	var increases: bool = false
+	for field: String in MEMORY_HEAVY_EFFECTS:
+		if bool(changes.get(field, false)) and not bool(get(field)):
+			increases = true
+	for field: String in ["msaa", "shadow_quality", "render_scale"]:
+		if changes.has(field) and float(changes[field]) > float(get(field)):
+			increases = true
+	if not increases:
+		return false  # Always allow lowering settings, even under pressure.
+	var available: int = _available_graphics_memory()
+	if available < 0 or available >= GRAPHICS_MEMORY_HEADROOM:
+		return false  # Unknown memory must not permanently lock out settings.
+	var reason: String = "Graphics unchanged: only %.1f GiB of system memory is available. Close other apps before raising graphics quality." % (float(available) / 1073741824.0)
+	graphics_change_rejected.emit(reason)
+	return true
+
+
+## Rendering drivers are selected at startup. Direct3D is Windows-only.
 const RENDERING_DRIVERS: Array[String] = ["vulkan", "d3d12"]
+
+func is_rendering_driver_supported(driver: String) -> bool:
+	return driver == "vulkan" or (driver == "d3d12" and OS.get_name() == "Windows")
 
 ## Plain `int` rather than `Preset` — see apply_preset()'s header comment for
 ## why (avoids any int/enum ambiguity at the call boundary entirely).
@@ -39,15 +82,19 @@ var ssao_enabled:          bool = true
 var ssil_enabled:          bool = false
 var volumetric_fog_enabled: bool = false
 var flashlight_volumetrics: bool = false
-## Aug 2026 — generalized from flashlight-only to all dynamic
-## shadow-casting lights (Flashlight, WallLight, GrowLight — see
-## docs/systems/graphics/README.md "Unified dynamic shadow casting").
-## Preset-driven now (LOW/MEDIUM = false, HIGH/ULTRA = true, same as SDFGI/
-## SSAO/etc.) rather than opt-in-only — still individually toggleable via
-## the Settings panel's "Shadow Casting" checkbox, which now flips
+## Sep 2026 — now means "DYNAMIC shadow casting" specifically, within the
+## "classic" two-layer split: lights ALWAYS cast (static walls/pillars always
+## occlude them — the hard wall/corner shadow cutoff, present at every
+## quality, independent of this setting). This field gates only the dynamic
+## per-character/per-object shadows: when OFF (LOW/MEDIUM) those meshes'
+## cast_shadow is forced OFF by _apply_dynamic_shadow_casting(); when ON
+## (HIGH/ULTRA) their authored cast_shadow is restored. Preset-driven
+## (LOW/MEDIUM = false, HIGH/ULTRA = true) — still individually toggleable
+## via the Settings panel's "Dynamic shadows" checkbox, which flips
 ## current_preset to CUSTOM like every other preset-tier toggle (see
 ## set_setting_live() below — camera_fov is now the only field still
-## excluded from that).
+## excluded from that). See docs/systems/graphics/README.md "Structural
+## shadow cutoff (Sep 2026)".
 var shadow_casting_enabled: bool = false
 
 var glow_enabled:          bool = true
@@ -91,31 +138,18 @@ var use_taa: bool = false
 
 ## Phase 4 — Anisotropic filtering, shadow quality, render scale
 var anisotropic_filtering: int = 4
-var shadow_quality: int = 2048
+var shadow_quality: int = 4096   ## matches Preset.MEDIUM (the first-launch preset)
 var render_scale: float = 1.0
 
-## Shadow LOD (Aug 2026) — distance-gated shadow casting for player-placed
-## fixtures (WallLight/GrowLight). WallLight/GrowLight are Build-Mode
-## devices with no cap on how many can exist in a base — at HIGH/ULTRA
-## (shadow_casting_enabled = true) a large base can have far more
-## simultaneous shadow-casting lights than the scene ever had before Build
-## Mode existed. Godot has no per-light "render this shadow cheaper at
-## distance" knob, so the practical version of "far shadows cost less" is a
-## binary gate: a light beyond SHADOW_LOD_FAR_RADIUS of the player has its
-## shadow_enabled forced off (skips the render pass entirely — the cheapest
-## possible state); once shadow_enabled is back on within
-## SHADOW_LOD_NEAR_RADIUS, Godot's own shadow-atlas allocator naturally
-## favors it over anything else still in range. NEAR < FAR on purpose
-## (hysteresis) so a light hovering right at the boundary can't flip on/off
-## every scan as the player's distance jitters by a few cm. Scanned on a
-## throttle (SHADOW_LOD_SCAN_INTERVAL), same reasoning as JobBoard's 2s
-## rescan — this only needs to react to the player walking around, not to
-## run every frame. Entirely skipped when shadow_casting_enabled is false
-## (LOW/MEDIUM or Custom-off) — nothing to gate, zero cost.
-const SHADOW_LOD_NEAR_RADIUS: float = 14.0
-const SHADOW_LOD_FAR_RADIUS:  float = 18.0
-const SHADOW_LOD_SCAN_INTERVAL: float = 0.5
-var _shadow_lod_scan_timer: float = 0.0
+## Sep 2026 — the distance-based shadow LOD (Aug 2026) was removed. Lights now
+## ALWAYS cast shadows (the "classic" two-layer split: static geometry like
+## walls/pillars always occludes the light, so the hard shadow cutoff at
+## walls/corners is present at every quality preset — independent of
+## shadow_casting_enabled). The old LOD force-disabled a far light's
+## shadow_enabled, which would have silently removed the wall cutoff in the
+## isometric view that sees the whole bunker. The cost of always-on casting is
+## accepted by design (see _apply_dynamic_shadow_casting for the quality-
+## scaled dynamic layer).
 
 ## Dynamic Resolution (Aug 2026) — the LIVE render scale auto-adjusts
 ## between DR_SCALE_FLOOR and the user's `render_scale` (the quality
@@ -131,6 +165,62 @@ var _shadow_lod_scan_timer: float = 0.0
 ## lowered scale forever, making the whole screen hazy for zero gain. It's
 ## an opt-in safeguard for GPU-bound setups only.
 var dynamic_resolution_enabled: bool = false
+
+## ── Dynamic shadow layer (Sep 2026, "classic" two-layer split) ──────────────
+## Lights ALWAYS cast (static walls/pillars always occlude them — the hard
+## wall/corner cutoff at every quality). `shadow_casting_enabled` now means
+## "cast DYNAMIC (character/object) shadows" specifically: when OFF (LOW/
+## MEDIUM), characters and placed objects are forced OFF so the only shadows
+## in the scene are the structural wall/geometry ones; when ON (HIGH/ULTRA)
+## they cast again. Layer 1 (structural) is therefore walls/corners ONLY —
+## never the player or objects; those are Layer 2's domain. Resolution scales
+## via `shadow_quality` (positional shadow atlas) at every tier. Gating is
+## owned where the data lives: characters in AdventurerModelController
+## (deterministic, can never render the shadow silhouette), placed objects in
+## GraphicsSettings.register_dynamic_shadow_root(). Registration is event-
+## driven at spawn time (BuildModeController and PickupableItem), so changing
+## quality only revisits known caster roots. This replaces the old periodic
+## whole-world walk, which produced a visible hitch in expanded bunkers.
+## The instance-id dictionary makes registration O(1); WeakRef values keep the
+## registry from owning/freezing deconstructed objects.
+const DYNAMIC_SHADOW_META: StringName = &"_dynamic_shadow_authored_cast"
+var _dynamic_shadow_roots: Dictionary = {}   ## instance_id -> WeakRef
+
+## ── Positional shadow atlas layout (Sep 2026 lighting review) ───────────────
+## Godot sizes each light's atlas slot from its on-screen coverage and moves a
+## light to a different-sized slot when that changes — every move is a full
+## shadow re-render (six faces for a cube omni) and a visible resolution pop
+## while walking. Three equal quadrants remove that churn for every light that
+## fits in them; the fourth, finer quadrant only catches overflow in very
+## large bases so no light ever loses its structural shadow. Slot size is
+## atlas/8 (e.g. 4096 -> 512 px); 48 + 64 = 112 slots (an omni uses two).
+const SHADOW_ATLAS_QUADRANTS: Array[int] = [
+	Viewport.SHADOW_ATLAS_QUADRANT_SUBDIV_16, Viewport.SHADOW_ATLAS_QUADRANT_SUBDIV_16,
+	Viewport.SHADOW_ATLAS_QUADRANT_SUBDIV_16, Viewport.SHADOW_ATLAS_QUADRANT_SUBDIV_64,
+]
+
+## ── Dynamic-shadow budget (Sep 2026 lighting review) ────────────────────────
+## Godot caches every positional shadow map and re-renders it only when a
+## shadow caster inside the light's range moves. Static structure/furniture
+## is therefore almost free after the first frame, but an animated character
+## inside a lamp's range forces that lamp's full re-render EVERY frame. With
+## Dynamic Shadows on, only the lights nearest the player keep character
+## casters in their shadow_caster_mask; the rest drop just the character
+## layers and stay cached. Structural shadows are never affected.
+## Character render layers: 12 = the player (Player.PLAYER_SELF_LIGHT_LAYER_BIT,
+## kept as a literal to avoid an autoload -> Player class dependency) and
+## 13 = NPCs (set by AdventurerModelController).
+const PLAYER_SHADOW_LAYER_BIT: int = 1 << 11
+const NPC_SHADOW_LAYER_BIT: int = 1 << 12
+const CHARACTER_SHADOW_LAYERS: int = PLAYER_SHADOW_LAYER_BIT | NPC_SHADOW_LAYER_BIT
+const ALL_SHADOW_CASTERS: int = 0xFFFFFFFF
+const SHADOW_BUDGET_INTERVAL: float = 0.25
+## A light already holding a budget slot ranks this many metres closer, so
+## two lamps at similar distance don't swap back and forth (each swap costs a
+## re-render of both).
+const SHADOW_BUDGET_HYSTERESIS_M: float = 1.5
+var _shadow_lights: Dictionary = {}   ## instance_id -> WeakRef(Light3D)
+var _shadow_budget_timer: float = 0.0
 
 ## DR tuning: steps of DR_STEP; needs DR_DOWN_FRAMES consecutive
 ## over-budget frames to lower (ramps down fast on a sustained drop) and
@@ -165,7 +255,7 @@ const PRESETS: Dictionary = {
 		"volumetric_fog_enabled": false, "flashlight_volumetrics": false,
 		"glow_enabled": false, "dof_enabled": false, "msaa": Viewport.MSAA_DISABLED,
 		"screen_space_aa": Viewport.SCREEN_SPACE_AA_DISABLED, "use_taa": false,
-		"anisotropic_filtering": 2, "shadow_quality": 1024, "render_scale": 1.0,
+		"anisotropic_filtering": 2, "shadow_quality": 2048, "render_scale": 1.0,
 		"shadow_casting_enabled": false,
 	},
 	Preset.MEDIUM: {
@@ -173,7 +263,7 @@ const PRESETS: Dictionary = {
 		"volumetric_fog_enabled": false, "flashlight_volumetrics": false,
 		"glow_enabled": true, "dof_enabled": false, "msaa": Viewport.MSAA_2X,
 		"screen_space_aa": Viewport.SCREEN_SPACE_AA_DISABLED, "use_taa": false,
-		"anisotropic_filtering": 4, "shadow_quality": 2048, "render_scale": 1.0,
+		"anisotropic_filtering": 4, "shadow_quality": 4096, "render_scale": 1.0,
 		"shadow_casting_enabled": false,
 	},
 	Preset.HIGH: {
@@ -189,7 +279,7 @@ const PRESETS: Dictionary = {
 		"volumetric_fog_enabled": true, "flashlight_volumetrics": true,
 		"glow_enabled": true, "dof_enabled": true, "msaa": Viewport.MSAA_4X,
 		"screen_space_aa": Viewport.SCREEN_SPACE_AA_DISABLED, "use_taa": true,
-		"anisotropic_filtering": 16, "shadow_quality": 4096, "render_scale": 1.0,
+		"anisotropic_filtering": 16, "shadow_quality": 8192, "render_scale": 1.0,
 		"shadow_casting_enabled": true,
 	},
 }
@@ -207,10 +297,13 @@ func _ready() -> void:
 
 
 ## Re-applies the environment settings when the world scene's WorldEnvironment
-## node enters the tree. Idempotent — safe to fire on every world load.
+## node enters the tree, and the dynamic-shadow gate when the world itself
+## does. Idempotent — safe to fire on every world load.
 func _on_node_added(node: Node) -> void:
 	if node.is_in_group("world_environment"):
 		_apply_to_environment()
+	if node.is_in_group("main_world"):
+		_apply_dynamic_shadow_casting()
 
 
 ## Applies a named preset. Takes a plain `int` rather than `Preset` — the
@@ -224,15 +317,18 @@ func _on_node_added(node: Node) -> void:
 ## with the preset now (Aug 2026 — LOW/MEDIUM off, HIGH/ULTRA on), unlike
 ## camera_fov, which remains untouched by every preset (see PRESETS above
 ## and set_setting_live() below).
-func apply_preset(preset: int) -> void:
+func apply_preset(preset: int) -> bool:
 	if preset == Preset.CUSTOM or not PRESETS.has(preset):
-		return
+		return false
 	var vals: Dictionary = PRESETS[preset]
+	if _reject_memory_increase(vals):
+		return false
 	for key: String in vals:
 		set(key, vals[key])
 	current_preset = preset
 	_apply_all()
 	_save()
+	return true
 
 
 ## Generic single-setting override, used by GraphicsSettingsPanel's individual
@@ -240,8 +336,8 @@ func apply_preset(preset: int) -> void:
 ## only remaining field that doesn't participate in preset matching at all
 ## — shadow_casting_enabled joined the normal preset-driven fields Aug 2026).
 func set_setting(field: String, value: Variant) -> void:
-	set_setting_live(field, value)
-	_save()
+	if set_setting_live(field, value):
+		_save()
 
 
 ## Same as set_setting() but does NOT persist to disk — mutates + applies
@@ -250,7 +346,9 @@ func set_setting(field: String, value: Variant) -> void:
 ## call to save_now() once the interaction completes (e.g. Slider's
 ## drag_ended signal) so the settings file is only written once per
 ## interaction instead of on every intermediate tick.
-func set_setting_live(field: String, value: Variant) -> void:
+func set_setting_live(field: String, value: Variant) -> bool:
+	if _reject_memory_increase({field: value}):
+		return false
 	match field:
 		"sdfgi_enabled":            sdfgi_enabled = value
 		"ssao_enabled":             ssao_enabled = value
@@ -273,10 +371,11 @@ func set_setting_live(field: String, value: Variant) -> void:
 		"fps_cap":                  fps_cap = value
 		_:	
 			push_warning("[GraphicsSettings] Unknown field: %s" % field)
-			return
+			return false
 	if field != "camera_fov" and field != "dynamic_resolution_enabled":
 		current_preset = Preset.CUSTOM
 	_apply_all()
+	return true
 
 
 ## Persists current settings to disk. Call after a batch of set_setting_live()
@@ -293,7 +392,7 @@ func save_now() -> void:
 ## is responsible for deciding whether to show the restart prompt and for
 ## actually relaunching.
 func set_rendering_driver(value: String) -> void:
-	if not RENDERING_DRIVERS.has(value):
+	if not is_rendering_driver_supported(value):
 		push_warning("[GraphicsSettings] Unknown rendering driver: %s" % value)
 		return
 	rendering_driver = value
@@ -304,6 +403,8 @@ func _apply_all() -> void:
 	_apply_to_environment()
 	_apply_to_viewport()
 	_apply_to_display()
+	_reapply_registered_dynamic_shadow_roots()
+	_update_shadow_budget()
 	settings_changed.emit()
 
 
@@ -357,7 +458,10 @@ func _apply_to_viewport() -> void:
 ## without oscillating on a single spike. Preview SubViewports are
 ## unaffected (register_preview_viewport only mirrors MSAA, not scale).
 func _process(delta: float) -> void:
-	_update_shadow_lod(delta)
+	_shadow_budget_timer -= delta
+	if _shadow_budget_timer <= 0.0:
+		_shadow_budget_timer = SHADOW_BUDGET_INTERVAL
+		_update_shadow_budget()
 	if not dynamic_resolution_enabled:
 		return
 	_dr_frame_avg = lerpf(_dr_frame_avg, delta, DR_EMA_ALPHA)
@@ -395,29 +499,114 @@ func _target_frame_budget() -> float:
 		return 1.0 / float(refresh)
 	return 1.0 / 60.0
 
-## Shadow LOD scan (Aug 2026, see SHADOW_LOD_* header comment above) —
-## throttled to SHADOW_LOD_SCAN_INTERVAL, skipped entirely when shadows are
-## globally off. Every "shadow_lod_lights" member gets a fresh distance
-## check against the player each time this fires; each light owns its own
-## hysteresis state (update_shadow_lod()) so this scan doesn't need to
-## track per-light state itself.
-func _update_shadow_lod(delta: float) -> void:
+## Re-applies the dynamic (character/object) shadow gate. Characters remain
+## self-gating in AdventurerModelController; object roots register here once
+## when spawned. The BuildModeController call is a load/startup safety net for
+## objects restored before they had a chance to register themselves.
+func _apply_dynamic_shadow_casting() -> void:
+	_reapply_registered_dynamic_shadow_roots()
+	var bc: Node = _find_build_controller()
+	if bc != null and bc.has_method("_apply_dynamic_shadow_gate"):
+		bc.call("_apply_dynamic_shadow_gate")
+
+func _reapply_registered_dynamic_shadow_roots() -> void:
+	for root_id: int in _dynamic_shadow_roots.keys():
+		var root_ref: WeakRef = _dynamic_shadow_roots[root_id] as WeakRef
+		var root: Node = root_ref.get_ref() as Node
+		if root == null or not is_instance_valid(root):
+			_dynamic_shadow_roots.erase(root_id)
+			continue
+		_apply_dynamic_shadow_to_root(root)
+
+## Registers a non-structural object as one dynamic shadow unit and applies the
+## current setting immediately. Safe to call repeatedly (pickup/drop/reparent):
+## roots are de-duplicated and each mesh remembers its authored cast mode in
+## metadata, so authored-OFF glass/fixture surfaces remain OFF when enabled.
+func register_dynamic_shadow_root(root: Node) -> void:
+	if root == null or not is_instance_valid(root):
+		return
+	_dynamic_shadow_roots[root.get_instance_id()] = weakref(root)
+	_apply_dynamic_shadow_to_root(root)
+
+func _apply_dynamic_shadow_to_root(root: Node) -> void:
+	_apply_dynamic_shadow_to_branch(root, shadow_casting_enabled)
+
+func _apply_dynamic_shadow_to_branch(node: Node, enabled: bool) -> void:
+	## GeometryInstance3D includes ordinary meshes and MultiMesh renderers.
+	## Treating both alike keeps instanced shelf geometry in the same dynamic
+	## shadow tier as its former individual MeshInstance3D children.
+	if node is GeometryInstance3D:
+		var geometry := node as GeometryInstance3D
+		if not geometry.has_meta(DYNAMIC_SHADOW_META):
+			geometry.set_meta(DYNAMIC_SHADOW_META, int(geometry.cast_shadow))
+		geometry.cast_shadow = (
+			int(geometry.get_meta(DYNAMIC_SHADOW_META))
+			if enabled
+			else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
+	for child: Node in node.get_children():
+		_apply_dynamic_shadow_to_branch(child, enabled)
+
+func _soft_shadow_filter_for_quality() -> RenderingServer.ShadowQuality:
+	if shadow_quality >= 8192:
+		return RenderingServer.SHADOW_QUALITY_SOFT_HIGH
+	if shadow_quality >= 4096:
+		return RenderingServer.SHADOW_QUALITY_SOFT_MEDIUM
+	return RenderingServer.SHADOW_QUALITY_SOFT_LOW
+
+## How many lights may keep character casters in their shadow maps.
+func dynamic_shadow_light_budget() -> int:
 	if not shadow_casting_enabled:
+		return 0
+	return 8 if shadow_quality >= 8192 else 5
+
+## Registers a world light (WallLight/GrowLight) with the dynamic-shadow
+## budget. The player-held flashlight is deliberately not registered: it is
+## always beside the player and always keeps character casters.
+func register_shadow_light(light: Light3D) -> void:
+	if light == null or not is_instance_valid(light):
 		return
-	_shadow_lod_scan_timer -= delta
-	if _shadow_lod_scan_timer > 0.0:
+	_shadow_lights[light.get_instance_id()] = weakref(light)
+	## Start without characters; the next budget pass (<= 0.25 s) promotes it.
+	_set_shadow_caster_mask(light, ALL_SHADOW_CASTERS & ~CHARACTER_SHADOW_LAYERS)
+
+func _update_shadow_budget() -> void:
+	if _shadow_lights.is_empty():
 		return
-	_shadow_lod_scan_timer = SHADOW_LOD_SCAN_INTERVAL
+	var budget: int = dynamic_shadow_light_budget()
+	var focus: Node3D = null
+	if budget > 0:
+		focus = get_tree().get_first_node_in_group("Player") as Node3D
+	var ranked: Array = []   ## [score, light]
+	for id: int in _shadow_lights.keys():
+		var light: Light3D = (_shadow_lights[id] as WeakRef).get_ref() as Light3D
+		if light == null or not is_instance_valid(light):
+			_shadow_lights.erase(id)
+			continue
+		if budget == 0 or focus == null or not light.is_visible_in_tree():
+			_set_shadow_caster_mask(light, ALL_SHADOW_CASTERS & ~CHARACTER_SHADOW_LAYERS)
+			continue
+		var score: float = light.global_position.distance_to(focus.global_position)
+		if light.shadow_caster_mask == ALL_SHADOW_CASTERS:
+			score -= SHADOW_BUDGET_HYSTERESIS_M
+		ranked.append([score, light])
+	ranked.sort_custom(func(a: Array, b: Array) -> bool: return float(a[0]) < float(b[0]))
+	for i: int in ranked.size():
+		_set_shadow_caster_mask(ranked[i][1] as Light3D,
+			ALL_SHADOW_CASTERS if i < budget else ALL_SHADOW_CASTERS & ~CHARACTER_SHADOW_LAYERS)
+
+## Only writes on change — every write marks the light's shadow map dirty.
+func _set_shadow_caster_mask(light: Light3D, mask: int) -> void:
+	if light.shadow_caster_mask != mask:
+		light.shadow_caster_mask = mask
+
+func _find_build_controller() -> Node:
 	var tree: SceneTree = get_tree()
 	if tree == null:
-		return
-	var player: Node3D = tree.get_first_node_in_group("player") as Node3D
-	if player == null:
-		return
-	var player_pos: Vector3 = player.global_position
-	for light: Node in tree.get_nodes_in_group("shadow_lod_lights"):
-		if is_instance_valid(light) and light.has_method("update_shadow_lod"):
-			light.update_shadow_lod(player_pos)
+		return null
+	var mw: Node = tree.get_first_node_in_group("main_world")
+	if mw == null:
+		return null
+	return mw.get("_build_controller") as Node
 
 ## 3D item-preview SubViewports (Aug 2026) — apply MSAA so the models in
 ## inventory/storage/build/prompt previews aren't jagged (SubViewports
@@ -448,7 +637,32 @@ func _apply_to_display() -> void:
 	DisplayServer.window_set_mode(window_mode)
 	Engine.max_fps = fps_cap
 	ProjectSettings.set_setting("rendering/textures/default_filters/anisotropic_filtering_level", anisotropic_filtering)
-	get_viewport().positional_shadow_atlas_size = shadow_quality
+	var vp: Viewport = get_viewport()
+	vp.positional_shadow_atlas_size = shadow_quality
+	vp.positional_shadow_atlas_quad_0 = SHADOW_ATLAS_QUADRANTS[0]
+	vp.positional_shadow_atlas_quad_1 = SHADOW_ATLAS_QUADRANTS[1]
+	vp.positional_shadow_atlas_quad_2 = SHADOW_ATLAS_QUADRANTS[2]
+	vp.positional_shadow_atlas_quad_3 = SHADOW_ATLAS_QUADRANTS[3]
+	## Shadow-edge filtering follows the same quality knob, so "Shadow
+	## quality" really changes every shadow. The filter is the only shadow
+	## cost paid every frame (cached maps aside), so the lower tiers keep
+	## Godot's default. Very Low was rejected: visibly dithered contact lines.
+	RenderingServer.positional_soft_shadow_filter_set_quality(_soft_shadow_filter_for_quality())
+	## Directional shadows use a separate atlas. Keeping it in lockstep fixes
+	## the old mismatch where the UI only changed local-light shadow quality.
+	## Directional atlases are owned by RenderingServer rather than Viewport.
+	## The second argument keeps the standard 24-bit depth format.
+	RenderingServer.directional_shadow_atlas_set_size(shadow_quality, false)
+	for node: Node in get_tree().get_nodes_in_group("quality_directional_light"):
+		var light := node as DirectionalLight3D
+		if light == null:
+			continue
+		if shadow_quality <= 1024:
+			light.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+		elif shadow_quality <= 2048:
+			light.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+		else:
+			light.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
 
 
 func _save() -> void:
@@ -502,6 +716,9 @@ func _load() -> void:
 	window_mode              = cfg.get_value("graphics", "window_mode", window_mode)
 	fps_cap                  = cfg.get_value("graphics", "fps_cap", fps_cap)
 	rendering_driver         = cfg.get_value("graphics", "rendering_driver", rendering_driver)
+	# A settings file copied from Windows must not select Direct3D on Linux.
+	if not is_rendering_driver_supported(rendering_driver):
+		rendering_driver = "vulkan"
 	## Snapshot AFTER the load above — see session_start_rendering_driver's
 	## declaration comment for why this must be captured here, once, and
 	## never reassigned afterward.

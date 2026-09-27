@@ -25,6 +25,23 @@ var _graph: WaterGraph = null
 ## solver/graph split.
 var _solver: WaterSolver = null
 
+## Shared flow snapshot. The allocation rules remain in WaterSolver; this
+## only prevents every tray/device/purifier from walking and solving the same
+## graph independently every rendered frame. Topology changes invalidate
+## immediately, while live demand is resampled at 10 Hz.
+const FLOW_REFRESH_INTERVAL: float = 0.1
+var _flow_refresh_accum: float = 0.0
+var _flow_cache_dirty: bool = true
+var _flow_hookup_key: String = ""
+var _flow_reachable: Dictionary = {}
+var _flow_endpoint_keys: Array[String] = []
+var _flow_received: Dictionary = {}
+var _flow_dynamic_max: Dictionary = {}
+var _flow_demand: Dictionary = {}
+var _flow_unpurified: Dictionary = {}
+var _flow_purifier_paths: Dictionary = {}
+var _flow_by_purifier: Dictionary = {}
+
 ## Registered hookup nodes (WaterHookup instances) — kept here (not just in
 ## the graph) so boundary-change events can call back into each hookup's own
 ## reposition logic. See _on_chunk_deconstructed/_on_chunk_restored below.
@@ -71,6 +88,11 @@ func _ready() -> void:
 	_solver = WaterSolver.new(_graph)
 
 func _process(delta: float) -> void:
+	_flow_refresh_accum += delta
+	if _flow_refresh_accum >= FLOW_REFRESH_INTERVAL:
+		_flow_refresh_accum = fmod(_flow_refresh_accum, FLOW_REFRESH_INTERVAL)
+		_flow_cache_dirty = true
+
 	_quality_refresh_accum += delta
 	if _quality_refresh_accum < QUALITY_REFRESH_INTERVAL:
 		return
@@ -111,13 +133,16 @@ func _refresh_quality_colors() -> void:
 ## WaterGraph.register_node()'s own comment). Only meaningful for role ==
 ## "endpoint"; every other caller can omit it.
 func register_node(pos: Vector3, role: String, consumer_ref: Node = null) -> String:
-	return _graph.register_node(pos, role, consumer_ref)
+	var key: String = _graph.register_node(pos, role, consumer_ref)
+	request_flow_refresh()
+	return key
 
 func get_consumer_ref(key: String) -> Node:
 	return _graph.get_consumer_ref(key)
 
 func unregister_node(key: String) -> void:
 	_graph.unregister_node(key)
+	request_flow_refresh()
 
 ## Named has_water_node (not has_node) — WaterManager extends Node, and
 ## Node already defines has_node(NodePath) -> bool; overriding it with an
@@ -130,10 +155,14 @@ func get_node_data(key: String) -> Dictionary:
 	return _graph.get_node(key)
 
 func register_edge(key_a: String, key_b: String) -> String:
-	return _graph.register_edge(key_a, key_b)
+	var edge_id: String = _graph.register_edge(key_a, key_b)
+	if not edge_id.is_empty():
+		request_flow_refresh()
+	return edge_id
 
 func unregister_edge(edge_id: String) -> void:
 	_graph.unregister_edge(edge_id)
+	request_flow_refresh()
 
 ## Forwards to WaterGraph.prune_orphan_waypoint() — see there for contract.
 ## Call after unregister_edge() with the edge's former endpoint keys to clean
@@ -148,6 +177,7 @@ func unregister_edge(edge_id: String) -> void:
 func prune_orphan_waypoint(key: String) -> bool:
 	var pruned: bool = _graph.prune_orphan_waypoint(key)
 	if pruned:
+		request_flow_refresh()
 		for elbow: Node in get_tree().get_nodes_in_group("water_pipe_elbow"):
 			if is_instance_valid(elbow) and elbow.get("node_key") == key:
 				elbow.queue_free()
@@ -215,7 +245,8 @@ func get_edges_touching(key: String) -> Array:
 ## hookup. This is what WaterTestSink.gd uses to prove a run is properly
 ## connected end to end (the acceptance test for this whole phase).
 func is_reachable_from_hookup(node_key: String) -> bool:
-	return _graph.is_reachable_from_hookup(node_key)
+	_ensure_flow_cache()
+	return _flow_reachable.has(node_key)
 
 static func make_node_key(pos: Vector3) -> String:
 	return WaterGraph.make_node_key(pos)
@@ -227,14 +258,16 @@ static func make_node_key(pos: Vector3) -> String:
 ## Deliberately excludes "hookup"/"endpoint" roles — those nodes belong to
 ## WaterHookup/WaterTestSink/WaterDispenser and are recreated by THEIR OWN
 ## restore (BuildModeController.restore_placed_objects(), phase 1, which runs
-## before this — phase 3). Only "corner" and "pipe_joint" nodes (pipe-owned)
-## are included here.
+## before this — phase 3). "purifier" nodes ARE included (Save/Load overhaul):
+## they're pipe-owned graph infrastructure (a purifier splits one edge into
+## two) and the WaterPurifier scene that owns them is also restored in phase 1,
+## so this phase re-registers the node + both edges and re-attaches the scene.
 func get_pipe_network_for_save() -> Dictionary:
 	var nodes_out: Array = []
 	for key: String in _graph.get_nodes():
 		var n: Dictionary = _graph.get_nodes()[key]
 		var role: String = n.get("role", "")
-		if role != "corner" and role != "pipe_joint":
+		if role != "corner" and role != "pipe_joint" and role != "purifier":
 			continue
 		nodes_out.append({
 			"pos":  SaveManager.vec3_to_dict(n.get("pos", Vector3.ZERO)),
@@ -263,12 +296,15 @@ func get_pipe_network_for_save() -> Dictionary:
 
 	return {"nodes": nodes_out, "edges": edges_out}
 
-## Removes every pipe-owned node (role "corner"/"pipe_joint") + edge from the
-## graph, and frees every pipe/elbow visual. Leaves "hookup"/"endpoint" nodes
-## (owned by WaterHookup/WaterTestSink/WaterDispenser) untouched — those are
-## torn down by BuildModeController.clear_all_player_placed() instead, via
-## each device's own _exit_tree(). Mid-session Load only (fresh boot is a
-## no-op — nothing to clear).
+## Removes every pipe-owned node (role "corner"/"pipe_joint"/"purifier") +
+## edge from the graph, and frees every pipe/elbow visual. Leaves "hookup"/
+## "endpoint" nodes (owned by WaterHookup/WaterTestSink/WaterDispenser)
+## untouched — those are torn down by BuildModeController.clear_all_player_
+## placed() instead, via each device's own _exit_tree(). Purifier nodes are
+## included here (they're pipe-owned graph infrastructure; the WaterPurifier
+## scenes are freed separately by clear_all_player_placed(), and both are
+## re-created from the save). Mid-session Load only (fresh boot is a no-op —
+## nothing to clear).
 func clear_water_pipes() -> void:
 	for seg: Node in get_tree().get_nodes_in_group("water_pipe_visual"):
 		if is_instance_valid(seg):
@@ -279,10 +315,11 @@ func clear_water_pipes() -> void:
 	var keys_to_remove: Array = []
 	for key: String in _graph.get_nodes():
 		var role: String = _graph.get_nodes()[key].get("role", "")
-		if role == "corner" or role == "pipe_joint":
+		if role == "corner" or role == "pipe_joint" or role == "purifier":
 			keys_to_remove.append(key)
 	for key: String in keys_to_remove:
 		_graph.unregister_node(key)   ## also removes touching edges
+	request_flow_refresh()
 
 ## Rebuilds the pipe network from get_pipe_network_for_save()'s output.
 ## Clears any existing pipe-owned nodes/visuals first (safe no-op on a fresh
@@ -331,6 +368,32 @@ func restore_pipe_network(data: Dictionary) -> void:
 		seg.call("set_endpoints", pos_a, pos_b)
 		seg.set("placement_cost", int(saved.get("cost", 0)))
 
+	## Re-attach restored purifier scenes (spawned in phase 1 without graph
+	## integration) to their re-registered graph node keys (Save/Load
+	## overhaul). Node identity is position, so match scene → node by
+	## position and orient the body along the two edges touching the node.
+	for saved: Dictionary in data.get("nodes", []):
+		var role: String = saved.get("role", "")
+		if role != "purifier":
+			continue
+		var pos: Vector3 = SaveManager.dict_to_vec3(saved.get("pos", {}))
+		var key: String = WaterGraph.make_node_key(pos)
+		for node: Node in get_tree().get_nodes_in_group("water_purifier"):
+			if not is_instance_valid(node):
+				continue
+			if (node.global_position - pos).length() > 0.01:
+				continue
+			node.set("node_key", key)
+			var others: Array = []
+			for touching: Dictionary in get_edges_touching(key):
+				others.append(touching.get("other_key", ""))
+			if others.size() >= 2:
+				var pa: Vector3 = get_node_data(String(others[0])).get("pos", Vector3.ZERO)
+				var pb: Vector3 = get_node_data(String(others[1])).get("pos", Vector3.ZERO)
+				if node.has_method("orient_along"):
+					node.call("orient_along", pa, pb)
+			break
+
 	refresh_all_pipe_joint_visuals()
 
 
@@ -346,12 +409,14 @@ func register_hookup(hookup: Node3D) -> void:
 		## offers a purchasable hookup — see BuildModeHUD.CATEGORIES["Water"]).
 		## Not a supported feature to have more than one; this is purely a
 		## guard against a future bug reintroducing multi-hookup placement.
-		if _hookups.size() >= 1:
-			push_warning("WaterManager: a second WaterHookup was registered — only one hookup is supported per game; flow-split math assumes exactly one and will behave unpredictably with more.")
-		_hookups.append(hookup)
+			if _hookups.size() >= 1:
+				push_warning("WaterManager: a second WaterHookup was registered — only one hookup is supported per game; flow-split math assumes exactly one and will behave unpredictably with more.")
+			_hookups.append(hookup)
+			request_flow_refresh()
 
 func unregister_hookup(hookup: Node3D) -> void:
 	_hookups.erase(hookup)
+	request_flow_refresh()
 
 ## Returns the single registered WaterHookup, or null if none exists yet.
 ## Only one hookup is ever supported (see register_hookup()'s guard) —
@@ -408,8 +473,8 @@ func _reposition_all_hookups() -> void:
 ## Supersedes the old Step 2 equal-split logic entirely — every registered
 ## endpoint now has its own tunable priority + live demand (WaterTestSink,
 ## WaterDispenser), routed through WaterSolver.gd's waterfall. See that file
-## for the full algorithm. Still "compute live, no persistence" — every call
-## re-solves from scratch, matching this system's existing pattern.
+## for the full algorithm. Allocation is now retained only in a short-lived
+## runtime snapshot; no flow state is persisted into saves.
 
 ## Counts nodes with role == "endpoint" reachable from `hookup` via BFS —
 ## real connectable devices only, corners/pipe joints don't count. Forwards
@@ -420,6 +485,9 @@ func get_connected_consumer_count(hookup: WaterHookup) -> int:
 	var key: String = hookup.get_node_key()
 	if key.is_empty():
 		return 0
+	_ensure_flow_cache()
+	if key == _flow_hookup_key:
+		return _flow_endpoint_keys.size()
 	return _graph.count_reachable_endpoints(key)
 
 ## Sum of every reachable endpoint's CURRENT requested demand (not what
@@ -432,7 +500,12 @@ func get_total_requested_demand_mL(hookup: WaterHookup) -> float:
 	var key: String = hookup.get_node_key()
 	if key.is_empty():
 		return 0.0
+	_ensure_flow_cache()
 	var total: float = 0.0
+	if key == _flow_hookup_key:
+		for demand: Variant in _flow_demand.values():
+			total += float(demand)
+		return total
 	for endpoint_key: String in _graph.get_reachable_endpoint_keys(key):
 		var ref: Node = _graph.get_consumer_ref(endpoint_key)
 		if ref != null and is_instance_valid(ref) and ref.has_method("get_current_demand_mL_per_day"):
@@ -452,6 +525,59 @@ func _find_hookup_by_key(hookup_key: String) -> WaterHookup:
 			return h as WaterHookup
 	return null
 
+## Public invalidation hook for device setters. Graph mutation wrappers call
+## this automatically; demand-only state changes may call it so the very next
+## read reflects the new value rather than waiting at most 100 ms.
+func request_flow_refresh() -> void:
+	_flow_cache_dirty = true
+
+func _ensure_flow_cache() -> void:
+	if not _flow_cache_dirty:
+		return
+	_flow_cache_dirty = false
+	_flow_hookup_key = ""
+	_flow_reachable.clear()
+	_flow_endpoint_keys.clear()
+	_flow_received.clear()
+	_flow_dynamic_max.clear()
+	_flow_demand.clear()
+	_flow_unpurified.clear()
+	_flow_purifier_paths.clear()
+	_flow_by_purifier.clear()
+	if _graph == null or _solver == null:
+		return
+	var hookup: WaterHookup = get_the_hookup()
+	if hookup == null:
+		return
+	var hookup_key: String = hookup.get_node_key()
+	if hookup_key.is_empty() or not _graph.has_node(hookup_key):
+		return
+	_flow_hookup_key = hookup_key
+	_flow_purifier_paths = _graph.get_purifier_paths_from_hookup(hookup_key)
+	## The path map already contains every node visited by its BFS, so it also
+	## serves as the connected-component set. Filter endpoints from that same
+	## traversal instead of performing two additional graph walks.
+	for reachable_key: String in _flow_purifier_paths:
+		_flow_reachable[reachable_key] = true
+		if _graph.get_node(reachable_key).get("role", "") == "endpoint":
+			_flow_endpoint_keys.append(reachable_key)
+	_flow_unpurified = _graph.get_unpurified_reachable_keys(hookup_key)
+	var snapshot: Dictionary = _solver.solve_snapshot_for_hookup(
+		hookup_key, hookup.get_daily_output_mL(), _flow_endpoint_keys)
+	_flow_received = snapshot.get("received", {})
+	_flow_dynamic_max = snapshot.get("dynamic_max", {})
+	_flow_demand = snapshot.get("demand_by_key", {})
+
+	## Aggregate purifier wear from the same allocation/path snapshot. This
+	## replaces one endpoint path BFS plus one full network solve per purifier.
+	for endpoint_key: String in _flow_endpoint_keys:
+		var rate: float = float(_flow_received.get(endpoint_key, 0.0))
+		if rate <= 0.0:
+			continue
+		var purifier_path: Array = _flow_purifier_paths.get(endpoint_key, [])
+		for purifier_key: String in purifier_path:
+			_flow_by_purifier[purifier_key] = float(_flow_by_purifier.get(purifier_key, 0.0)) + rate
+
 ## Public accessor (Flow-Based Filter Wear plan §2.4, Jul 2026) — resolves
 ## whichever hookup feeds `node_key` and returns the live WaterHookup
 ## instance itself, not just its key. WaterInfoUI's purifier bubble needs
@@ -459,15 +585,14 @@ func _find_hookup_by_key(hookup_key: String) -> WaterHookup:
 ## (never cached — see that plan section's own comment on why a cached
 ## value would go stale across a future hookup tier upgrade).
 func get_hookup_for_node(node_key: String) -> WaterHookup:
-	var hookup_key: String = _graph.find_reachable_hookup_key(node_key)
-	if hookup_key.is_empty():
+	_ensure_flow_cache()
+	if not _flow_reachable.has(node_key):
 		return null
-	return _find_hookup_by_key(hookup_key)
+	return _find_hookup_by_key(_flow_hookup_key)
 
-## Traces back from a consumer's graph node key to whichever hookup feeds it
-## (there's only ever one real hookup — see register_hookup()'s guard),
-## solves the WHOLE hookup's priority-tier waterfall, and returns this
-## specific consumer's actual RECEIVED share (which can be less than what it
+## Reads the shared hookup snapshot for a consumer connected to the single
+## supported hookup (see register_hookup()'s guard), and returns this
+## consumer's actual RECEIVED share (which can be less than what it
 ## requested, if its tier is oversubscribed or a higher tier consumed
 ## everything) plus that hookup's water quality (quality shown at a sink/
 ## dispenser is always the SOURCE hookup's quality — water doesn't gain/lose
@@ -475,22 +600,11 @@ func get_hookup_for_node(node_key: String) -> WaterHookup:
 ## README.md).
 ## Returns { "connected": bool, "mL_per_day": float, "mL_per_minute": float,
 ##           "quality": float }.
-## Farming Polish Plan Group 6 item 13 (perf) — returns the SAME raw
-## per-node received-mL/day map get_received_rate_mL() solves internally on
-## EVERY call, but as one shared result instead of one solve per consumer.
-## Only one hookup is ever supported (see get_the_hookup()'s header), so
-## "solve once per hookup" reduces to exactly one solve here no matter how
-## many trays call in. Farming-only, additive — every existing per-consumer
-## caller (WaterDispenser, sinks, WaterInfoUI, etc.) still goes through
-## get_received_rate_mL() unchanged, zero regression risk there.
+## Compatibility accessor retained for FarmingTray. All consumers now share
+## WaterManager's same bounded-rate allocation snapshot.
 func solve_hookup_for_farming() -> Dictionary:
-	var hookup: WaterHookup = get_the_hookup()
-	if hookup == null:
-		return {}
-	var hookup_key: String = hookup.get_node_key()
-	if hookup_key.is_empty():
-		return {}
-	return _solver.solve_for_hookup(hookup_key, hookup.get_daily_output_mL())
+	_ensure_flow_cache()
+	return _flow_received
 
 func get_received_rate_mL(consumer_node_key: String) -> Dictionary:
 	var out: Dictionary = {
@@ -502,28 +616,27 @@ func get_received_rate_mL(consumer_node_key: String) -> Dictionary:
 	if consumer_node_key.is_empty():
 		return out
 
-	var hookup_key: String = _graph.find_reachable_hookup_key(consumer_node_key)
-	if hookup_key.is_empty():
+	_ensure_flow_cache()
+	if not _flow_reachable.has(consumer_node_key):
 		return out
 
-	var hookup: WaterHookup = _find_hookup_by_key(hookup_key)
+	var hookup: WaterHookup = _find_hookup_by_key(_flow_hookup_key)
 	if hookup == null:
 		return out
 
-	var received_map: Dictionary = _solver.solve_for_hookup(hookup_key, hookup.get_daily_output_mL())
-	var rate_day: float = float(received_map.get(consumer_node_key, 0.0))
+	var rate_day: float = float(_flow_received.get(consumer_node_key, 0.0))
 
 	## Purifier (Jul 2026) — pure (100%... now graduated, see Purifier Filter
 	## plan) iff EVERY path from the hookup to this consumer passes through
 	## at least one "purifier" node. Computed as "reachable via the
 	## unfiltered graph, but NOT in the filtered contaminated-set" — see
 	## WaterGraph.get_unpurified_reachable_keys().
-	var is_pure: bool = not _graph.get_unpurified_reachable_keys(hookup_key).has(consumer_node_key)
+	var is_pure: bool = not _flow_unpurified.has(consumer_node_key)
 
 	out["connected"]     = true
 	out["mL_per_day"]    = rate_day
 	out["mL_per_minute"] = rate_day / 1440.0
-	out["quality"]       = _resolve_output_quality(hookup_key, consumer_node_key, hookup.water_quality) if is_pure else hookup.water_quality
+	out["quality"]       = _resolve_output_quality(_flow_hookup_key, consumer_node_key, hookup.water_quality) if is_pure else hookup.water_quality
 	return out
 
 ## Returns { "connected": bool, "quality": float } — the RAW (pre-purification)
@@ -536,10 +649,10 @@ func get_upstream_raw_quality(node_key: String) -> Dictionary:
 	var out: Dictionary = {"connected": false, "quality": 0.0}
 	if node_key.is_empty():
 		return out
-	var hookup_key: String = _graph.find_reachable_hookup_key(node_key)
-	if hookup_key.is_empty():
+	_ensure_flow_cache()
+	if not _flow_reachable.has(node_key):
 		return out
-	var hookup: WaterHookup = _find_hookup_by_key(hookup_key)
+	var hookup: WaterHookup = _find_hookup_by_key(_flow_hookup_key)
 	if hookup == null:
 		return out
 	out["connected"] = true
@@ -577,7 +690,7 @@ func delete_and_refund_edge(edge_id: String) -> bool:
 		refund = seg.placement_cost
 		refund_pos = (seg.point_a + seg.point_b) * 0.5
 		seg.queue_free()
-	_graph.unregister_edge(edge_id)
+	unregister_edge(edge_id)
 	## Use the wrapper (not _graph directly) so a successful prune also frees
 	## the matching WaterPipeElbow visual — see prune_orphan_waypoint()'s own
 	## comment (Jul 2026, orphaned-joint-visual fix). No-op on "purifier"-role
@@ -790,8 +903,16 @@ func _process_purity_and_dual_arrows(hookup_key: String, directions: Dictionary)
 			if current_pure and not was_pure:
 				## Flip event — walk backward to the hookup collecting every
 				## purifier crossed on this consumer's resolved path.
+				## Visited-guard (Sep 2026 crash fix): a degenerate self-loop
+				## edge can make reverse_of[walk].up == walk (node whose "up"
+				## is itself), which would otherwise spin forever. register_edge
+				## now refuses self-loops at the source, but keep the walk
+				## non-terminating-proof regardless so any future graph
+				## corruption degrades to a skipped pulse, never a freeze.
+				var visited_reverse: Dictionary = {}
 				var walk: String = node_key
-				while walk != hookup_key and reverse_of.has(walk):
+				while walk != hookup_key and reverse_of.has(walk) and not visited_reverse.has(walk):
+					visited_reverse[walk] = true
 					var up_key: String = reverse_of[walk]["up"]
 					if _graph.get_node(up_key).get("role", "") == "purifier":
 						purifiers_to_pulse[up_key] = true
@@ -866,17 +987,8 @@ func get_purifiers_needing_attention() -> Array:
 func get_flow_through_purifier_mL(purifier_key: String) -> float:
 	if purifier_key.is_empty():
 		return 0.0
-	var hookup_key: String = _graph.find_reachable_hookup_key(purifier_key)
-	if hookup_key.is_empty():
-		return 0.0
-
-	var total_mL: float = 0.0
-	for consumer_key: String in _graph.get_reachable_endpoint_keys(hookup_key):
-		var purifiers_on_path: Array[String] = _graph.get_purifiers_on_path(hookup_key, consumer_key)
-		if purifier_key in purifiers_on_path:
-			var received: Dictionary = get_received_rate_mL(consumer_key)
-			total_mL += float(received.get("mL_per_day", 0.0))
-	return total_mL
+	_ensure_flow_cache()
+	return float(_flow_by_purifier.get(purifier_key, 0.0))
 
 
 ## Purifier Filter plan (Jul 2026) — the ONE shared helper resolving actual
@@ -896,7 +1008,12 @@ func get_flow_through_purifier_mL(purifier_key: String) -> float:
 ## purifier is found on the path (shouldn't happen for a call site that
 ## already confirmed `is_pure`, but fails safe rather than assuming).
 func _resolve_output_quality(hookup_key: String, node_key: String, raw_hookup_quality: float) -> float:
-	var purifier_keys: Array[String] = _graph.get_purifiers_on_path(hookup_key, node_key)
+	_ensure_flow_cache()
+	var purifier_keys: Array[String] = []
+	if hookup_key == _flow_hookup_key and _flow_purifier_paths.has(node_key):
+		purifier_keys.assign(_flow_purifier_paths.get(node_key, []))
+	else:
+		purifier_keys = _graph.get_purifiers_on_path(hookup_key, node_key)
 	if purifier_keys.is_empty():
 		return raw_hookup_quality
 	var worst: float = 100.0
@@ -919,11 +1036,20 @@ func _resolve_output_quality(hookup_key: String, node_key: String, raw_hookup_qu
 func get_dynamic_max_mL_per_day(consumer_node_key: String, device_priority: int) -> float:
 	if consumer_node_key.is_empty():
 		return 0.0
-	var hookup_key: String = _graph.find_reachable_hookup_key(consumer_node_key)
-	if hookup_key.is_empty():
+	_ensure_flow_cache()
+	if not _flow_reachable.has(consumer_node_key):
 		return 0.0
-	var hookup: WaterHookup = _find_hookup_by_key(hookup_key)
+	var hookup: WaterHookup = _find_hookup_by_key(_flow_hookup_key)
 	if hookup == null:
 		return 0.0
-	return _solver.get_dynamic_max_for_device(hookup_key, hookup.get_daily_output_mL(),
-			consumer_node_key, device_priority)
+	var consumer: Node = _graph.get_consumer_ref(consumer_node_key)
+	var uses_live_priority: bool = consumer != null and is_instance_valid(consumer)
+	uses_live_priority = uses_live_priority and "priority" in consumer
+	if uses_live_priority:
+		uses_live_priority = clampi(int(consumer.priority), 1, 5) == clampi(device_priority, 1, 5)
+	if uses_live_priority:
+		return float(_flow_dynamic_max.get(consumer_node_key, 0.0))
+	## Preserve the API's documented preview-priority behavior for uncommon
+	## callers that ask about a priority other than the device's live value.
+	return _solver.get_dynamic_max_for_device(_flow_hookup_key, hookup.get_daily_output_mL(),
+		consumer_node_key, device_priority)

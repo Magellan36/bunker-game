@@ -4,15 +4,8 @@ extends RefCounted
 
 const SYMBOL: GDScript = preload("res://scripts/ui/common/BunkerSymbolTexture.gd")
 const SMOOTH_BAR: GDScript = preload("res://scripts/ui/common/BunkerSmoothProgressBar.gd")
-static var _symbols: Dictionary = {}
-
 static func icon(kind: String) -> Texture2D:
-	if _symbols.has(kind):
-		return _symbols[kind] as Texture2D
-	var texture: Texture2D = SYMBOL.new()
-	texture.symbol = kind
-	_symbols[kind] = texture
-	return texture
+	return BunkerPanelStyle.icon(kind)
 
 static func color(control: Control, token: String) -> Color:
 	return control.get_theme_color(token, "Bunker")
@@ -43,8 +36,10 @@ static func button(parent: Node, key: String, text: String, callback: Callable, 
 	control.text = text
 	control.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	control.set_meta("ui_font_size", 18)
-	control.set_meta("ui_min_height", 48 if primary else 44)
-	control.custom_minimum_size.y = 48 if primary else 44
+	var minimum_height: float = (BunkerDesign.PRIMARY_CONTROL_HEIGHT if primary
+		else BunkerDesign.CONTROL_HEIGHT)
+	control.set_meta("ui_min_height", minimum_height)
+	control.custom_minimum_size.y = minimum_height
 	control.add_theme_font_size_override("font_size", 18)
 	control.clip_text = true
 	control.tooltip_text = text
@@ -55,6 +50,7 @@ static func button(parent: Node, key: String, text: String, callback: Callable, 
 		control.expand_icon = true
 		control.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	parent.add_child(control)
+	UIButtonMotion.attach(control)
 	if callback.is_valid():
 		control.pressed.connect(callback)
 	return control
@@ -94,10 +90,11 @@ static func set_status(card: PanelContainer, text: String, token: String, kind: 
 		texture.set_meta("symbol", kind)
 	texture.self_modulate = tint
 
-static func stat(parent: Node, key: String, caption: String) -> VBoxContainer:
+static func stat(parent: Node, key: String, caption: String,
+		caption_size: int = 14, value_size: int = 18) -> VBoxContainer:
 	var box: VBoxContainer = column(parent, key, 3)
-	label(box, "Caption", caption, 14, "secondary")
-	label(box, "Value", "—", 18)
+	label(box, "Caption", caption, caption_size, "secondary")
+	label(box, "Value", "—", value_size)
 	return box
 
 static func set_stat(box: VBoxContainer, text: String, token: String = "text") -> void:
@@ -105,8 +102,35 @@ static func set_stat(box: VBoxContainer, text: String, token: String = "text") -
 	value.text = text
 	value.add_theme_color_override("font_color", color(box, token))
 
-static func meter(parent: Node, key: String, caption: String, kind: String) -> VBoxContainer:
-	var box: VBoxContainer = column(parent, key)
+
+static func set_power_button(button: Button, powered: bool) -> void:
+	## Text describes the available action; chrome describes current state.
+	button.text = "POWER OFF" if powered else "POWER ON"
+	button.tooltip_text = button.text.capitalize()
+	button.theme_type_variation = &"BunkerPrimaryButton" if powered else &""
+	button.icon = icon("stopped" if powered else "running")
+	button.modulate = Color.WHITE if powered else Color(0.62, 0.64, 0.62, 1.0)
+
+static func frame(parent: Node, key: String) -> MarginContainer:
+	var card := PanelContainer.new()
+	card.name = key
+	card.theme_type_variation = &"BunkerInspectorCard"
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.add_theme_stylebox_override("panel", BunkerPanelStyle.box(
+		BunkerPanelStyle.SURFACE, BunkerPanelStyle.BRASS, 7, 1))
+	parent.add_child(card)
+	var margin := MarginContainer.new()
+	margin.name = "Inset"
+	margin.set_meta("ui_padding", 10)
+	card.add_child(margin)
+	return margin
+
+static func meter(parent: Node, key: String, caption: String, kind: String,
+		boxed: bool = false) -> VBoxContainer:
+	var content_parent: Node = parent
+	if boxed:
+		content_parent = frame(parent, key + "Card")
+	var box: VBoxContainer = column(content_parent, key)
 	var row := HBoxContainer.new()
 	row.name = "Heading"
 	row.set_meta("ui_gap", 8)
@@ -156,8 +180,8 @@ static func option(parent: Node, key: String) -> OptionButton:
 	control.fit_to_longest_item = false
 	control.clip_text = true
 	control.set_meta("ui_font_size", 16)
-	control.set_meta("ui_min_height", 44)
-	control.custom_minimum_size.y = 44
+	control.set_meta("ui_min_height", BunkerDesign.CONTROL_HEIGHT)
+	control.custom_minimum_size.y = BunkerDesign.CONTROL_HEIGHT
 	parent.add_child(control)
 	for state: String in ["normal", "hover", "pressed", "disabled", "focus"]:
 		control.add_theme_stylebox_override(state, control.get_theme_stylebox(state, "Button"))
@@ -169,5 +193,5 @@ static func option(parent: Node, key: String) -> OptionButton:
 	popup.add_theme_font_size_override("font_size", 16)
 	popup.add_theme_color_override("font_color", color(control, "text"))
 	popup.add_theme_color_override("font_hover_color", color(control, "text"))
-	popup.add_theme_constant_override("v_separation", 12)
+	popup.add_theme_constant_override("v_separation", 6)
 	return control

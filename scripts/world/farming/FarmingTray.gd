@@ -73,15 +73,8 @@ var _water_fraction_cached: float = 0.0
 var _connected_cached: bool = false
 ## Cached WaterManager ref — lazy-resolved once (was a per-frame group scan).
 var _wm: WaterManager = null
-
-## Farming Polish Plan Group 6 item 13 (perf) — batched per-hookup solve
-## cache, shared by EVERY FarmingTray instance (static). Only one hookup is
-## ever supported (WaterManager.get_the_hookup()), so "once per hookup"
-## reduces to "once per Engine frame" here — a room with a dozen trays now
-## triggers one WaterManager solve per frame instead of a dozen. Cache key
-## is the frame index; it invalidates itself automatically next frame.
-static var _batch_frame: int = -1
-static var _batch_map: Dictionary = {}
+const WATER_STATUS_INTERVAL: float = 0.2
+var _water_status_left: float = 0.0
 
 var _soil_mesh_instances: Array = []   ## one per cell, null until filled
 var _tray_ui: CanvasLayer = null
@@ -126,6 +119,7 @@ func _ready() -> void:
 	_build_mesh()
 	if _is_preview_only:
 		return
+	_water_status_left = randf() * WATER_STATUS_INTERVAL
 	call_deferred("_register_deferred")
 
 func _exit_tree() -> void:
@@ -159,7 +153,11 @@ func _register_deferred() -> void:
 	var edge_x: float = 0.45 if cell_count == 1 else 0.95
 	_node_key = wm.register_node(to_global(Vector3(edge_x, BASIN_TOP_Y, 0.0)), "endpoint", self)
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	_water_status_left -= delta
+	if _water_status_left > 0.0:
+		return
+	_water_status_left += WATER_STATUS_INTERVAL
 	if _wm == null:
 		_wm = get_tree().get_first_node_in_group("water_manager") as WaterManager
 	if _wm == null or _node_key.is_empty():
@@ -170,20 +168,12 @@ func _process(_delta: float) -> void:
 	if not _connected_cached:
 		_water_fraction_cached = 0.0
 		return
-	var map: Dictionary = _get_batched_hookup_map(_wm)
+	## WaterManager owns the shared bounded-rate snapshot for every consumer;
+	## trays only read their already-allocated entry.
+	var map: Dictionary = _wm.solve_hookup_for_farming()
 	var received_mL_per_day: float = float(map.get(_node_key, 0.0))
 	var demand: float = get_current_demand_mL_per_day()
 	_water_fraction_cached = clampf(received_mL_per_day / demand, 0.0, 1.0) if demand > 0.0 else 0.0
-
-## Returns this frame's shared solve result, running the (single, since only
-## one hookup exists) solve exactly once per frame no matter how many trays
-## call in — see _batch_frame/_batch_map's header above.
-func _get_batched_hookup_map(wm: WaterManager) -> Dictionary:
-	var frame: int = Engine.get_process_frames()
-	if frame != FarmingTray._batch_frame:
-		FarmingTray._batch_frame = frame
-		FarmingTray._batch_map = wm.solve_hookup_for_farming()
-	return FarmingTray._batch_map
 
 # ─── WaterSolver duck-typed demand contract ───────────────────────────────────
 ## Fixed, not player-tunable — both cells of a double tray share one
@@ -358,6 +348,75 @@ func set_cell_seed_lock(cell_index: int, seed_type: String) -> void:
 	if cell_index < 0 or cell_index >= cell_count:
 		return
 	cell_seed_lock[cell_index] = seed_type
+
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+## Serializes every cell's soil/plant/fertilizer/seed-lock state + each live
+## FarmPlant's growth/health. Backs the placed-object "tray" extra for
+## TILE_TRAY_SINGLE/DOUBLE. Cells' arrays are reset to empty in _ready(), so
+## this runs (deferred, post-spawn) after the tray exists.
+func get_tray_save_data() -> Dictionary:
+	var plants: Dictionary = {}
+	for i: int in range(cell_count):
+		var p: FarmPlant = plant_refs[i]
+		if p != null and is_instance_valid(p):
+			plants[str(i)] = {
+				"plant_type":          p.plant_type,
+				"progress":            p.progress,
+				"health":              p.health,
+				"fertilizer_bonus":    p.fertilizer_bonus,
+				"fertilizer_tier":     p.fertilizer_tier,
+				"hours_without_light": p._hours_without_light,
+				"warned_low_health":   p._warned_low_health,
+			}
+	return {
+		"soil_filled":            soil_filled,
+		"planted_type":           planted_type,
+		"last_planted_type":      last_planted_type,
+		"cell_prepped_fertilizer": cell_prepped_fertilizer,
+		"cell_seed_lock":         cell_seed_lock,
+		"plants":                 plants,
+	}
+
+## Rebuilds a tray's per-cell state from get_tray_save_data()'s output:
+## restores the arrays, re-shows soil visuals, and respawns each plant with
+## its saved progress/health/fertilizer. FarmPlant._process() re-derives the
+## growth stage/visual on the next frame.
+func restore_tray_save_data(data: Dictionary) -> void:
+	var sf: Array = data.get("soil_filled", [])
+	for i: int in range(mini(sf.size(), cell_count)):
+		soil_filled[i] = bool(sf[i])
+		if soil_filled[i]:
+			_refresh_soil_visual(i)
+	var pt: Array = data.get("planted_type", [])
+	for i: int in range(mini(pt.size(), cell_count)):
+		planted_type[i] = str(pt[i])
+	var lpt: Array = data.get("last_planted_type", [])
+	for i: int in range(mini(lpt.size(), cell_count)):
+		last_planted_type[i] = str(lpt[i])
+	var fert: Array = data.get("cell_prepped_fertilizer", [])
+	for i: int in range(mini(fert.size(), cell_count)):
+		cell_prepped_fertilizer[i] = str(fert[i])
+	var lock: Array = data.get("cell_seed_lock", [])
+	for i: int in range(mini(lock.size(), cell_count)):
+		cell_seed_lock[i] = str(lock[i])
+
+	for key: String in data.get("plants", {}):
+		var i: int = int(key)
+		if i < 0 or i >= cell_count:
+			continue
+		var pd: Dictionary = data["plants"][key]
+		var plant_type: String = str(pd.get("plant_type", planted_type[i]))
+		var plant: FarmPlant = FarmPlant.new()
+		add_child(plant)
+		plant.setup(self, i, plant_type)
+		plant.position = Vector3(_cell_local_x(i), SOIL_LAYER_Y, 0.0)
+		plant_refs[i] = plant
+		plant.progress = float(pd.get("progress", 0.0))
+		plant.health   = float(pd.get("health", 100.0))
+		plant.fertilizer_bonus = float(pd.get("fertilizer_bonus", 0.0))
+		plant.fertilizer_tier  = str(pd.get("fertilizer_tier", ""))
+		plant._hours_without_light = int(pd.get("hours_without_light", 0))
+		plant._warned_low_health   = bool(pd.get("warned_low_health", false))
 
 func _cell_local_x(cell_index: int) -> float:
 	if cell_count == 1:

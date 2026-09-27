@@ -4,7 +4,7 @@ extends Node
 ## screen (scenes/ui/character_creation/CharacterCreation.tscn), read by
 ## PlayerModelController.gd at _ready() for any instance with
 ## use_character_creation_data = true (Player.tscn's PlayerModel/
-## PlayerModelShadow nodes, and the creation screen's own live preview
+## PlayerModel node and the creation screen's own live preview
 ## instance). NPCs never read this — nothing about their appearance
 ## changes based on what the player picks for themselves.
 

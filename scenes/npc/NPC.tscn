@@ -18,10 +18,5 @@ script = ExtResource("1")
 transform = Transform3D(1.25, 0, 0, 0, 1.25, 0, 0, 0, 1.25, 0, 0, 0)
 randomize_gender = true
 
-[node name="CharacterModelShadow" parent="." instance=ExtResource("2_amodel")]
-transform = Transform3D(1.25, 0, 0, 0, 0.375, 0, 0, 0, 1.25, 0, 0, 0)
-is_shadow_only = true
-randomize_gender = true
-
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 shape = SubResource("CapsuleShape3D_npc1")

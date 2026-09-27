@@ -52,6 +52,17 @@ func _ready() -> void:
 	_build_collision()
 	_build_dish_visual()
 
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+func get_item_save_state() -> Dictionary:
+	return {"dish_name": dish_name, "fill": fill_value, "bonus": bonus_pct, "hydration": hydration_value}
+
+## Set pre-_ready so _build_dish_visual() picks the right model/scale.
+func apply_item_save_state(state: Dictionary) -> void:
+	dish_name        = str(state.get("dish_name", dish_name))
+	fill_value       = float(state.get("fill", fill_value))
+	bonus_pct        = float(state.get("bonus", bonus_pct))
+	hydration_value  = float(state.get("hydration", hydration_value))
+
 ## Picks and loads this dish's visual model, once, at spawn. Soup-like
 ## names (see SOUP_LIKE_NAME_KEYWORDS) always win regardless of hydration
 ## — checked first. Otherwise falls through to the water/no-water pool.

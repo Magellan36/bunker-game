@@ -30,6 +30,10 @@ The screen is intentionally split into two stable regions:
 - Settings continue to apply live. Slider values are also persisted when the
   panel closes, covering controller and keyboard adjustments that do not emit a
   mouse `drag_ended` signal.
+- Reduced UI Motion lives with Camera view-comfort settings and writes only the
+  shared presentation preference. It makes UI fades, content transitions,
+  preview swaps, and meter easing immediate without changing gameplay state or
+  quality presets.
 - The mouse mode that existed before opening the submenu is restored on close,
   so returning to the Pause Menu keeps its cursor usable.
 

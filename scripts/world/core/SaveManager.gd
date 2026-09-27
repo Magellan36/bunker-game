@@ -5,7 +5,7 @@ extends Node
 ## Name it exactly: SaveManager  (register AFTER WorldManager)
 ##
 ## DESIGN — pluggable field registry:
-## Any system (PlayerStats, MainWorld cash, later: power grid, inventory,
+## Any system (PlayerStats, MainWorld cash, power grid, inventory,
 ## placed objects...) registers itself with a string key + a getter Callable +
 ## a setter Callable. SaveManager itself never hardcodes what a "save" contains
 ## — it just asks every registered field for its current value on save, and
@@ -13,15 +13,18 @@ extends Node
 ## persisted system later is ~2 lines at the call site (register_field), with
 ## ZERO changes needed here.
 ##
-## CURRENT FIELDS WIRED (deliberately minimal per project decision — power
-## grid / inventory / placed objects are still evolving fast and are NOT
-## persisted yet):
-##   "player_position" — Vector3, player.global_position
-##   "cash"             — int,     MainWorld._cash
-##   "game_elapsed"      — float,   PlayerStats._elapsed (day/hour/minute derive
-##                          from this automatically on load)
-## MainWorld._ready() calls register_field() for each of these once its nodes
-## exist — see MainWorld.gd "Save/Load field registration" section.
+## FIELDS ARE REGISTERED BY THEIR OWNING SYSTEMS (see MainWorld._register_save_fields()
+## for the full, current list). As of the Save/Load overhaul the field set is:
+##   Phase 0 — dug_chunks
+##   Phase 1 — placed_objects (devices + per-device extra, incl. storage
+##             contents / farming trays / purifier filter)
+##   Phase 2 — player_wires, water_hookup (upgrade tier/quality + position)
+##   Phase 3 — water_pipes (incl. purifier nodes)
+##   Phase 4 — player_position, cash, game_elapsed, npcs, player_survival,
+##             medical_conditions, player_inventory, research,
+##             moved_level_objects, world_items, zone_customization
+## Register fields from the owning system's _ready() — don't add fields
+## directly inside this file.
 ##
 ## FORWARD COMPATIBILITY: load_game() looks up each key present in the save
 ## file and calls the matching registered setter if one exists; unknown/
@@ -66,7 +69,8 @@ func slot_exists(slot: int) -> bool:
 	return FileAccess.file_exists(SAVE_PATH_FORMAT % slot)
 
 ## Returns a small metadata dict for UI display without loading the full save:
-##   { "exists": bool, "timestamp": String, "day": int, "time_display": String }
+##   { "exists": bool, "timestamp": String, "day": int, "time_display": String,
+##     "gender": String }   (gender is "" for saves made before Sep 2026)
 ## Returns { "exists": false } if the slot is empty or unreadable.
 func get_slot_info(slot: int) -> Dictionary:
 	if not slot_exists(slot):
@@ -86,6 +90,7 @@ func get_slot_info(slot: int) -> Dictionary:
 		"timestamp":    meta.get("timestamp", "?"),
 		"day":          meta.get("day", 1),
 		"time_display": meta.get("time_display", "?"),
+		"gender":       meta.get("gender", ""),
 	}
 
 ## Gathers every registered field's current value, writes it to the given slot
@@ -104,6 +109,9 @@ func save_game(slot: int) -> bool:
 	## Metadata for slot-picker UI (day/time snapshot + real-world timestamp).
 	var meta: Dictionary = {
 		"timestamp": Time.get_datetime_string_from_system(false, true),
+		## The player body is chosen before MainWorld exists, so the main menu
+		## restores it from here before loading the world (Sep 2026).
+		"gender": CharacterCreationData.gender,
 	}
 	var stats: Node = get_tree().get_first_node_in_group("player_stats")
 	if stats != null:

@@ -1,5 +1,7 @@
 extends Node3D
 class_name BuildModeController
+
+signal navigation_topology_changed()
 ## BuildModeController.gd
 ## Manages all build-mode logic: ghost preview, grid snapping, placement,
 ## deconstruction, duplication, move, and undo.
@@ -65,10 +67,9 @@ const BUILD_STATION_EXIT_REACH: float = 2.5
 
 # ─── Tile IDs (must match BunkerLayout / BuildModeHUD) ────────────────────────
 # ─── Debug ────────────────────────────────────────────────────────────────────
-## Flip false to silence all [Undo]/[AdminSpawn]/[Build] diagnostic prints.
-const WIRE_DEBUG: bool = true
+## Gated by DebugOutput.enabled (F7 "Disable All Debug Outputs").
 func _wdbg(msg: String) -> void:
-	if WIRE_DEBUG:
+	if DebugOutput.enabled:
 		print(msg)
 
 const TILE_FLOOR:    int = 0
@@ -110,6 +111,14 @@ const TILE_DRESSER:      int = 33   ## Dresser, 2×1 footprint, 6-item light sto
 const TILE_TRASH_CAN:    int = 36   ## Trash can, 1×1 footprint, 10-item light storage, empties into a Trash Bag (Furniture)
 const TILE_BUILD_STATION: int = 37   ## Singleton, spawns at world center, never purchasable/deconstructable, movable only
 const TILE_RESEARCH_STATION: int = 38   ## Singleton, spawns at world center, never purchasable/deconstructable, movable only
+const TILE_BUNKER_DOOR: int = 39   ## 1.8m double sliding door cut into a full-height player wall
+const TILE_CARPET_1:     int = 40   ## Carpet #1 — decorative flat floor rug (Carpet_1 GLB), Furniture
+const TILE_CARPET_2:     int = 41   ## Carpet #2 — decorative flat floor rug (Carpet_2 GLB), Furniture
+const TILE_CARPET_3:     int = 42   ## Carpet #3 — decorative round floor rug (Carpet_Round GLB), Furniture
+const TILE_DRAWERS_1:    int = 43   ## Drawers #1 — decorative kitchen drawer unit (Kitchen_1Drawers GLB), Furniture
+const TILE_DRAWERS_2:    int = 44   ## Drawers #2 — decorative kitchen drawer unit (Kitchen_2Drawers GLB), Furniture
+const TILE_DRAWERS_3:    int = 45   ## Drawers #3 — decorative kitchen drawer unit (Kitchen_3Drawers GLB), Furniture
+const TILE_SINK:         int = 46   ## Sink — decorative kitchen sink (Kitchen_Sink GLB), Furniture
 
 ## Farming toolbar tool (Jul 2026) — mirrors BuildModeHUD.TOOL_FARMING. A
 ## genuinely different code path: buy → spawn near player, no ghost preview,
@@ -125,12 +134,21 @@ const TOOL_FARMING: int = 7
 ## hand-typed literal (Polish Plan Group 0 item 20).
 const WALL_HEIGHT_M: float = 3.0
 
+## Bunker wall thickness (world units) — matches WallDrawMode.WALL_THICKNESS
+## ("Confirmed from tile_set.tscn's BoxMesh"). Kept here so the shared
+## stretched-wall constructor (_spawn_wall_run) can build placement- and
+## restore-identical geometry without depending on WallDrawMode's constant.
+const WALL_THICKNESS: float = 0.3
+
 ## Grow lights sit "near wall-height" per the Farming System plan — high
 ## enough to read as ceiling-mounted shop lighting. Polish Plan Group 0 item
 ## 20: revised to 7/8 wall height (2.625m) — now sits slightly BELOW the
 ## 3.2m pipe layer (WATER_HOOKUP_PLACEMENT_Y/WATER_CEILING_Y), a visual-only
 ## change to eyeball once placed, not a functional conflict.
-const GROW_LIGHT_PLACEMENT_Y: float = WALL_HEIGHT_M * 7.0 / 8.0
+## Raised 1.25x (Sep 2026, after the hand-made OBJ swap) — the fixture's
+## baked-in ceiling-mount panels run UP from the node, so the node sits
+## higher on the Y axis to keep the lit tubes reading as ceiling-mounted.
+const GROW_LIGHT_PLACEMENT_Y: float = WALL_HEIGHT_M * 7.0 / 8.0 * 1.25
 
 ## Y height at which player-placed objects sit (world units).
 ## Matches the GridMap PLACEMENT_ROW height so free objects align with
@@ -248,6 +266,8 @@ var _ghost_world_pos: Vector3 = Vector3.ZERO
 ## confirm, instead of re-searching with a possibly slightly different cursor
 ## position between the ghost-preview frame and the click frame.
 var _ghost_purifier_candidate: Dictionary = {}
+var _ghost_door_candidate: Dictionary = {}
+var _move_door_candidate: Dictionary = {}
 
 # ─── Rock hover state ─────────────────────────────────────────────────────────
 ## Chunk currently under the cursor in Deconstruct mode (sentinel = (-9999,-9999))
@@ -279,7 +299,14 @@ var _connectable_dots: Dictionary = {}
 ##   player_placed: bool           — true = player built it (can modify); false = level pregen/autofill (locked)
 ## }
 var _placed_objects: Array[Dictionary] = []
+var _navigation_topology_revision: int = 0
 
+func notify_navigation_topology_changed() -> void:
+	_navigation_topology_revision += 1
+	navigation_topology_changed.emit()
+
+func get_navigation_topology_revision() -> int:
+	return _navigation_topology_revision
 
 ## Read-only snapshot for BunkerNavMesh (NPC Pass 2, Part 1): one entry per
 ## live placed object — {pos: Vector3, half: Vector2, angle_deg: float}.
@@ -290,12 +317,47 @@ var _placed_objects: Array[Dictionary] = []
 ## without deep-comparing arrays.
 func get_nav_obstacle_snapshot() -> Dictionary:
 	var list: Array = []
-	var fingerprint: int = 0
+	var fingerprint_parts: PackedStringArray = []
 	for entry: Dictionary in _placed_objects:
 		var node: Node3D = entry.get("node")
 		if node == null or not is_instance_valid(node):
 			continue
 		var tile_id: int   = entry.get("tile_id", -1)
+		## A door opening replaces part of its host wall for both physics and
+		## navigation. Emit the remaining wall intervals rather than the original
+		## full run; the door entry below blocks the opening only while closed.
+		if tile_id == TILE_WALL and BunkerDoor.has_active_doors(node):
+			var wall_half: Vector2 = entry.get("footprint", Vector2(0.15, 0.5))
+			var cuts: Array[Vector2] = []
+			for raw_door: Variant in node.get_meta("_bunker_door_cuts", []):
+				if raw_door == null or not is_instance_valid(raw_door):
+					continue
+				var door_node := raw_door as Node3D
+				var local_z := node.to_local(door_node.global_position).z
+				cuts.append(Vector2(local_z - BunkerDoor.WALL_CUT_WIDTH * 0.5,
+					local_z + BunkerDoor.WALL_CUT_WIDTH * 0.5))
+			cuts.sort_custom(func(a: Vector2, b: Vector2) -> bool: return a.x < b.x)
+			var cursor := -wall_half.y
+			for cut: Vector2 in cuts:
+				if cut.x > cursor + 0.01:
+					var segment_mid := (cursor + cut.x) * 0.5
+					var segment_pos := node.to_global(Vector3(0.0, 0.0, segment_mid))
+					list.append({"pos": segment_pos, "half": Vector2(wall_half.x, (cut.x - cursor) * 0.5),
+						"angle_deg": float(entry.get("angle_deg", 0.0))})
+				cursor = maxf(cursor, cut.y)
+			if cursor < wall_half.y - 0.01:
+				var tail_mid := (cursor + wall_half.y) * 0.5
+				var tail_pos := node.to_global(Vector3(0.0, 0.0, tail_mid))
+				list.append({"pos": tail_pos, "half": Vector2(wall_half.x, (wall_half.y - cursor) * 0.5),
+					"angle_deg": float(entry.get("angle_deg", 0.0))})
+			fingerprint_parts.append("wall:%d:%.3f:%.3f:%.3f:%d" % [node.get_instance_id(),
+				node.global_position.x, node.global_position.z, node.rotation.y, cuts.size()])
+			continue
+		if tile_id == TILE_BUNKER_DOOR and node.has_method("get_npc_portal_info") \
+				and bool((node.call("get_npc_portal_info") as Dictionary).get("open", false)):
+			fingerprint_parts.append("door_open:%d:%.3f:%.3f:%.3f" % [node.get_instance_id(),
+				node.global_position.x, node.global_position.z, node.rotation.y])
+			continue
 		var half: Vector2  = _tile_half_extents(tile_id)
 		if half.x < 0.05: half.x = 0.05
 		if half.y < 0.05: half.y = 0.05
@@ -305,8 +367,48 @@ func get_nav_obstacle_snapshot() -> Dictionary:
 			"half":      half,
 			"angle_deg": float(entry.get("angle_deg", 0.0)),
 		})
-		fingerprint += 1 + int(pos.x * 7.0) + int(pos.z * 131.0) + tile_id * 17
-	return {"obstacles": list, "fingerprint": fingerprint}
+		fingerprint_parts.append("object:%d:%d:%.3f:%.3f:%.3f:%.3f:%.3f" % [
+			node.get_instance_id(), tile_id, pos.x, pos.z, node.rotation.y, half.x, half.y])
+	fingerprint_parts.sort()
+	return {"obstacles": list, "fingerprint": "|".join(fingerprint_parts).hash()}
+
+## Dynamic shadow gate (Sep 2026, "classic" two-layer split) — Layer 2 of the
+## split. Lights ALWAYS cast (Layer 1), so static walls/pillars/floor/ceiling
+## always occlude them and the hard wall/corner cutoff is present at every
+## quality. This gate makes every DYNAMIC mesh in the world follow the quality
+## setting instead: when GraphicsSettings.shadow_casting_enabled is OFF
+## (LOW/MEDIUM) all placed-object, loose-item (crate/case/fuel-can/etc.) and
+## non-structural meshes get cast_shadow = OFF, so the only shadows are the
+## structural wall ones; when ON (HIGH/ULTRA) each mesh's authored cast_shadow
+## is restored (captured as ints, losslessly — authored-OFF surfaces like
+## glass lamp shades stay correct). Excluded from gating (always cast):
+## walls/pillars/doors (static blockers), the GridMap (no MeshInstance3D
+## children), and characters (player/NPC — gated separately by
+## AdventurerModelController, which also hides the shadow silhouette).
+## Triggered by GraphicsSettings.settings_changed. New objects register at
+## their spawn site, so this is an O(placed objects) settings-change pass—not
+## a periodic recursive walk over the entire live world.
+func _apply_dynamic_shadow_gate() -> void:
+	for entry: Dictionary in _placed_objects:
+		var tid: int = int(entry.get("tile_id", -1))
+		if _is_static_blocker_tile(tid):
+			continue
+		var node: Node = entry.get("node") as Node
+		if node != null and is_instance_valid(node):
+			GraphicsSettings.register_dynamic_shadow_root(node)
+
+## Applies the current dynamic-shadow setting to a SINGLE newly placed object
+## immediately at spawn. Only called for non-wall/pillar/door tiles (walls
+## always cast); registration also makes later settings changes event-driven.
+func _apply_dynamic_shadow_to_node(node: Node3D) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	GraphicsSettings.register_dynamic_shadow_root(node)
+
+## True for the always-cast static blocker tiles (never gated).
+func _is_static_blocker_tile(tile_id: int) -> bool:
+	return tile_id == TILE_WALL or tile_id == TILE_HALF_WALL or tile_id == TILE_QUARTER_WALL \
+		or tile_id == TILE_PILLAR or tile_id == TILE_BUNKER_DOOR
 
 
 # ─── Undo stack ───────────────────────────────────────────────────────────────
@@ -366,6 +468,7 @@ var _mat_floor:   StandardMaterial3D = null
 
 # ─── Hover tracking for Duplicate / Move tools ────────────────────────────────
 var _hovered_placed_body: Node3D = null
+var _hover_material: Material = null
 
 ## Cache of per-surface override materials captured just before hover glow is applied.
 ## Key: "{MeshInstance3D instance_id}_{surface_index}" → StandardMaterial3D (or null)
@@ -403,6 +506,7 @@ func _ready() -> void:
 	## is_active state directly instead of waiting for the next enter/exit
 	## group broadcast — see WaterPipeSegment._is_build_mode_active().
 	add_to_group("build_mode_controller")
+	add_to_group("navigation_topology_source")
 	_materials = BuildMaterials.new(self)
 	_undo_manager = BuildUndoStack.new(self)
 	_ghost_preview = GhostPreview.new(self)
@@ -424,11 +528,22 @@ func _ready() -> void:
 	if pm != null and not pm.zone_color_changed.is_connected(_on_zone_color_changed):
 		pm.zone_color_changed.connect(_on_zone_color_changed)
 
+	## Dynamic shadow roots register at their spawn paths. GraphicsSettings owns
+	## the compact registry and reapplies it directly on a settings change.
+
 func _on_zone_color_changed(_zone_key: String) -> void:
 	_recolor_wire_zones()
 
 # ─── Activation ───────────────────────────────────────────────────────────────
 func enter_build_mode() -> void:
+	_close_unrelated_ui()
+	## Resolve through the shared prompt group as well as the injected handle.
+	## This covers scene-order handoffs where Build can open before MainWorld's
+	## late reference injection and guarantees every prompt renderer is cleared.
+	get_tree().call_group("interact_prompt", "dismiss_for_build_mode")
+	if interact_prompt != null and not interact_prompt.is_in_group("interact_prompt") \
+			and interact_prompt.has_method("dismiss_for_build_mode"):
+		interact_prompt.call("dismiss_for_build_mode")
 	is_active = true
 	_ghost_active = false
 	## Build sessions intentionally reopen on the Construct workspace instead
@@ -472,8 +587,25 @@ func enter_build_mode() -> void:
 	## the player opens the build panel, regardless of registration timing.
 	call_deferred("_recolor_wire_zones")
 
+func _close_unrelated_ui() -> void:
+	## Build is an exclusive workspace. Ask every other active UI to run its
+	## own close path so gameplay ownership changes immediately while its
+	## approved short exit fade remains intact.
+	for navigation: Node in get_tree().get_nodes_in_group("controller_ui_nav"):
+		if not navigation.has_method("is_active") or not bool(navigation.call("is_active")):
+			continue
+		var surface: Node = navigation.get("ui_root") as Node
+		var belongs_to_build := surface == build_hud \
+			or (build_hud != null and is_instance_valid(surface) and build_hud.is_ancestor_of(surface))
+		if not belongs_to_build and navigation.has_method("request_close"):
+			navigation.call("request_close")
+
 func exit_build_mode() -> void:
 	is_active = false
+	get_tree().call_group("interact_prompt", "resume_after_build_mode")
+	if interact_prompt != null and not interact_prompt.is_in_group("interact_prompt") \
+			and interact_prompt.has_method("resume_after_build_mode"):
+		interact_prompt.call("resume_after_build_mode")
 	## Aug 2026 — clean handoff of prompt ownership back to
 	## InteractionSystem (its _process() resumes driving `prompt` the moment
 	## build mode ends). Without this, the Build Station exit prompt could
@@ -482,7 +614,7 @@ func exit_build_mode() -> void:
 		interact_prompt.hide_prompt()
 	_cancel_ghost()
 	_cancel_move()
-	_clear_hover_glow()
+	_clear_deconstruct_highlights()
 
 	if _active_tool == TOOL_WIRE and _wire_draw_mode != null:
 		_wire_draw_mode.deactivate()
@@ -573,7 +705,7 @@ func _on_tool_selected(tool_id: int) -> void:
 	_active_tool = tool_id
 	_cancel_ghost()
 	_cancel_move()
-	_clear_hover_glow()
+	_clear_deconstruct_highlights()
 
 	# Activate wire draw mode when switching to it
 	if tool_id == TOOL_WIRE and _wire_draw_mode != null:
@@ -678,7 +810,13 @@ func _on_cancel_requested() -> void:
 		_cancel_move_confirm()
 
 func _on_undo_requested() -> void:
+	## Undo is allowed to coexist with an ordinary construct ghost, but never
+	## with a half-finished move selection or stale hover material state.
+	_cancel_move()
+	_clear_deconstruct_highlights()
 	_undo()
+	if _wall_draw_active and _wall_draw_mode != null:
+		_wall_draw_mode.call("_refresh_pillar_connection_dots")
 
 func _on_dig_confirmed() -> void:
 	## Player confirmed the rock dig — spend cash and dig
@@ -719,7 +857,7 @@ func _refresh_connectable_dots() -> void:
 
 	## Connectable tile IDs — generators, terminal, wall lights, water hookup/sink/dispenser
 	const CONNECTABLE_TILES: Array[int] = [
-		TILE_GEN_S, TILE_GEN_M, TILE_GEN_L, TILE_TERMINAL, TILE_LIGHT,
+		TILE_GEN_S, TILE_GEN_M, TILE_GEN_L,
 		TILE_WATER_HOOKUP, TILE_WATER_SINK, TILE_WATER_DISPENSER,
 		TILE_TRAY_SINGLE, TILE_TRAY_DOUBLE, TILE_GROW_LIGHT_NORMAL, TILE_GROW_LIGHT_PRO,
 		TILE_STOVE
@@ -774,6 +912,13 @@ func _refresh_connectable_dots() -> void:
 			dot_x = 0.0
 		dot_mi.position = Vector3(dot_x, dot_y, 0.0)
 		obj.add_child(dot_mi)
+		if tile_id in [TILE_GEN_S, TILE_GEN_M, TILE_GEN_L, TILE_GROW_LIGHT_NORMAL, TILE_GROW_LIGHT_PRO, TILE_STOVE]:
+			var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+			if pm != null:
+				for data: Dictionary in pm.get_wire_nodes():
+					if data.get("device_id", "") == str(obj.get_instance_id()):
+						dot_mi.global_position = data["pos"]
+						break
 		_connectable_dots[obj] = dot_mi
 
 func _clear_connectable_dots() -> void:
@@ -828,27 +973,14 @@ func _process(_delta: float) -> void:
 	else:
 		_rt_held = false
 
-	## Build Station exit prompt — the ONLY prompt visible during build
-	## mode, by design. InteractionSystem's own prompt logic is fully
-	## inert while build mode is active (see its _process() — it returns
-	## immediately without touching `prompt` at all now, see the
-	## InteractionSystem.gd coordination note below), so this is the sole
-	## owner of `interact_prompt` for the entire duration of build mode.
+	## Build Station proximity still reserves the controller exit action, but
+	## Build Mode no longer publishes a world interaction prompt. The Build HUD
+	## is the sole visual surface while this workspace is open.
 	var in_reach: bool = false
 	if build_station != null and is_instance_valid(build_station):
 		var player_node: Node3D = get_parent()
 		var dist: float = player_node.global_position.distance_to(build_station.global_position)
 		in_reach = dist <= BUILD_STATION_EXIT_REACH
-		if interact_prompt != null:
-			if in_reach:
-				interact_prompt.set_prompts([{
-					"text":      "[E] Close Build Mode",
-					"world_pos": build_station.global_position + Vector3(0.0, 1.1, 0.0),
-					"dist":      dist,
-					"icons":     [],
-				}])
-			else:
-				interact_prompt.hide_prompt()
 	## Controller (Aug 2026) — tell the HUD whether A is reserved for
 	## "Exit Build Mode", so its A branch lets the press fall through to
 	## the exit check in _unhandled_input instead of acting on the menu.
@@ -861,22 +993,23 @@ func _process(_delta: float) -> void:
 	if _ghost_active:
 		_update_ghost()
 
-	# ── Deconstruct overlay ──
+	# ── Deconstruct target highlight ──
 	if _active_tool == 1 and build_hud != null:
 		# Don't update hover while a confirm dialog is pending
 		if build_hud.dig_confirm_open:
 			pass
 		else:
 			var body: Node3D = _get_hovered_placed_body()
-
-			## If the hovered body is a pregen structure, suppress the red box entirely
-			## and fall through to wire/rock checks — pregen objects cannot be deconstructed.
-			if body != null and body.has_meta("_is_pregen"):
+			var body_entry: Dictionary = _placed_entry_for(body)
+			var blocked_body: bool = body != null and not _entry_supports_tool(body_entry, 1)
+			## Only show the destructive red treatment when the click can actually
+			## delete the target. Locked level geometry and singleton stations stay
+			## visually neutral instead of advertising an action that will be refused.
+			if blocked_body:
 				body = null
 
 			if body != null:
-				## Player-built object — show HUD red box overlay.
-				build_hud.hovered_deconstruct_cell        = body.global_position
+				_set_hover_highlight(body, _mat_invalid)
 				build_hud.hovered_rock_chunk_world_pos    = Vector3(-9999.0, -9999.0, -9999.0)
 				_hovered_rock_chunk   = Vector2i(-9999, -9999)
 				## If we were previously highlighting a wire/pipe segment, clear it.
@@ -888,6 +1021,20 @@ func _process(_delta: float) -> void:
 					_hovered_pipe_segment.set_highlight_delete(false)
 				_hovered_pipe_segment = null
 			else:
+				_clear_hover_glow()
+				## A locked object under the cursor is an intentional interaction
+				## barrier. Do not target a wire, pipe, or rock through its mesh.
+				if blocked_body:
+					if _hovered_wire_segment != null and is_instance_valid(_hovered_wire_segment) \
+							and _hovered_wire_segment.has_method("set_highlight_delete"):
+						_hovered_wire_segment.set_highlight_delete(false)
+					_hovered_wire_segment = null
+					if _hovered_pipe_segment != null and is_instance_valid(_hovered_pipe_segment):
+						_hovered_pipe_segment.set_highlight_delete(false)
+					_hovered_pipe_segment = null
+					_hovered_rock_chunk = Vector2i(-9999, -9999)
+					build_hud.hovered_rock_chunk_world_pos = Vector3(-9999.0, -9999.0, -9999.0)
+					return
 				## Check for hovered wire segment before falling through to pipe/rock.
 				var new_wire: Node3D = _get_hovered_wire_segment()
 
@@ -914,12 +1061,10 @@ func _process(_delta: float) -> void:
 						_hovered_pipe_segment.set_highlight_delete(true)
 
 				if _hovered_wire_segment != null or _hovered_pipe_segment != null:
-					## Wire/pipe is hovered — suppress the HUD red box (the segment itself glows red).
-					build_hud.hovered_deconstruct_cell        = Vector3(-9999.0, -9999.0, -9999.0)
+					## Wire/pipe is hovered — the segment itself glows red.
 					build_hud.hovered_rock_chunk_world_pos    = Vector3(-9999.0, -9999.0, -9999.0)
 					_hovered_rock_chunk = Vector2i(-9999, -9999)
 				else:
-					build_hud.hovered_deconstruct_cell = Vector3(-9999.0, -9999.0, -9999.0)
 					_hovered_rock_chunk = _get_hovered_rock_chunk()
 					if _hovered_rock_chunk != Vector2i(-9999, -9999) and rock_surround != null:
 						build_hud.hovered_rock_chunk_world_pos = rock_surround.get_chunk_center(_hovered_rock_chunk)
@@ -927,7 +1072,6 @@ func _process(_delta: float) -> void:
 						build_hud.hovered_rock_chunk_world_pos = Vector3(-9999.0, -9999.0, -9999.0)
 						_hovered_rock_chunk = Vector2i(-9999, -9999)
 	elif build_hud != null:
-		build_hud.hovered_deconstruct_cell        = Vector3(-9999.0, -9999.0, -9999.0)
 		build_hud.hovered_rock_chunk_world_pos    = Vector3(-9999.0, -9999.0, -9999.0)
 		_hovered_rock_chunk    = Vector2i(-9999, -9999)
 		## Clear any lingering wire/pipe highlight when leaving deconstruct mode.
@@ -941,33 +1085,19 @@ func _process(_delta: float) -> void:
 
 	# ── Duplicate hover glow ──
 	if _active_tool == 2:
-		_update_hover_glow()
-		if build_hud != null:
-			if _hovered_placed_body != null:
-				build_hud.hovered_dupe_rotate_pos = _hovered_placed_body.global_position
-			else:
-				build_hud.hovered_dupe_rotate_pos = Vector3(-9999.0, -9999.0, -9999.0)
+		_update_hover_glow(_mat_hover, 2)
 
 	# ── Move tool (tool 3) ──
 	elif _active_tool == 3:
 		if _move_phase == 0:
 			# Phase 0: just hover glow, like Duplicate
-			_update_hover_glow()
-			if build_hud != null:
-				if _hovered_placed_body != null:
-					build_hud.hovered_dupe_rotate_pos = _hovered_placed_body.global_position
-				else:
-					build_hud.hovered_dupe_rotate_pos = Vector3(-9999.0, -9999.0, -9999.0)
+			_update_hover_glow(_mat_hover, 3)
 		elif _move_phase == 1:
 			# Phase 1: move ghost follows cursor snap grid
 			_update_move_ghost()
-			if build_hud != null:
-				build_hud.hovered_dupe_rotate_pos = Vector3(-9999.0, -9999.0, -9999.0)
 
 	else:
 		_clear_hover_glow()
-		if build_hud != null:
-			build_hud.hovered_dupe_rotate_pos = Vector3(-9999.0, -9999.0, -9999.0)
 
 # ─── Input ────────────────────────────────────────────────────────────────────
 ## Builds a synthetic left-mouse-button press at the current cursor position
@@ -1257,9 +1387,15 @@ func _setup_wall_draw_mode() -> void:
 	add_child(_wall_draw_mode)
 	_wall_draw_mode.set("build_controller", self)
 	if _wall_draw_mode.has_signal("wall_placed"):
-		_wall_draw_mode.wall_placed.connect(_push_undo_place)
+		_wall_draw_mode.wall_placed.connect(_on_drawn_wall_placed)
 	if _wall_draw_mode.has_signal("wall_tool_exit_requested"):
 		_wall_draw_mode.wall_tool_exit_requested.connect(_on_wall_tool_exit_requested)
+
+func _on_drawn_wall_placed(body: Node3D, tile_id: int, price: int,
+		pos: Vector3, _angle_deg: float) -> void:
+	## The signal's fifth value is yaw; undo's fifth value is a zone snapshot.
+	## Placement undo removes the body, whose rotation is already committed.
+	_push_undo_place(body, tile_id, price, pos)
 
 func _update_wall_draw_refs() -> void:
 	if _wall_draw_mode == null:
@@ -1344,6 +1480,9 @@ func _is_inside_bunker(pos: Vector3, half_extent: Vector2 = Vector2.ZERO) -> boo
 # ─── Construct ────────────────────────────────────────────────────────────────
 func _try_construct() -> void:
 	if not _ghost_valid or gridmap == null:
+		if _selected_tile == TILE_BUNKER_DOOR and not _ghost_door_candidate.is_empty():
+			_show_hud_warning(String(_ghost_door_candidate.get("reason", "Door requires a player-built wall")))
+			return
 		if _ghost_blocked_by_occupation:
 			_show_hud_warning("Space is already occupied")
 		return
@@ -1358,7 +1497,7 @@ func _try_construct() -> void:
 			return
 
 	# B5 debug — print tray spawn Y so we can see if it's floating
-	if _selected_tile == TILE_TRAY_SINGLE or _selected_tile == TILE_TRAY_DOUBLE:
+	if DebugOutput.enabled and (_selected_tile == TILE_TRAY_SINGLE or _selected_tile == TILE_TRAY_DOUBLE):
 		print("Tray spawn pos.y = ", _ghost_world_pos.y)
 
 	var placed_pos: Vector3 = _ghost_world_pos
@@ -1366,6 +1505,12 @@ func _try_construct() -> void:
 	var body: Node3D = _spawn_placed_object(
 		_selected_tile, placed_pos, _current_angle_deg
 	)
+	if body == null:
+		if world_node != null:
+			world_node.add_cash(_selected_tile_price)
+		return
+	if _selected_tile == TILE_BUNKER_DOOR:
+		body.call("install_on_wall", _ghost_door_candidate.get("wall"), placed_pos, _current_angle_deg)
 
 	var entry: Dictionary = {
 		"node":          body,
@@ -1377,6 +1522,14 @@ func _try_construct() -> void:
 		"footprint":     _tile_half_extents(_selected_tile),
 	}
 	_placed_objects.append(entry)
+	notify_navigation_topology_changed()
+
+	## Gate this object's dynamic shadows immediately so it never shows a
+	## shadow during the world-walk gate's 1s throttle window (Layer 2 off =
+	## objects must be shadow-free from the instant they appear). Walls/
+	## pillars/doors are static blockers — always cast, never gated.
+	if not _is_static_blocker_tile(_selected_tile):
+		_apply_dynamic_shadow_to_node(body)
 
 	## If this is a connectable tile, add its dot immediately (no full refresh needed).
 	const CONNECTABLE_TILES_QUICK: Array[int] = [
@@ -1417,8 +1570,56 @@ func _try_construct() -> void:
 		var snap_for_recolor: Dictionary = pre_place_color_snap.duplicate()
 		call_deferred("_restore_then_recolor", snap_for_recolor)
 
+## Shared stretched-wall constructor — the SINGLE place a drawn wall run is
+## built. Used by BOTH WallDrawMode._confirm_wall() (live placement) and
+## restore_placed_objects() (save/load), so a reloaded wall reconstructs at
+## its exact saved run length instead of collapsing to a single 1×1 cell.
+## Builds a StaticBody3D with a stretched BoxMesh + matching BoxShape3D at the
+## run's midpoint, rotated to the run angle. Height follows the tile tier
+## (full / half / quarter). Adds to the world and positions it.
+func _spawn_wall_run(tile_id: int, midpoint: Vector3, angle_deg: float, run_length: float) -> Node3D:
+	var height: float = WALL_HEIGHT_M
+	if tile_id == TILE_HALF_WALL:
+		height *= 0.5
+	elif tile_id == TILE_QUARTER_WALL:
+		height *= 0.25
+
+	var body: StaticBody3D = StaticBody3D.new()
+	body.collision_layer = 5
+	body.collision_mask  = 0
+	var mi: MeshInstance3D = MeshInstance3D.new()
+	var box: BoxMesh = BoxMesh.new()
+	box.size = Vector3(WALL_THICKNESS, height, run_length)
+	mi.mesh = box
+	mi.position = Vector3(0.0, height * 0.5, 0.0)   ## bottom at body-local-0
+	body.add_child(mi)
+	var cshape: CollisionShape3D = CollisionShape3D.new()
+	var box_shape: BoxShape3D = BoxShape3D.new()
+	box_shape.size = Vector3(WALL_THICKNESS, height, run_length)
+	cshape.shape = box_shape
+	cshape.position = mi.position
+	body.add_child(cshape)
+	body.set_meta("tile_id", tile_id)
+
+	var parent: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
+	parent.add_child(body)
+	body.global_position  = midpoint
+	body.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+	_apply_world_material(body, tile_id)   ## same wall material WallDrawMode used
+	return body
+
 func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3D:
 	## Creates the physics/mesh node at the given world position, rotated angle_deg around Y.
+	if tile_id == TILE_BUNKER_DOOR:
+		var door_script: GDScript = load("res://scripts/world/structure/BunkerDoor.gd") as GDScript
+		if door_script == null:
+			return null
+		var door: Node3D = door_script.new() as Node3D
+		var door_parent: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
+		door_parent.add_child(door)
+		door.global_position = pos
+		door.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+		return door
 
 	# ── Bed: scene-based node ──────────────────────────────────────────────────
 	if tile_id == TILE_BED:
@@ -1640,6 +1841,46 @@ func _spawn_placed_object(tile_id: int, pos: Vector3, angle_deg: float) -> Node3
 		poster_node.global_position  = pos
 		poster_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
 		return poster_node
+
+	# ── Carpets: script-based node, flat floor rug, ground-placed ─────────────
+	if tile_id == TILE_CARPET_1 or tile_id == TILE_CARPET_2 or tile_id == TILE_CARPET_3:
+		var carpet_script: GDScript = load("res://scripts/world/furniture/Carpet.gd")
+		var carpet_node: StaticBody3D = StaticBody3D.new()
+		if carpet_script != null:
+			carpet_node.set_script(carpet_script)
+		carpet_node.set("variant", tile_id - TILE_CARPET_1 + 1)
+		carpet_node.set_meta("tile_id", tile_id)
+		var carpet_par: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
+		carpet_par.add_child(carpet_node)
+		carpet_node.global_position  = pos
+		carpet_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+		return carpet_node
+
+	# ── Drawers / Sink: script-based nodes, floor-placed kitchen furniture ────
+	if tile_id == TILE_DRAWERS_1 or tile_id == TILE_DRAWERS_2 or tile_id == TILE_DRAWERS_3:
+		var drawers_script: GDScript = load("res://scripts/world/furniture/Drawers.gd")
+		var drawers_node: StaticBody3D = StaticBody3D.new()
+		if drawers_script != null:
+			drawers_node.set_script(drawers_script)
+		drawers_node.set("variant", tile_id - TILE_DRAWERS_1 + 1)
+		drawers_node.set_meta("tile_id", tile_id)
+		var drawers_par: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
+		drawers_par.add_child(drawers_node)
+		drawers_node.global_position  = pos
+		drawers_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+		return drawers_node
+
+	if tile_id == TILE_SINK:
+		var sink_script: GDScript = load("res://scripts/world/furniture/Sink.gd")
+		var sink_node: StaticBody3D = StaticBody3D.new()
+		if sink_script != null:
+			sink_node.set_script(sink_script)
+		sink_node.set_meta("tile_id", tile_id)
+		var sink_par: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
+		sink_par.add_child(sink_node)
+		sink_node.global_position  = pos
+		sink_node.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+		return sink_node
 
 	# ── Generators: script-based procedural node ─────────────────────────────
 	if tile_id == TILE_GEN_S or tile_id == TILE_GEN_M or tile_id == TILE_GEN_L:
@@ -1962,6 +2203,11 @@ const _EXTRA_STATE_TILES: Array[int] = [
 	TILE_BREAKER, TILE_BREAKER_SMART, TILE_HEAVY,
 	TILE_WATER_SINK, TILE_WATER_DISPENSER,
 	TILE_STOVE,
+	TILE_BUNKER_DOOR,
+	TILE_WATER_PURIFIER,
+	TILE_TRAY_SINGLE, TILE_TRAY_DOUBLE,
+	TILE_SHELVING, TILE_SMALL_SHELF, TILE_LARGE_SHELF,
+	TILE_END_TABLE, TILE_DRESSER, TILE_TRASH_CAN,
 ]
 
 ## Returns every player-placed object as a JSON-friendly array. Excludes
@@ -1984,13 +2230,21 @@ func get_placed_objects_for_save() -> Array:
 		var node: Node3D = entry.get("node")
 		if node == null or not is_instance_valid(node):
 			continue
-		out.append({
+		var entry_out: Dictionary = {
 			"tile_id":   tile_id,
 			"price":     entry.get("price", 0),
 			"pos":       SaveManager.vec3_to_dict(entry.get("world_pos", node.global_position)),
 			"angle_deg": entry.get("angle_deg", 0.0),
 			"extra":     _get_device_extra(node, tile_id),
-		})
+		}
+		## Player-drawn walls are STRETCHED runs (midpoint + run angle). The
+		## run length lives in the entry's footprint (Vector2(thickness/2,
+		## run_length/2)) and MUST round-trip, or a reloaded wall collapses to
+		## a single 1×1 cell — see restore_placed_objects()/_spawn_wall_run().
+		if tile_id in WALL_DRAW_TILES:
+			var fp: Vector2 = entry.get("footprint", Vector2(WALL_THICKNESS * 0.5, 1.0))
+			entry_out["run_length"] = maxf(fp.y * 2.0, 0.25)
+		out.append(entry_out)
 	return out
 
 ## Removes every currently player-placed object from the world (mid-session
@@ -1999,14 +2253,27 @@ func get_placed_objects_for_save() -> Array:
 ## actually frees them, same as normal deconstruct — no duplicate teardown
 ## logic needed here.
 func clear_all_player_placed() -> void:
+	var removed_any: bool = false
 	for i: int in range(_placed_objects.size() - 1, -1, -1):
 		var entry: Dictionary = _placed_objects[i]
 		if not entry.get("player_placed", false):
+			continue
+		## Level singletons (Build Station / Research Station / Water Hookup)
+		## are spawned by MainWorld at world start and excluded from the
+		## placed-objects save (get_placed_objects_for_save()), so they must
+		## NOT be torn down by a mid-session Load — they stay put and get
+		## relocated by their dedicated fields instead. (Pre-existing bug:
+		## without this guard a mid-session Load silently destroyed all three.)
+		var ttile: int = entry.get("tile_id", -1)
+		if ttile == TILE_BUILD_STATION or ttile == TILE_RESEARCH_STATION or ttile == TILE_WATER_HOOKUP:
 			continue
 		var node: Node = entry.get("node")
 		if node != null and is_instance_valid(node):
 			node.queue_free()
 		_placed_objects.remove_at(i)
+		removed_any = true
+	if removed_any:
+		notify_navigation_topology_changed()
 
 ## Rebuilds every player-placed object from get_placed_objects_for_save()'s
 ## output. Clears existing player-placed objects first (safe no-op on a
@@ -2020,15 +2287,37 @@ func restore_placed_objects(data: Array) -> void:
 		var tile_id: int = saved.get("tile_id", -1)
 		var pos: Vector3 = SaveManager.dict_to_vec3(saved.get("pos", {}))
 		var angle_deg: float = saved.get("angle_deg", 0.0)
-		var body: Node3D = _spawn_placed_object(tile_id, pos, angle_deg)
+		var body: Node3D = null
+		## Water purifier (Save/Load overhaul): the pipe it splits is restored
+		## LATER (phase 3), so the normal live candidate-search spawn (which
+		## needs an existing pipe segment) would fail here and drop the
+		## purifier entirely. Spawn the scene directly without graph insertion;
+		## restore_pipe_network() re-registers the purifier's graph node +
+		## edges and re-attaches this scene to its node key.
+		if tile_id == TILE_WATER_PURIFIER:
+			body = _spawn_purifier_for_restore(pos, angle_deg)
+		## Player-drawn walls are stretched runs (midpoint + run angle + length).
+		## Rebuild via the shared _spawn_wall_run() at the saved run length so
+		## they don't collapse to a 1×1 cell on reload. Old saves without a
+		## run_length fall back to the legacy single-cell spawn.
+		elif tile_id in WALL_DRAW_TILES:
+			var run_len: float = float(saved.get("run_length", 1.0))
+			body = _spawn_wall_run(tile_id, pos, angle_deg, run_len)
+		else:
+			body = _spawn_placed_object(tile_id, pos, angle_deg)
 		if body == null:
 			continue
 		## Measure the restored body's real footprint (walls store their run
 		## rectangle) so loaded walls keep full-length clearance.
 		var restored_fp: Vector2 = _tile_half_extents(tile_id)
-		var ba: AABB = _ghost_preview.measure_visual_aabb(body)
-		if ba != AABB():
-			restored_fp = Vector2(ba.size.x * 0.5, ba.size.z * 0.5)
+		if tile_id in WALL_DRAW_TILES:
+			## Exact run footprint — don't trust a re-measure of the stretched
+			## box, use the length we just rebuilt it at.
+			restored_fp = Vector2(WALL_THICKNESS * 0.5, float(saved.get("run_length", 1.0)) * 0.5)
+		else:
+			var ba: AABB = _ghost_preview.measure_visual_aabb(body)
+			if ba != AABB():
+				restored_fp = Vector2(ba.size.x * 0.5, ba.size.z * 0.5)
 		_placed_objects.append({
 			"node":          body,
 			"tile_id":       tile_id,
@@ -2038,6 +2327,7 @@ func restore_placed_objects(data: Array) -> void:
 			"player_placed": true,
 			"footprint":     restored_fp,
 		})
+		notify_navigation_topology_changed()
 		var extra: Dictionary = saved.get("extra", {})
 		if tile_id in _EXTRA_STATE_TILES and not extra.is_empty():
 			## Deferred: every device's own PowerManager/WaterManager
@@ -2050,6 +2340,102 @@ func restore_placed_objects(data: Array) -> void:
 			call_deferred("_apply_device_extra_deferred", body, tile_id, extra)
 
 	_refresh_connectable_dots()
+	## Gate all restored objects' dynamic shadows once everything is back in
+	## the tree (deferred so meshes/scripts from _ready are settled) — no
+	## shadow flash on Load when Layer 2 is off.
+	call_deferred("_apply_dynamic_shadow_gate")
+
+## Save/Load helper for TILE_WATER_PURIFIER (phase 1). The purifier splits an
+## existing pipe edge, but that edge is restored LATER (phase 3), so the normal
+## live candidate-search spawn would find nothing and drop the device. This
+## spawns the WaterPurifier scene directly without touching the WaterGraph;
+## WaterManager.restore_pipe_network() re-registers the purifier node + its
+## edges and re-attaches this scene to its node key afterwards.
+func _spawn_purifier_for_restore(pos: Vector3, angle_deg: float) -> Node3D:
+	var purifier_script: GDScript = load("res://scripts/world/water/WaterPurifier.gd") as GDScript
+	if purifier_script == null:
+		push_warning("BuildModeController: WaterPurifier.gd not found — purifier restore skipped")
+		return null
+	var purifier: Node3D = StaticBody3D.new()
+	purifier.set_script(purifier_script)
+	var par: Node = gridmap.get_parent() if gridmap != null else get_tree().get_root()
+	par.add_child(purifier)
+	purifier.global_position = pos
+	purifier.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+	return purifier
+
+# ─── Save/Load — moved level-placed objects (Save/Load overhaul) ─────────────
+## BuildStation/ResearchStation (level singletons, excluded from
+## get_placed_objects_for_save()) and pregen wall lights (player_placed==false)
+## CAN be relocated by the Move tool but are NOT persisted by the normal
+## placed-objects field. This captures their current position so a reload can
+## put them back where the player left them. Backs the SaveManager
+## "moved_level_objects" field (phase 4 — runs after the boot pregen has
+## re-spawned every level-placed object at its original position).
+func get_moved_level_objects_for_save() -> Array:
+	var out: Array = []
+	for entry: Dictionary in _placed_objects:
+		var tile_id: int = entry.get("tile_id", -1)
+		if tile_id not in [TILE_LIGHT, TILE_BUILD_STATION, TILE_RESEARCH_STATION]:
+			continue
+		## Player-purchased lights already round-trip via placed_objects —
+		## only pregen (level-placed) lights need this field.
+		if tile_id == TILE_LIGHT and entry.get("player_placed", true):
+			continue
+		var node: Node3D = entry.get("node")
+		if node == null or not is_instance_valid(node):
+			continue
+		out.append({
+			"tile_id":         tile_id,
+			"pos":             SaveManager.vec3_to_dict(entry.get("world_pos", node.global_position)),
+			"angle_deg":       entry.get("angle_deg", 0.0),
+			"level_spawn_pos": SaveManager.vec3_to_dict(node.get_meta("_level_spawn_pos", node.global_position)),
+		})
+	return out
+
+## Relocates level-placed objects back to the positions saved by
+## get_moved_level_objects_for_save(). Singletons match by tile_id; pregen
+## wall lights match by their original spawn position (recorded via the
+## _level_spawn_pos meta at spawn_structure() time).
+func restore_moved_level_objects(data: Array) -> void:
+	var topology_changed: bool = false
+	for saved: Dictionary in data:
+		var tile_id: int = saved.get("tile_id", -1)
+		var pos: Vector3 = SaveManager.dict_to_vec3(saved.get("pos", {}))
+		var angle_deg: float = saved.get("angle_deg", 0.0)
+		if tile_id == TILE_BUILD_STATION or tile_id == TILE_RESEARCH_STATION:
+			for entry: Dictionary in _placed_objects:
+				if entry.get("tile_id", -1) != tile_id:
+					continue
+				var snode: Node3D = entry.get("node")
+				if snode == null or not is_instance_valid(snode):
+					continue
+				entry["world_pos"] = pos
+				entry["angle_deg"] = angle_deg
+				snode.global_position = pos
+				snode.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+				topology_changed = true
+				break
+		elif tile_id == TILE_LIGHT:
+			var spawn_pos: Vector3 = SaveManager.dict_to_vec3(saved.get("level_spawn_pos", {}))
+			for entry: Dictionary in _placed_objects:
+				if entry.get("tile_id", -1) != TILE_LIGHT or entry.get("player_placed", true):
+					continue
+				var lnode: Node3D = entry.get("node")
+				if lnode == null or not is_instance_valid(lnode):
+					continue
+				if lnode.global_position.distance_to(spawn_pos) > 0.05:
+					continue
+				entry["world_pos"] = pos
+				entry["angle_deg"] = angle_deg
+				lnode.global_position = pos
+				lnode.rotation_degrees = Vector3(0.0, angle_deg, 0.0)
+				topology_changed = true
+				if lnode.has_method("refresh_power_attachment"):
+					lnode.call_deferred("refresh_power_attachment")
+				break
+	if topology_changed:
+		notify_navigation_topology_changed()
 
 ## Reads back whatever this device's own runtime state is, via its own public
 ## getters (or the owning PowerManager's, for devices that store state
@@ -2110,6 +2496,24 @@ func _get_device_extra(node: Node3D, tile_id: int) -> Dictionary:
 				if node.has_method("get_pot_extra"):
 					extra["pot"] = node.get_pot_extra()
 				return extra
+		TILE_BUNKER_DOOR:
+			if node.has_method("get_saved_state"):
+				return node.call("get_saved_state") as Dictionary
+		TILE_SHELVING, TILE_SMALL_SHELF, TILE_LARGE_SHELF, TILE_END_TABLE, TILE_DRESSER, TILE_TRASH_CAN:
+			## Storage contents (Save/Load overhaul) — each shelf/drawer/
+			## dresser/end-table/trash-can serializes its stored items.
+			if node.has_method("get_storage_save_data"):
+				var sdata: Dictionary = node.get_storage_save_data()
+				if not sdata.get("contents", []).is_empty():
+					return {"storage": sdata}
+		TILE_TRAY_SINGLE, TILE_TRAY_DOUBLE:
+			## Farming per-cell state (Save/Load overhaul) — soil/plant/
+			## fertilizer/seed-lock + plant growth.
+			if node.has_method("get_tray_save_data"):
+				return {"tray": node.get_tray_save_data()}
+		TILE_WATER_PURIFIER:
+			if "filter_quality" in node:
+				return {"filter_quality": node.get("filter_quality")}
 	return {}
 
 ## Applies saved extra state back onto a freshly-restored device. Called via
@@ -2173,11 +2577,33 @@ func _apply_device_extra_deferred(node: Node3D, tile_id: int, extra: Dictionary)
 				node.set_on(bool(extra["is_on"]))
 			if node.has_method("set_fill") and extra.has("current_fill_mL"):
 				node.set_fill(float(extra["current_fill_mL"]))
+		TILE_BUNKER_DOOR:
+			var restored_candidate: Dictionary = _resolve_door_placement(node.global_position, node)
+			if bool(restored_candidate.get("valid", false)):
+				node.call("apply_saved_state", restored_candidate.get("wall"), extra)
 		TILE_STOVE:
 			if node.has_method("restore_saved_state"):
 				node.restore_saved_state(
 					bool(extra.get("powered_on", false)),
 					extra.get("pot", {}))
+		TILE_SHELVING, TILE_SMALL_SHELF, TILE_LARGE_SHELF, TILE_END_TABLE, TILE_DRESSER, TILE_TRASH_CAN:
+			## Restore storage contents (Save/Load overhaul) — spawns and
+			## re-stores each saved item into its original slot.
+			if extra.has("storage") and node.has_method("restore_storage_save_data"):
+				node.restore_storage_save_data(extra["storage"])
+		TILE_TRAY_SINGLE, TILE_TRAY_DOUBLE:
+			## Restore farming per-cell state (Save/Load overhaul).
+			if extra.has("tray") and node.has_method("restore_tray_save_data"):
+				node.restore_tray_save_data(extra["tray"])
+		TILE_WATER_PURIFIER:
+			## Filter quality (Save/Load overhaul) — the purifier's graph
+			## node + edges are restored separately by WaterManager's
+			## restore_pipe_network() (phase 3), which also re-attaches this
+			## scene to its node key.
+			if extra.has("filter_quality"):
+				node.set("filter_quality", float(extra["filter_quality"]))
+				if node.has_method("_refresh_band_tint"):
+					node._refresh_band_tint()
 
 # ─── Deconstruct ──────────────────────────────────────────────────────────────
 func _try_deconstruct() -> void:
@@ -2215,8 +2641,9 @@ func _try_deconstruct() -> void:
 
 	var entry: Dictionary = _placed_objects[entry_idx]
 
-	# Guard: level-placed objects (pregen / autofill) cannot be deconstructed
-	if not entry.get("player_placed", true):
+	# Guard: level-placed objects cannot be deconstructed except wall lights,
+	# which are explicitly player-editable and carry a $0 refund.
+	if not entry.get("player_placed", true) and int(entry.get("tile_id", -1)) != TILE_LIGHT:
 		_show_hud_warning("Cannot modify level structure")
 		return
 
@@ -2232,11 +2659,18 @@ func _try_deconstruct() -> void:
 	if entry.get("tile_id", -1) == TILE_RESEARCH_STATION:
 		_show_hud_warning("Research Station cannot be removed — use Move instead")
 		return
+	if int(entry.get("tile_id", -1)) == TILE_WALL and BunkerDoor.has_active_doors(body):
+		_show_hud_warning("Remove attached doors before deleting this wall")
+		return
 
 	var refund: int         = entry["price"]
 	var placed_pos: Vector3 = entry["world_pos"]
+	## Restore the object's real materials before any teardown callbacks run.
+	## This also releases the cached node reference before queue_free().
+	_clear_hover_glow()
 
-	_push_undo_remove(entry["tile_id"], refund, placed_pos, entry["angle_deg"])
+	_push_undo_remove(entry["tile_id"], refund, placed_pos, entry["angle_deg"],
+		_get_device_extra(body, int(entry["tile_id"])))
 
 	if body.has_method("eject_all_items"):
 		body.eject_all_items()
@@ -2282,6 +2716,7 @@ func _try_deconstruct() -> void:
 
 	var deconstructed_tile: int = entry["tile_id"]
 	_placed_objects.remove_at(entry_idx)
+	notify_navigation_topology_changed()
 	body.queue_free()
 
 	## Cascade: free any wire segments whose wire-node was registered to this object.
@@ -2353,15 +2788,13 @@ func _get_hovered_wire_segment() -> Node3D:
 			continue
 		var ws: Node3D = node as Node3D
 		## Pregen wires are protected — skip so they never show the red hover highlight.
-		if ws.has_meta("_is_pregen"):
+		if ws.has_meta("_is_pregen") or ws.has_meta("_wall_feed_visual"):
 			continue
-		## Point-to-ray distance check
-		var to_ws: Vector3 = ws.global_position - ray_origin
-		var proj: float    = to_ws.dot(ray_dir)
-		if proj < 0.0 or proj > ray_length:
+		if ws.is_queued_for_deletion() or not ws is WireSegment:
 			continue
-		var closest_on_ray: Vector3 = ray_origin + ray_dir * proj
-		var perp_dist: float = ws.global_position.distance_to(closest_on_ray)
+		var wire := ws as WireSegment
+		var perp_dist: float = _closest_dist_ray_to_segment(
+			ray_origin, ray_dir, ray_length, wire.point_a, wire.point_b)
 		if perp_dist < best_dist:
 			best_dist = perp_dist
 			best_ws   = ws
@@ -2385,6 +2818,16 @@ func _try_deconstruct_wire(ws: Node3D) -> void:
 	var pt_b: Vector3   = ws.get("point_b") if ws.get("point_b") != null else Vector3.ZERO
 	var length: float   = pt_a.distance_to(pt_b)
 	var refund: int     = int(length * WIRE_COST_PER_M)
+
+	# Deconstruction already returns this portion of the paid run. Undo must
+	# only refund the remainder, including when the run was split for a tap.
+	if ws is WireSegment and not ws.run_id.is_empty():
+		for entry: Dictionary in _undo_stack:
+			if entry.get("run_id", "") == ws.run_id:
+				entry["cost"] = maxi(0, int(entry.get("cost", 0)) - refund)
+
+	if world_node != null and world_node.has_method("forget_player_wire"):
+		world_node.forget_player_wire(ws)
 
 	## Unregister from PowerManager
 	if pm != null and not edge_id.is_empty():
@@ -2529,6 +2972,8 @@ func _remove_dangling_wire_segments() -> void:
 		if not is_instance_valid(node):
 			continue
 		var ws: Node3D  = node as Node3D
+		if ws.has_meta("_wall_feed_visual"):
+			continue
 		var edge_id: String = ws.get("edge_id") if ws.get("edge_id") != null else ""
 		if edge_id.is_empty():
 			continue
@@ -2628,8 +3073,9 @@ func _push_undo_place(body: Node3D, tile_id: int, price: int, pos: Vector3,
 	_undo_manager._push_undo_place(body, tile_id, price, pos, zone_color_snap)
 
 
-func _push_undo_remove(tile_id: int, price: int, pos: Vector3, angle_deg: float) -> void:
-	_undo_manager._push_undo_remove(tile_id, price, pos, angle_deg)
+func _push_undo_remove(tile_id: int, price: int, pos: Vector3, angle_deg: float,
+		extra: Dictionary = {}) -> void:
+	_undo_manager._push_undo_remove(tile_id, price, pos, angle_deg, extra)
 
 
 func _push_undo_dig_rock(chunk_id: Vector2i, center: Vector3) -> void:
@@ -2638,6 +3084,22 @@ func _push_undo_dig_rock(chunk_id: Vector2i, center: Vector3) -> void:
 
 func _push_undo_move(body: Node3D, reg_entry: Dictionary, old_pos: Vector3) -> void:
 	_undo_manager._push_undo_move(body, reg_entry, old_pos)
+
+
+## Shelving keeps displayed slot items under the world root rather than under
+## the shelf node. Move and undo must therefore translate them explicitly.
+## Child-owned storage contents already inherit their host transform and are
+## deliberately skipped to avoid moving them twice.
+func _translate_external_storage_items(body: Node3D, delta: Vector3) -> void:
+	if body == null or not ("slots" in body):
+		return
+	var shelf_slots: Array = body.get("slots") as Array
+	for slot_value: Variant in shelf_slots:
+		var slot_stack: Array = slot_value as Array
+		for item_value: Variant in slot_stack:
+			var item: Node3D = item_value as Node3D
+			if is_instance_valid(item) and item.get_parent() != body:
+				item.global_position += delta
 
 
 func _push_undo_wire(seg_node: Node3D, edge_id: String, cost: int, midpoint: Vector3) -> void:
@@ -2828,6 +3290,10 @@ func spawn_structure(tile_id: int, pos: Vector3, angle_deg: float, is_true_prege
 	## Tag the node so Deconstruct-mode hover can skip it without a _placed_objects lookup.
 	if body != null:
 		body.set_meta("_is_pregen", true)
+		## Save/Load overhaul — record this level-placed object's original
+		## spawn position so a moved pregen wall light can be matched and
+		## relocated after a reload (see get_moved_level_objects_for_save()).
+		body.set_meta("_level_spawn_pos", pos)
 		if is_true_pregen:
 			body.set_meta("_is_true_pregen", true)
 	## Measure the level structure's real footprint (walls = their 1m x 0.3m
@@ -2847,12 +3313,16 @@ func spawn_structure(tile_id: int, pos: Vector3, angle_deg: float, is_true_prege
 		"player_placed": false,   ## Level-spawned — locked from player modification
 		"footprint":     footprint,
 	})
+	notify_navigation_topology_changed()
+	if body != null and not _is_static_blocker_tile(tile_id):
+		_apply_dynamic_shadow_to_node(body)
 	return body
 
 func remove_placed_object(node: Node3D) -> void:
 	for i: int in _placed_objects.size():
 		if _placed_objects[i]["node"] == node:
 			_placed_objects.remove_at(i)
+			notify_navigation_topology_changed()
 			return
 
 ## Per-side purifier pipe deletion plan §5 (Jul 2026) — called by
@@ -2880,6 +3350,7 @@ func deconstruct_purifier_by_node_key(node_key: String) -> void:
 		var pos: Vector3 = entry.get("world_pos", (node as Node3D).global_position)
 
 		_placed_objects.remove_at(i)
+		notify_navigation_topology_changed()
 		if node.has_method("revert_to_corner"):
 			node.revert_to_corner()
 		node.queue_free()
@@ -2931,6 +3402,8 @@ func _remove_unsupported_lights_near(wall_pos: Vector3) -> void:
 		if refund > 0 and world_node != null:
 			world_node.add_cash(refund)
 			_spawn_float_label_at_pos(entry["world_pos"], refund, true)
+	if not to_remove.is_empty():
+		notify_navigation_topology_changed()
 
 ## Scans all placed lights whose XZ position falls within the given world-space
 ## rectangle [x_min, x_max] × [z_min, z_max] and removes them.
@@ -2983,6 +3456,8 @@ func remove_breakers_in_bounds(x_min: float, x_max: float, z_min: float, z_max: 
 
 	## _rebuild_auto_wires (called by MainWorld immediately after) handles
 	## recolor. No extra recolor needed here.
+	if any_removed:
+		notify_navigation_topology_changed()
 	return any_removed
 
 func remove_lights_in_bounds(x_min: float, x_max: float, z_min: float, z_max: float) -> void:
@@ -3013,64 +3488,127 @@ func remove_lights_in_bounds(x_min: float, x_max: float, z_min: float, z_max: fl
 		if refund > 0 and world_node != null:
 			world_node.add_cash(refund)
 			_spawn_float_label_at_pos(entry["world_pos"], refund, true)
+	if not to_remove.is_empty():
+		notify_navigation_topology_changed()
 
-# ─── Hover glow (Duplicate / Move phase-0 tools) ────────────────────────────
-func _update_hover_glow() -> void:
+# ─── Build-tool object targeting / highlight ─────────────────────────────
+## These helpers are the single policy point for standard registered objects.
+## Wires and pipes are graph-owned and keep their dedicated segment targeting.
+## Shop purchases never enter _placed_objects, so they cannot become targets.
+func _placed_entry_for(body: Node3D) -> Dictionary:
+	if body == null:
+		return {}
+	for entry: Dictionary in _placed_objects:
+		if entry.get("node") == body:
+			return entry
+	return {}
+
+func _entry_supports_tool(entry: Dictionary, tool_id: int) -> bool:
+	if entry.is_empty():
+		return false
+	var tile_id: int = int(entry.get("tile_id", -1))
+	var player_placed: bool = bool(entry.get("player_placed", true))
+	if tool_id == 1:
+		## Pregen wall lights are intentionally editable. They use the same
+		## WallLight implementation as purchased lights and refund $0; all other
+		## level-authored structures remain protected.
+		if not player_placed and tile_id != TILE_LIGHT:
+			return false
+		## World singletons may be relocated, but can never be destroyed.
+		if tile_id in [TILE_WATER_HOOKUP, TILE_BUILD_STATION, TILE_RESEARCH_STATION]:
+			return false
+		## A wall carrying a door cannot currently be removed until its attached
+		## door is removed. Keep hover feedback truthful: only red-highlight an
+		## object when the same click is actually allowed to deconstruct it.
+		var entry_node: Node3D = entry.get("node") as Node3D
+		if tile_id == TILE_WALL and BunkerDoor.has_active_doors(entry_node):
+			return false
+		return true
+	if tool_id == 2:
+		if not player_placed:
+			return false
+		## Drawn walls have authored run geometry and are intentionally rebuilt
+		## through WallDrawMode rather than cloned.
+		return tile_id != TILE_BUNKER_DOOR and tile_id not in WALL_DRAW_TILES and tile_id not in [
+			TILE_WATER_HOOKUP, TILE_BUILD_STATION, TILE_RESEARCH_STATION]
+	if tool_id == 3:
+		## Pregen wall lights may be repositioned with the same mandatory wall
+		## snapping and blue preview as player-purchased wall lights.
+		if not player_placed and tile_id != TILE_LIGHT:
+			return false
+		## A purifier is a graph vertex inserted into an existing pipe edge. Moving
+		## only its scene node would corrupt that topology; rebuild it instead.
+		## Drawn walls are likewise immutable after placement: delete/refund and
+		## redraw is their only supported edit path.
+		return tile_id != TILE_WATER_PURIFIER and tile_id not in WALL_DRAW_TILES
+	return false
+
+func _update_hover_glow(material: Material, tool_id: int) -> void:
 	var body: Node3D = _get_hovered_placed_body()
+	if not _entry_supports_tool(_placed_entry_for(body), tool_id):
+		body = null
+	_set_hover_highlight(body, material)
 
-	# Never glow level-structure objects (player_placed: false)
-	if body != null:
-		var is_player_placed: bool = true
-		for entry: Dictionary in _placed_objects:
-			if entry["node"] == body:
-				is_player_placed = entry.get("player_placed", true)
-				break
-		if not is_player_placed:
-			body = null   ## Treat as if nothing is hovered
-
-	if body == _hovered_placed_body:
+func _set_hover_highlight(body: Node3D, material: Material) -> void:
+	if body == _hovered_placed_body and material == _hover_material:
 		return
-
 	_clear_hover_glow()
 	_hovered_placed_body = body
-	if body == null:
-		return
-
-	_apply_material_recursive(body, _mat_hover)
+	_hover_material = material
+	if body != null:
+		_apply_material_recursive(body, material)
 
 func _clear_hover_glow() -> void:
-	if _hovered_placed_body == null:
-		return
-	if not is_instance_valid(_hovered_placed_body):
-		_hovered_placed_body = null
-		_hover_restore_mats.clear()
-		return
-	_apply_material_recursive(_hovered_placed_body, null)
+	if _hovered_placed_body != null and is_instance_valid(_hovered_placed_body):
+		_apply_material_recursive(_hovered_placed_body, null)
 	_hover_restore_mats.clear()
 	_hovered_placed_body = null
+	_hover_material = null
 
-## Recursively applies mat to every MeshInstance3D under root.
-## If mat is null we are clearing hover — restore the per-surface "restore" materials
-## that were cached in _hover_restore_mats before the glow was applied.
-func _apply_material_recursive(root: Node, mat: StandardMaterial3D) -> void:
-	for child in root.get_children():
-		if child is MeshInstance3D:
-			var mi: MeshInstance3D = child as MeshInstance3D
-			if mi.mesh != null:
-				for s: int in mi.mesh.get_surface_count():
-					if mat == null:
-						# Restore: pull from cache; fall back to null if not cached
-						var key: String = "%s_%d" % [mi.get_instance_id(), s]
-						var restore: StandardMaterial3D = _hover_restore_mats.get(key, null) as StandardMaterial3D
-						mi.set_surface_override_material(s, restore)
-					else:
-						# Applying glow: cache current override first
-						var key: String = "%s_%d" % [mi.get_instance_id(), s]
+## One teardown path for every visual target owned by the deconstruct tool.
+## Called on tool switches and build-mode exit so a pipe cannot remain red in
+## normal play and a freed object cannot remain cached as the hover target.
+func _clear_deconstruct_highlights() -> void:
+	_clear_hover_glow()
+	if _hovered_wire_segment != null and is_instance_valid(_hovered_wire_segment) \
+			and _hovered_wire_segment.has_method("set_highlight_delete"):
+		_hovered_wire_segment.set_highlight_delete(false)
+	_hovered_wire_segment = null
+	if _hovered_pipe_segment != null and is_instance_valid(_hovered_pipe_segment):
+		_hovered_pipe_segment.set_highlight_delete(false)
+	_hovered_pipe_segment = null
+	_hovered_rock_chunk = Vector2i(-9999, -9999)
+	if build_hud != null:
+		build_hud.hovered_rock_chunk_world_pos = Vector3(-9999.0, -9999.0, -9999.0)
+
+## Recursively applies mat to every MeshInstance3D, including a mesh root.
+## If mat is null, restore the exact per-surface override cached on entry.
+func _apply_material_recursive(root: Node, mat: Material) -> void:
+	if root is MeshInstance3D:
+		var mi: MeshInstance3D = root as MeshInstance3D
+		if mi.mesh != null:
+			for s: int in mi.mesh.get_surface_count():
+				var key: String = "%s_%d" % [mi.get_instance_id(), s]
+				if mat == null:
+					## Imported objects can use ShaderMaterial overrides; narrowing
+					## this to StandardMaterial3D silently destroyed those materials.
+					var restore: Material = _hover_restore_mats.get(key, null) as Material
+					mi.set_surface_override_material(s, restore)
+				else:
+					if not _hover_restore_mats.has(key):
 						_hover_restore_mats[key] = mi.get_surface_override_material(s)
-						mi.set_surface_override_material(s, mat)
-		# Recurse — handles GLB sub-scenes and nested nodes
-		if child.get_child_count() > 0:
-			_apply_material_recursive(child, mat)
+					mi.set_surface_override_material(s, mat)
+	elif root is MultiMeshInstance3D:
+		var mmi := root as MultiMeshInstance3D
+		var key: String = "%s_multimesh" % mmi.get_instance_id()
+		if mat == null:
+			mmi.material_override = _hover_restore_mats.get(key, null) as Material
+		else:
+			if not _hover_restore_mats.has(key):
+				_hover_restore_mats[key] = mmi.material_override
+			mmi.material_override = mat
+	for child: Node in root.get_children():
+		_apply_material_recursive(child, mat)
 
 # ─── Raycasting ───────────────────────────────────────────────────────────────
 func _raycast_to_grid() -> Dictionary:
@@ -3111,9 +3649,14 @@ static func get_failsafe_exclude_rids(from_node: Node) -> Array[RID]:
 			ex.append((n as PhysicsBody3D).get_rid())
 	return ex
 
-## Raycast and return the first placed StaticBody3D hit (or null).
-## Checks collision layer 4 (build-placed objects).
-## Also handles the create_trimesh_collision() child body case.
+## Raycast and return the first registered placed-object root hit (or null).
+##
+## Do not filter by the historical "build object" collision bit here. Most
+## objects use layer 5, but several valid player-buildables use layer 1 or a
+## child collider with its own layer. Eligibility comes from _placed_objects,
+## not from a fragile physics-layer convention. The first unrelated world hit
+## remains an intentional barrier, so this can never select a shop/world object
+## behind it.
 func _get_hovered_placed_body() -> Node3D:
 	if camera == null:
 		return null
@@ -3125,7 +3668,7 @@ func _get_hovered_placed_body() -> Node3D:
 
 	var space: PhysicsDirectSpaceState3D   = get_world_3d().direct_space_state
 	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(from, to)
-	query.collision_mask = 4   ## Layer 3 bit = value 4 — placed objects only
+	query.collision_mask = 0xFFFFFFFF
 	## hit_back_faces NOT set false — trimesh walls have outward-facing normals;
 	## their interior (room-facing) surface is a "back face" and would be missed.
 	query.exclude = get_failsafe_exclude_rids(self)
@@ -3143,14 +3686,18 @@ func _get_hovered_placed_body() -> Node3D:
 	##   • Direct hit on placed StaticBody3D (walls, pillars, shelves)
 	##   • Hit on create_trimesh_collision() child: PlacedBody→MeshInstance3D→TrimeshSB3D
 	##   • Hit on GLB sub-mesh children of Shelving
-	if collider != null:
-		var node = collider
-		while node != null:
-			for entry: Dictionary in _placed_objects:
-				if entry["node"] == node:
-					return entry["node"] as Node3D
-			node = node.get_parent()
+	return _registered_placed_root_for(collider as Node)
 
+
+## Resolves child/proxy collision bodies back to the authoritative registry
+## node used by deconstruct, duplicate, move, refunds and undo.
+func _registered_placed_root_for(hit_node: Node) -> Node3D:
+	var node := hit_node
+	while node != null:
+		for entry: Dictionary in _placed_objects:
+			if entry.get("node") == node:
+				return node as Node3D
+		node = node.get_parent()
 	return null
 
 # ─── Grid snapping ────────────────────────────────────────────────────────────
@@ -3288,6 +3835,8 @@ func _is_position_occupied_for_tile(pos: Vector3, tile_id: int, exclude_node: No
 		for entry: Dictionary in _placed_objects:
 			if entry.get("tile_id", -1) != TILE_LIGHT:
 				continue
+			if entry.get("node") == exclude_node:
+				continue
 			var p: Vector3 = entry["world_pos"]
 			if abs(p.x - pos.x) < LIGHT_OVERLAP_RADIUS and abs(p.z - pos.z) < LIGHT_OVERLAP_RADIUS:
 				return true
@@ -3314,6 +3863,24 @@ func _snap_light_to_wall(base_pos: Vector3) -> Dictionary:
 
 func _snap_breaker_to_wall(base_pos: Vector3) -> Dictionary:
 	return _wall_snap._snap_breaker_to_wall(base_pos)
+
+
+## Deterministic endpoint snapping used by every phase of WallDrawMode.
+func _snap_wall_run_point(base_pos: Vector3,
+		snap_range: float = WallSnapHelpers.WALL_RUN_SNAP_RANGE) -> Dictionary:
+	if _wall_snap == null:
+		return {}
+	return _wall_snap._snap_wall_run_point(base_pos, snap_range)
+
+
+func _pillar_wall_snap_points(y: float) -> Array[Vector3]:
+	return _wall_snap._pillar_wall_snap_points(y) if _wall_snap != null else []
+
+
+func _wall_run_junctions_are_valid(start_snap: Dictionary, end_snap: Dictionary,
+		run_direction: Vector3) -> bool:
+	return _wall_snap != null and _wall_snap._wall_run_junctions_are_valid(
+		start_snap, end_snap, run_direction)
 
 
 ## Forwarded to WallSnapHelpers._snap_to_nearest_wall() (generic version added
@@ -3389,6 +3956,14 @@ static func _tile_half_extents_fallback(tile_id: int) -> Vector2:
 		TILE_BUILD_STATION: return Vector2(0.95, 0.48)  ## 2×1, same as TILE_TABLE_MEDIUM/TILE_BED
 		TILE_RESEARCH_STATION: return Vector2(1.425, 0.48)  ## 3×1 (Aug 2026 chute pass — widened 1.5x from the 2x1 base; was Vector2(0.95, 0.48))
 		TILE_LIGHT:        return Vector2(0.05, 0.05)   ## Thin wall-flush fixture — NOT the 0.40 floor-object default. Same fix/reasoning as TILE_POSTER earlier this session; the wall-snap step already validated a real wall was found, this just needs to not second-guess that with an oversized box.
+		TILE_BUNKER_DOOR:  return Vector2(0.20, 0.90)
+		TILE_CARPET_1:     return Vector2(0.62, 0.90)  ## Carpet #1 scaled footprint 1.24×1.80 (half-extents)
+		TILE_CARPET_2:     return Vector2(0.875, 0.90)  ## Carpet #2 scaled footprint 1.75×1.80 (half-extents)
+		TILE_CARPET_3:     return Vector2(0.90, 0.90)  ## Carpet #3 (round) scaled footprint 1.80×1.80 (half-extents)
+		TILE_DRAWERS_1:    return Vector2(0.375, 0.3885)  ## Drawers #1 scaled footprint 0.75×0.777 (half-extents) — 0.75 is a grid multiple so side-by-side placements sit flush
+		TILE_DRAWERS_2:    return Vector2(0.375, 0.3885)  ## Drawers #2 — same 0.75×0.777 kitchen-unit footprint
+		TILE_DRAWERS_3:    return Vector2(0.375, 0.3885)  ## Drawers #3 — same 0.75×0.777 kitchen-unit footprint
+		TILE_SINK:         return Vector2(0.375, 0.3885)  ## Sink — same 0.75×0.777 kitchen-unit footprint
 		## Grow lights use the generic fallback below — a 1×1 fixture (plan §4).
 		_:             return Vector2(0.40, 0.40)  ## generic fallback
 
@@ -3429,8 +4004,69 @@ func _obb_projection(he: Vector2, rad: float, n: Vector2) -> float:
 	var uz := Vector2(sin(rad), cos(rad))
 	return he.x * absf(ux.dot(n)) + he.y * absf(uz.dot(n))
 
+
+## Finds the nearest legal 1.8m opening on a full-height player-drawn wall.
+## Returns the nearest wall even when invalid so the ghost can turn red and a
+## precise toast can explain the failed click.
+func _resolve_door_placement(cursor_pos: Vector3, exclude_door: Node3D = null) -> Dictionary:
+	var best: Dictionary = {}
+	var best_distance := 1.35
+	for entry: Dictionary in _placed_objects:
+		if int(entry.get("tile_id", -1)) != TILE_WALL or not bool(entry.get("player_placed", false)):
+			continue
+		var wall: Node3D = entry.get("node") as Node3D
+		if wall == null or not is_instance_valid(wall) or bool(wall.get_meta("_is_pregen", false)):
+			continue
+		var half_length := float((entry.get("footprint", Vector2(0.15, 0.5)) as Vector2).y)
+		var local := wall.to_local(cursor_pos)
+		var clamped_z := clampf(local.z, -half_length, half_length)
+		var nearest := wall.to_global(Vector3(0.0, 0.0, clamped_z))
+		var distance := Vector2(cursor_pos.x - nearest.x, cursor_pos.z - nearest.z).length()
+		if distance >= best_distance:
+			continue
+		best_distance = distance
+		var center_z := clampf(local.z, -half_length, half_length)
+		var door_pos := wall.to_global(Vector3(0.0, 0.0, center_z))
+		var valid := true
+		var reason := ""
+		if center_z - BunkerDoor.WALL_CUT_WIDTH * 0.5 < -half_length - 0.001 \
+				or center_z + BunkerDoor.WALL_CUT_WIDTH * 0.5 > half_length + 0.001:
+			valid = false
+			reason = "Door opening extends beyond this wall"
+		for other: Dictionary in _placed_objects:
+			var other_node: Node3D = other.get("node") as Node3D
+			if other_node == null or other_node == wall or other_node == exclude_door:
+				continue
+			if int(other.get("tile_id", -1)) == TILE_BUNKER_DOOR:
+				if other_node.has_method("get_host_wall") and other_node.call("get_host_wall") == wall:
+					if other_node.global_position.distance_to(door_pos) < BunkerDoor.WALL_CUT_WIDTH - 0.01:
+						valid = false
+						reason = "Another door already occupies this wall section"
+				continue
+			if int(other.get("tile_id", -1)) not in WALL_DRAW_TILES:
+				continue
+			var angle_delta := absf(fposmod(float(other.get("angle_deg", 0.0)) - wall.rotation_degrees.y + 90.0, 180.0) - 90.0)
+			if angle_delta < 10.0:
+				continue
+			var op: Vector3 = other.get("world_pos", other_node.global_position)
+			var ohe: Vector2 = other.get("footprint", _tile_half_extents(int(other.get("tile_id", TILE_WALL))))
+			if _obb_overlap_2d(Vector2(door_pos.x, door_pos.z), Vector2(0.22, BunkerDoor.WALL_CUT_WIDTH * 0.5), wall.rotation_degrees.y,
+					Vector2(op.x, op.z), ohe, float(other.get("angle_deg", 0.0))):
+				valid = false
+				reason = "Another wall blocks this door opening"
+		best = {"valid": valid, "reason": reason, "wall": wall, "pos": door_pos,
+			"angle_deg": wall.rotation_degrees.y}
+	return best if not best.is_empty() else {"valid": false, "reason": "Doors can only be installed in full-height player-built walls"}
+
 func _is_grow_light_tile(tile_id: int) -> bool:
 	return tile_id == TILE_GROW_LIGHT_NORMAL or tile_id == TILE_GROW_LIGHT_PRO
+
+## Carpets are flat floor coverings. They never block placement of any other
+## object (furniture, cabinets, etc. sit on top of them), and — except for
+## walls/pillars — nothing blocks their placement (a rug slides beneath
+## furniture). See _is_position_occupied's carpet special-casing.
+func _is_carpet_tile(tile_id: int) -> bool:
+	return tile_id == TILE_CARPET_1 or tile_id == TILE_CARPET_2 or tile_id == TILE_CARPET_3
 
 ## Level walls/pillars block placement, but the 0.25m build grid doesn't align
 ## to their faces — an object's closest snap node either overlaps the wall
@@ -3451,7 +4087,8 @@ func _grow_light_blocks_entry(tile_id: int) -> bool:
 		or tile_id == TILE_GROW_LIGHT_NORMAL or tile_id == TILE_GROW_LIGHT_PRO
 
 func _is_position_occupied(pos: Vector3, tile_id: int = -1, exclude_node: Node3D = null,
-		new_he: Vector2 = Vector2(-1.0, -1.0), new_angle_deg: float = -999.0) -> bool:
+		new_he: Vector2 = Vector2(-1.0, -1.0), new_angle_deg: float = -999.0,
+		ignored_nodes: Array = []) -> bool:
 	## Option A (Aug 2026) — precise OBB-overlap against every player-placed
 	## object, using each object's stored footprint (walls store their full
 	## run rectangle) and ITS angle. The new object uses its footprint and the
@@ -3463,9 +4100,26 @@ func _is_position_occupied(pos: Vector3, tile_id: int = -1, exclude_node: Node3D
 	var new_ang: float = new_angle_deg if new_angle_deg >= -360.0 else _current_angle_deg
 	var new_center := Vector2(pos.x, pos.z)
 	var is_gl_new: bool = _is_grow_light_tile(tile_id)
+	## A flush wall fixture deliberately overlaps its supporting wall's model
+	## bounds. Exempt only the wall verified by the same surface snap.
+	var mounting_wall: Node = null
+	if _wall_snap != null and tile_id in [TILE_TERMINAL, TILE_BREAKER, TILE_BREAKER_SMART, TILE_POSTER]:
+		var mount: Dictionary
+		if tile_id == TILE_BREAKER or tile_id == TILE_BREAKER_SMART:
+			mount = _snap_breaker_to_wall(pos)
+		elif tile_id == TILE_TERMINAL:
+			mount = _snap_to_nearest_wall(pos, 0.45, 0.04, LIGHT_WALL_SNAP_RANGE)
+		else:
+			mount = _snap_to_nearest_wall(pos, 0.0, 0.015, 1.5)
+		if not mount.is_empty() and (mount["pos"] as Vector3).distance_to(pos) < 0.02:
+			mounting_wall = mount.get("wall")
 	for entry: Dictionary in _placed_objects:
 		if exclude_node != null and entry["node"] == exclude_node:
 			continue   ## moving an object — don't block on its own footprint
+		if ignored_nodes.has(entry["node"]):
+			continue   ## exact wall segments joined by WallDrawMode
+		if mounting_wall != null and entry["node"] == mounting_wall:
+			continue
 		var et: int = entry.get("tile_id", -1)
 		## Elevated grow lights only share vertical space with tall objects. If
 		## EITHER side is a grow light and the other side isn't tall, they don't
@@ -3476,6 +4130,18 @@ func _is_position_occupied(pos: Vector3, tile_id: int = -1, exclude_node: Node3D
 			var other: int = et if is_gl_new else tile_id
 			if not _grow_light_blocks_entry(other):
 				continue
+		## Carpets (Sep 2026): flat floor coverings are always passable.
+		## 1) An existing carpet never blocks ANY other object — furniture,
+		##    cabinets, etc. place right on top of it.
+		## 2) A NEW carpet is only blocked by walls/pillars — everything else
+		##    (furniture, cabinets, etc.) is skipped so the rug slides beneath
+		##    them. This keeps the carpet check on the same "flush against
+		##    structure" footing as the walls below.
+		if _is_carpet_tile(et) or _is_carpet_tile(tile_id):
+			if _is_carpet_tile(tile_id) and not BunkerStructure.is_wall_or_pillar(et):
+				continue   ## new carpet: only walls/pillars can block it
+			if _is_carpet_tile(et):
+				continue   ## existing carpet never blocks anything
 		## Level walls/pillars (pregen / expandable bunker boundary,
 		## player_placed=false) block placement (Aug 2026) — the 2% flush
 		## epsilon still lets objects sit edge-to-edge against them, but they

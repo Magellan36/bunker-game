@@ -914,6 +914,30 @@ func add_condition(condition: MedicalCondition) -> void:
 	if condition.id != "bleeding":
 		_add_hud_badge(condition)
 
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+## Serializes every active MedicalCondition via MedicalCondition.get_save_dict().
+## Backs the SaveManager "medical_conditions" field (phase 4). Needs caps are
+## NOT saved here — PlayerStats caps restore from the saved conditions through
+## _apply_needs_cap_modifiers().
+func get_conditions_save_data() -> Array:
+	var out: Array = []
+	for c: MedicalCondition in active_conditions:
+		out.append(c.get_save_dict())
+	return out
+
+## Rebuilds active conditions from get_conditions_save_data()'s output.
+## Clears the current set (removing HUD badges) first, then re-adds each
+## condition via the normal add_condition() path (which re-adds badges) and
+## re-derives the needs caps.
+func restore_conditions_save_data(saved: Array) -> void:
+	for c: MedicalCondition in active_conditions.duplicate():
+		remove_condition(c)
+	for d: Variant in saved:
+		if not (d is Dictionary):
+			continue
+		add_condition(MedicalCondition.from_save_dict(d as Dictionary))
+	_apply_needs_cap_modifiers()
+
 func remove_condition(condition: MedicalCondition) -> void:
 	active_conditions.erase(condition)
 	condition_removed.emit(condition)

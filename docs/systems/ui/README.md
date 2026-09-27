@@ -35,6 +35,36 @@ explicitly approved migration of the generator inspector; other legacy panels
 remain unchanged. Initial character-creation focus no longer scrolls its heading
 out of view.
 
+**September 2026 — main menu:** the boot scene is now
+`scenes/ui/main_menu/MainMenu.tscn` (text-only left column over a live 3D
+surface backdrop). It has its own system doc:
+`docs/systems/main-menu/README.md`. Character creation follows it (New Game)
+and returns to it on Esc/B.
+
+**September 2026 — settings "quiet" pass (approved direction):** the
+Graphics Settings panel keeps its structure and every GraphicsSettings
+contract but now uses the quieter language introduced by the main menu:
+dark near-opaque shell with soft shadow, text-only navigation, hairline rows
+instead of bordered cards, one muted steel-blue accent (`QuietControls.ACCENT`,
+not the saturated project blue), brass tracked-caps headings, no icons.
+Reusable pieces, all in `scripts/ui/common/` (preload by path, no class_name):
+
+| File | Role |
+|---|---|
+| `QuietControls.gd` | Static skin: shell, rows, hairlines, eyebrow headings, nav/segment buttons, value-style dropdowns + popup, switches, thin sliders, slim scrollbars. |
+| `FocusRail.gd` | Gliding rail + wash focus indicator (main menu items, settings rows, active section). Place it *behind* the controls inside any clipping parent. |
+| `SwitchGlyph.gd` | Animated on/off switch drawn over a CheckButton. |
+| `SmoothScroll.gd` | Eased wheel scrolling, `scroll_to()`, `reveal()` (replaces snapping follow_focus). |
+
+Behaviour now expected of this family: hover moves focus; Left/Right adjust
+the focused value everywhere (sliders natively, dropdowns/switches through
+the opt-in `ui_cycle` meta read by `ControllerUINavigation`); a single
+contextual hint line + cost tag in the footer describes the focused setting
+(replaces static section descriptions, which stay removed); a quiet "Saved"
+confirmation follows each change; the preset is a segmented control whose
+underline slides to read-only "Custom" when any setting diverges.
+Apply this language to other screens only when the user asks for that screen.
+
 ## Redesign rule: in-world inspectors are not full-screen menus
 
 The September 2026 generator review established a standing user preference for
@@ -103,8 +133,8 @@ Do not silently migrate unrelated screens. See
 | `debug/` | `DebugOverlay.gd` (~305) | F-key debug readouts |
 | `common/` | `UIFade.gd` (~30), `UIKit.gd` (~530 — grew substantially across the Jul 2026 "UI Overhaul" arc: menu builders, rounded corners, domain stripes, the shared close-icon, a 4th `FARMING` domain), `ItemPreviewKit.gd` (~235 — Aug 2026, shared static 3D item-preview builder used by `InventoryHUD`/`StorageUI`, see "Shared Item Preview Kit" and "Preview Scale Normalization + Deep Mesh Walk" below), `TrashBagInfoPanel.gd` (~200 — Aug 2026, first AMBIENT hover panel — a NEW panel category, see "Ambient Hover Panels (Aug 2026)" below) | Shared fade-in helper + shared theme/drawing kit + shared 3D item-preview builder — put any future cross-panel UI utility here |
 | `notifications/` | `NotificationManager.gd` (~175) | Central toast/notification system (see "NotificationManager" below) |
-| `medical/` | `StatusScreenUI.gd` (Aug 2026 — see "Medical Status Screen" below) | Medical Layer-3 deep-dive status screen |
-| `npc/` | `NPCTalkMenuUI.gd` | NPC E-panel (needs bars, status, skills, personality) — see `docs/systems/npc/README.md` for full detail; fixed per-stat bar colors as of Aug 2026, see "Cooking Pot UI Fixes..." below is unrelated — see the NPC doc directly for the color table |
+| `medical/` | `StatusScreenUI.gd` (Sep 2026 — see "Medical Status Screen" below) | Player Status workspace with Health, NPC resident overview, and inventory inspection |
+| `npc/` | `NPCTalkMenuUI.gd`, `NPCPortraitViewport.gd` | NPC E-panel plus the shared live head renderer reused by resident summaries in Status; see `docs/systems/npc/README.md` for full detail |
 
 ## Public API (representative — not exhaustive, see each panel's own header)
 Every interaction panel follows the same shape: `open(...)` / `close()` /
@@ -336,8 +366,9 @@ the run log.
   registered scene nodes to player-facing generator/battery/breaker names
   rather than exposing registry or instance IDs.
 - `NotificationHistoryUI.gd` is embedded in the right side of the redesigned
-  pause workspace. Its All/Critical/Power/Water/Farming filters, code-drawn
-  icons, relative times, duplicate counts and NEW state are native Controls.
+  pause workspace under the compact `Log` heading. Its
+  All/Critical/Inventory/Power/Water/Farming filters, code-drawn icons,
+  relative times, duplicate counts and NEW state are native Controls.
 - `PauseMenuUI.gd` keeps its non-pausing world behavior, movement lock,
   settings and exit confirmation. Its left rail exposes Continue, Save, Load,
   Settings and Exit; Save/Load expand the same three authoritative slots.
@@ -360,6 +391,10 @@ overhaul (Phase 5). Key changes:
 - **Advanced Quality**: SDFGI, SSAO, SSIL, Volumetric Fog, Glow, DOF checkboxes.
 - **Flashlight**: Beam Volumetrics, Shadow Casting checkboxes.
 - **Camera**: FOV slider (60-100°).
+- **Compact presentation**: visible explanatory copy and the live-settings
+  banner are omitted; rows and controls use borderless, compact menu buttons.
+- **Typography**: the shared bunker font is assigned at the theme root so it
+  reaches labels, buttons, options, toggles, sliders, and popup content.
 - **ScrollContainer** with max height (520px), section headers matching
   `PauseMenuUI`, `ScrollContainer` with max height so it never runs off-screen.
 - **UIKit.settings_controls_theme()**: applied to root panel so all

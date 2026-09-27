@@ -1,5 +1,5 @@
 extends CanvasLayer
-## Desktop pause workspace: primary actions at left, filterable Bunker Log at
+## Desktop pause workspace: primary actions at left, filterable Log at
 ## right. The world continues to simulate; only player movement is locked.
 
 const PANEL_MAX := Vector2(1240, 760)
@@ -30,7 +30,7 @@ func _ready() -> void:
 	visible = false
 	var nav := ControllerUINavigation.new()
 	nav.ui_root = self
-	nav.stick_navigation = true
+	nav.stick_navigation = false
 	nav.close_on_cancel = false
 	add_child(nav)
 	get_viewport().size_changed.connect(_layout)
@@ -45,6 +45,7 @@ func toggle() -> void:
 func open() -> void:
 	if _visible_state:
 		return
+	UIPanelLifecycle.prepare_open(self)
 	_visible_state = true
 	visible = true
 	_slot_panel.hide()
@@ -60,11 +61,11 @@ func close() -> void:
 	if not _visible_state:
 		return
 	_visible_state = false
-	visible = false
 	_close_confirm_dialog()
 	Input.mouse_mode = _prev_mouse_mode
 	if player != null and player.has_method("set_movement_locked"):
 		player.call("set_movement_locked", false)
+	UIPanelLifecycle.dismiss(self, _panel)
 
 func is_open() -> bool:
 	return _visible_state
@@ -73,7 +74,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not _visible_state:
 		return
 	var cancel_pressed: bool = event is InputEventKey and event.pressed \
-		and event.keycode == KEY_ESCAPE
+		and event.keycode in [KEY_ESCAPE, KEY_E]
 	cancel_pressed = cancel_pressed or (event is InputEventJoypadButton and event.pressed \
 		and event.button_index == JOY_BUTTON_B)
 	if cancel_pressed:
@@ -118,7 +119,7 @@ func _build_ui() -> void:
 func _build_action_rail() -> Control:
 	var rail := VBoxContainer.new()
 	rail.custom_minimum_size.x = 300
-	rail.add_theme_constant_override("separation", 9)
+	rail.add_theme_constant_override("separation", 6)
 	var brand := HBoxContainer.new()
 	brand.add_theme_constant_override("separation", 9)
 	var bunker_icon := TextureRect.new()
@@ -129,7 +130,7 @@ func _build_action_rail() -> Control:
 	bunker_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	brand.add_child(bunker_icon)
 	var bunker := Label.new()
-	bunker.text = "BUNKER"
+	bunker.text = "BUNKER GAME"
 	bunker.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	bunker.add_theme_font_size_override("font_size", 18)
 	bunker.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
@@ -162,8 +163,8 @@ func _action_button(caption: String, symbol: String, callback: Callable,
 		accent: bool = false, danger: bool = false) -> Button:
 	var button := Button.new()
 	button.text = caption
-	button.custom_minimum_size.y = 56
-	BunkerPanelStyle.icon_button(button, symbol, accent, danger)
+	button.custom_minimum_size.y = BunkerDesign.COMPACT_CONTROL_HEIGHT
+	BunkerPanelStyle.icon_button(button, symbol, accent, danger, true, true)
 	button.pressed.connect(callback)
 	return button
 
@@ -185,14 +186,14 @@ func _build_slot_panel() -> PanelContainer:
 	body.add_child(_load_slots)
 	for slot: int in range(1, SaveManager.SAVE_SLOT_COUNT + 1):
 		var save_button := Button.new()
-		save_button.custom_minimum_size.y = 38
-		BunkerPanelStyle.button(save_button)
+		save_button.custom_minimum_size.y = BunkerDesign.COMPACT_CONTROL_HEIGHT
+		BunkerPanelStyle.button(save_button, false, false, true, true)
 		save_button.pressed.connect(_on_save_slot_pressed.bind(slot))
 		_save_slots.add_child(save_button)
 		_save_slot_buttons.append(save_button)
 		var load_button := Button.new()
-		load_button.custom_minimum_size.y = 38
-		BunkerPanelStyle.button(load_button)
+		load_button.custom_minimum_size.y = BunkerDesign.COMPACT_CONTROL_HEIGHT
+		BunkerPanelStyle.button(load_button, false, false, true, true)
 		load_button.pressed.connect(_on_load_slot_pressed.bind(slot))
 		_load_slots.add_child(load_button)
 		_load_slot_buttons.append(load_button)
@@ -202,26 +203,16 @@ func _build_footer() -> Control:
 	var footer := HBoxContainer.new()
 	footer.alignment = BoxContainer.ALIGNMENT_CENTER
 	footer.add_theme_constant_override("separation", 34)
-	for hint_text: String in [
-		"A / Enter   Select",
-		"B / Esc   Resume",
-		"Right stick / D-pad   Navigate",
-	]:
-		var hint := Label.new()
-		hint.text = hint_text
-		BunkerPanelStyle.muted(hint, 12)
-		footer.add_child(hint)
+	BunkerUIComponents.key_hint(footer, "ENTER", "Select", "ENTER", "A")
+	BunkerUIComponents.key_hint(footer, "ESC", "Resume", "ESC", "B")
+	BunkerUIComponents.key_hint(footer, "ARROWS", "Navigate", "ARROWS", "D-PAD / R-STICK")
 	return footer
 
 func _layout() -> void:
 	if _panel == null:
 		return
 	var viewport := get_viewport().get_visible_rect().size
-	var panel_size := Vector2(
-		minf(PANEL_MAX.x, viewport.x - PANEL_MARGIN.x * 2.0),
-		minf(PANEL_MAX.y, viewport.y - PANEL_MARGIN.y * 2.0))
-	_panel.position = (viewport - panel_size) * 0.5
-	_panel.size = panel_size
+	UIPanelLayout.fit(_panel, viewport, PANEL_MAX, PANEL_MARGIN)
 
 func _show_slots(saving: bool) -> void:
 	_refresh_slot_labels()

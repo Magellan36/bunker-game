@@ -85,21 +85,33 @@ func _build_ghost_materials() -> void:
 ## per-tile UV). The .tres that ships with the set claims channel 4 (alpha)
 ## for roughness/AO, but the PNGs' alpha is 255 everywhere — the gray values
 ## live in the red channel, so use TEXTURE_CHANNEL_RED.
-const FLOOR_TEX_UV_SCALE: float = 0.0625  ## 1/16 → 1 texture per 16m
+##
+## Sep 2026 plain-concrete pass: normal_scale 0.3 (dampens the relief so the
+## floor reads smooth rather than heavily bumped) + uv1_scale 0.05 (stretches
+## the texels larger than the old 1/16, blurring fine grain/dirt into a
+## smoother wash while keeping one texture across the whole bunker).
+const FLOOR_TEX_UV_SCALE: float = 0.05   ## 1/20 → 1 texture per ~20m (was 1/16; larger texels = smoother floor)
+const FLOOR_NORMAL_SCALE: float = 0.3    ## dampens normal-map relief so the floor reads plainer
 ## Half-strength AO copy for the floor (baked from
 ## Concrete032_2K-PNG_AmbientOcclusion.png — dials the occlusion influence
 ## down without touching the source asset).
 const FLOOR_AO_SOFT := "res://assets/textures/Concrete032/Concrete032_2K-PNG_AmbientOcclusion_soft.png"
+## Shadow-lift copy of the color map (Sep 2026) — dark stains/pixels pulled up
+## toward a brighter floor (darkest ~27 → ~64) while everything above ~85
+## luminance is left essentially untouched, so the floor's darks lighten
+## without washing out the rest. Baked from Concrete032_2K-PNG_Color.png
+## (never mutates it). Slightly amplified after review (floor 82 → 90).
+const FLOOR_COLOR_LIFT := "res://assets/textures/Concrete032/Concrete032_2K-PNG_Color_shadowlift.png"
 static func build_floor_material() -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
 	mat.roughness = 0.90
 	mat.metallic  = 0.0
-	mat.specular  = 0.05   ## reduced highlight intensity (was 0.5 default)
+	mat.metallic_specular  = 0.05   ## reduced highlight intensity (was 0.5 default)
 	mat.uv1_triplanar           = true
 	mat.uv1_world_triplanar     = true   ## world-space projection — CRITICAL on the GridMap
 	mat.uv1_triplanar_sharpness = 3.0
 	mat.uv1_scale               = Vector3(FLOOR_TEX_UV_SCALE, FLOOR_TEX_UV_SCALE, FLOOR_TEX_UV_SCALE)
-	var color_tex: Texture2D = load("res://assets/textures/Concrete032/Concrete032_2K-PNG_Color.png") as Texture2D
+	var color_tex: Texture2D = load(FLOOR_COLOR_LIFT) as Texture2D
 	var normal_tex: Texture2D = load("res://assets/textures/Concrete032/Concrete032_2K-PNG_NormalGL.png") as Texture2D
 	var rough_tex:  Texture2D = load("res://assets/textures/Concrete032/Concrete032_2K-PNG_Roughness.png") as Texture2D
 	var ao_tex:     Texture2D = load(FLOOR_AO_SOFT) as Texture2D
@@ -109,6 +121,7 @@ static func build_floor_material() -> StandardMaterial3D:
 	if normal_tex != null:
 		mat.normal_enabled = true
 		mat.normal_texture = normal_tex
+		mat.normal_scale   = FLOOR_NORMAL_SCALE   ## dampen relief (Sep 2026)
 	if rough_tex != null:
 		mat.roughness_texture           = rough_tex
 		mat.roughness_texture_channel   = BaseMaterial3D.TEXTURE_CHANNEL_RED
@@ -127,16 +140,23 @@ static func build_floor_material() -> StandardMaterial3D:
 ## gray values live in the red channel (the shipping .tres's alpha channel is
 ## a trap — the PNGs' alpha is 255 everywhere).
 const WALL_TEX_UV_SCALE: float = 0.20   ## 1/5 → 1 texture per ~5m (slightly stretched so the fine-grained set reads larger; 16m wall = ~3 instances)
+## Shadow-lift copy of the wall color map (Sep 2026) — same technique as the
+## floor's: dark stains/pixels pulled up (darkest ~47 → ~74, p01 80 → 84)
+## while everything above ~110 luminance is left untouched, so the wall's
+## darks lighten without washing out the surface. The wall set reads brighter
+## overall than the floor (mean 100 vs 75), so the lift is intentionally
+## gentler. Baked from Concrete028_2K-PNG_Color.png (never mutates it).
+const WALL_COLOR_LIFT := "res://assets/textures/Concrete028/Concrete028_2K-PNG_Color_shadowlift.png"
 static func build_wall_material() -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
 	mat.roughness = 0.92
 	mat.metallic  = 0.0
-	mat.specular  = 0.05   ## matches the floor's reduced highlight intensity
+	mat.metallic_specular  = 0.05   ## matches the floor's reduced highlight intensity
 	mat.uv1_triplanar           = true
 	mat.uv1_world_triplanar     = true
 	mat.uv1_triplanar_sharpness = 3.0
 	mat.uv1_scale               = Vector3(WALL_TEX_UV_SCALE, WALL_TEX_UV_SCALE, WALL_TEX_UV_SCALE)
-	var color_tex: Texture2D = load("res://assets/textures/Concrete028/Concrete028_2K-PNG_Color.png") as Texture2D
+	var color_tex: Texture2D = load(WALL_COLOR_LIFT) as Texture2D
 	var normal_tex: Texture2D = load("res://assets/textures/Concrete028/Concrete028_2K-PNG_NormalGL.png") as Texture2D
 	var rough_tex:  Texture2D = load("res://assets/textures/Concrete028/Concrete028_2K-PNG_Roughness.png") as Texture2D
 	var ao_tex:     Texture2D = load("res://assets/textures/Concrete028/Concrete028_2K-PNG_AmbientOcclusion.png") as Texture2D
@@ -168,7 +188,7 @@ static func build_wood_material() -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
 	mat.roughness = 0.85
 	mat.metallic  = 0.0
-	mat.specular  = 0.05
+	mat.metallic_specular  = 0.05
 	## Object-space triplanar: the mesh UVs wrap the texture to the model's
 	## non-square 3m x 1.94m footprint (stretched ~1.5x along the length).
 	## Triplanar projects from the object's own space so texels stay square
@@ -204,6 +224,32 @@ static func apply_material_to_model(model: Node3D, mat: StandardMaterial3D) -> v
 			continue
 		for s: int in m.mesh.get_surface_count():
 			m.set_surface_override_material(s, mat)
+
+## Recursively disables collision on every CollisionObject3D descendant of an
+## instanced model — shared by Table.gd and FuelCan.gd (real placed objects).
+## Ghost previews use GhostModelBuilder.strip_collision() for the parallel case.
+static func strip_model_collision(node: Node) -> void:
+	if node is CollisionObject3D:
+		var co: CollisionObject3D = node as CollisionObject3D
+		co.collision_layer = 0
+		co.collision_mask  = 0
+	for child: Node in node.get_children():
+		strip_model_collision(child)
+
+## Godot's glTF importer wraps an imported scene in an extra generated root
+## node (the file's "Scene"), with the real node(s) nested one level below.
+## Recursively finds the first MeshInstance3D descendant and zeros ITS local
+## position. Safe ONLY when the model's vertex data is already centered on
+## that node's own origin (e.g. pre-scaled GLBs exported base-at-y0); do NOT
+## reuse blindly on multi-part models where sub-mesh offsets are intentional.
+static func recenter_glb_mesh(node: Node) -> bool:
+	if node is MeshInstance3D:
+		(node as MeshInstance3D).position = Vector3.ZERO
+		return true
+	for child: Node in node.get_children():
+		if recenter_glb_mesh(child):
+			return true
+	return false
 
 ## Mood override (Aug 2026) — dims, slightly desaturates and mattens a model's
 ## surfaces so they read in-theme with the dark bunker instead of toy-bright.
@@ -257,6 +303,184 @@ static func build_model_collision(kind: String, aabb: AABB) -> CollisionShape3D:
 			box.size = sz
 			cs.shape = box
 	return cs
+
+## Angle-based ("auto smooth") normal rebuild (Sep 2026).
+## Godot's wavefront_obj importer synthesizes PLAIN SMOOTH normals whenever an
+## OBJ ships without `vn` data (Tinkercad exports never include normals) — it
+## averages every face sharing a vertex, even across perpendicular faces. For
+## boxy mechanical models that were authored to be flat-shaded this smears
+## lighting across hard edges, producing exactly the two reported artifacts:
+##   • PowerTerminal screen — a visible diagonal seam across the flat screen
+##     (each screen quad is 2 triangles; smooth-averaged corner normals tilt
+##     the otherwise-flat face).
+##   • GrowLight top plate — a "needles to center" radial shading pattern
+##     (the plate's flat top normals are averaged with its perpendicular
+##     side walls, up to near-edge-on).
+## This rebuild reclusters each vertex's incident faces by the angle between
+## their face normals: within `angle_deg` they share one averaged normal
+## (smooth — keeps the rounded grow-light tubes intact), beyond it they split
+## into separate normals (flat — fixes the box corners/panels). Returns a NEW
+## ArrayMesh (the shared imported resource is untouched); per-surface
+## materials are carried over. Tangents are dropped (none of these materials
+## use normal maps; Godot regenerates them if ever needed).
+## CRITICAL ORIENTATION STEP: each geometric face normal is flipped to agree
+## with the source mesh's importer-generated normal direction. The OBJ has no
+## normals, so the wavefront importer's synthesized normal is the only
+## authoritative "outward" signal — Tinkercad's triangle winding is
+## inconsistent (the power terminal's faces were wound opposite to the grow
+## light's), and without this flip the rebuilt flat faces point INTO the mesh,
+## making the whole panel render as a dark silhouette.
+## Rebuilt meshes are cached per source path so a farm full of grow lights
+## (or many terminals) only pays the rebuild cost once per model, not once per
+## instance — load() already returns the same shared ArrayMesh for a path.
+static var _auto_smooth_cache: Dictionary = {}   ## res://path -> ArrayMesh
+
+static func build_auto_smooth_mesh(src: ArrayMesh, angle_deg: float = 45.0) -> ArrayMesh:
+	if src == null:
+		return ArrayMesh.new()
+	var cache_key: String = src.resource_path
+	if cache_key != "" and _auto_smooth_cache.has(cache_key):
+		return _auto_smooth_cache[cache_key] as ArrayMesh
+	var out := _auto_smooth_mesh_rebuild(src, angle_deg)
+	if cache_key != "":
+		_auto_smooth_cache[cache_key] = out
+	return out
+
+static func _auto_smooth_mesh_rebuild(src: ArrayMesh, angle_deg: float) -> ArrayMesh:
+	var out := ArrayMesh.new()
+	var cos_threshold: float = cos(deg_to_rad(angle_deg))
+	for s: int in src.get_surface_count():
+		var arrays: Array = src.surface_get_arrays(s)
+		var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var src_normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+		var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+		if verts.size() < 3:
+			continue
+
+		## Flatten to an explicit triangle list, skipping degenerate triangles
+		## (a face with a duplicated vertex index has zero area — Tinkercad's
+		## fan triangulation emits a handful of these; they carry no geometry
+		## and leave null group slots in the clustering below).
+		var faces: Array[Vector3i] = []
+		if indices.size() >= 3:
+			for i: int in range(0, indices.size() - 2, 3):
+				var a: int = indices[i]
+				var b: int = indices[i + 1]
+				var c: int = indices[i + 2]
+				if a == b or b == c or a == c:
+					continue
+				faces.append(Vector3i(a, b, c))
+		else:
+			for i: int in range(0, verts.size() - 2, 3):
+				if i == i + 1 or i + 1 == i + 2:
+					continue
+				faces.append(Vector3i(i, i + 1, i + 2))
+
+		## Per-face geometric normal, ORIENTED to agree with the source mesh's
+		## importer-generated normal. This is the critical step: the OBJ carries
+		## no normals and the wavefront importer synthesizes them, so the source
+		## normal's DIRECTION is authoritative (it consistently points outward —
+		## verified against the terminal screen's room-facing face). The raw
+		## geometric cross-product can disagree with it whenever the OBJ's
+		## triangle winding is inconsistent (Tinkercad exports vary), which would
+		## silently flip whole flat faces inward (the "covered in a dark shadow"
+		## bug on the power terminal). We keep the cross product's magnitude-free
+		## angle for clustering, but flip it to match the source's outward
+		## orientation. Fallback = the source smooth normal itself if degenerate.
+		var face_normals: Array[Vector3] = []
+		for f: Vector3i in faces:
+			var geo: Vector3 = (verts[f.y] - verts[f.x]).cross(verts[f.z] - verts[f.x])
+			if src_normals.size() > f.x and src_normals[f.x].length_squared() > 0.001:
+				## Source normal at the face's first corner gives the outward
+				## half-space to keep — flip the geometric normal to match it.
+				if geo.dot(src_normals[f.x]) < 0.0:
+					geo = -geo
+			elif geo.length_squared() < 0.0001 and src_normals.size() > f.x:
+				geo = src_normals[f.x]
+			face_normals.append(geo.normalized())
+
+		## Incident faces per vertex index.
+		var incident: Array[PackedInt32Array] = []
+		incident.resize(verts.size())
+		for fi: int in faces.size():
+			for k: int in 3:
+				incident[faces[fi][k]].append(fi)
+
+		## Greedy cluster incident faces per vertex by normal angle. A face joins
+		## an existing group only if it is within `angle_deg` of EVERY member
+		## (conservative: splits more, never merges a true hard edge).
+		var group_of: Array[Array] = []   ## [vertex][face] -> group index
+		group_of.resize(verts.size())
+		for vi: int in verts.size():
+			var groups: Array[Array] = []   ## each group = Array of face indices
+			for fi: int in incident[vi]:
+				var placed: bool = false
+				for g: Array in groups:
+					var compatible: bool = true
+					for gf: int in g:
+						if face_normals[fi].dot(face_normals[gf]) < cos_threshold:
+							compatible = false
+							break
+					if compatible:
+						g.append(fi)
+						placed = true
+						break
+				if not placed:
+					groups.append([fi])
+			var vg: Array = []
+			vg.resize(incident[vi].size())
+			for gi: int in groups.size():
+				for fi: int in groups[gi]:
+					vg[incident[vi].find(fi)] = gi
+			group_of[vi] = vg
+
+		## Averaged normal per (vertex, group).
+		var group_normals: Array[Dictionary] = []   ## [vertex] -> {group: Vector3}
+		group_normals.resize(verts.size())
+		for vi: int in verts.size():
+			var sums: Dictionary = {}
+			for gi: int in incident[vi].size():
+				var g: int = group_of[vi][gi]
+				if not sums.has(g):
+					sums[g] = Vector3.ZERO
+				sums[g] += face_normals[incident[vi][gi]]
+			var avg: Dictionary = {}
+			for g: int in sums:
+				var v: Vector3 = (sums[g] as Vector3).normalized()
+				if v.length_squared() < 0.0001:
+					v = Vector3.UP
+				avg[g] = v
+			group_normals[vi] = avg
+
+		## Rebuild arrays, deduping corners that share a (vertex, normal) so flat
+		## panels keep shared vertices instead of tripling the count.
+		var new_verts := PackedVector3Array()
+		var new_normals := PackedVector3Array()
+		var new_indices := PackedInt32Array()
+		var corner_map: Dictionary = {}
+		for fi: int in faces.size():
+			for k: int in 3:
+				var vi: int = faces[fi][k]
+				var gi: int = incident[vi].find(fi)
+				var g: int = group_of[vi][gi]
+				var n: Vector3 = group_normals[vi][g]
+				var key: String = "%d|%s" % [vi, n]
+				var new_idx: int = corner_map.get(key, -1)
+				if new_idx < 0:
+					new_idx = new_verts.size()
+					corner_map[key] = new_idx
+					new_verts.append(verts[vi])
+					new_normals.append(n)
+				new_indices.append(new_idx)
+
+		var new_arrays: Array = []
+		new_arrays.resize(Mesh.ARRAY_MAX)
+		new_arrays[Mesh.ARRAY_VERTEX] = new_verts
+		new_arrays[Mesh.ARRAY_NORMAL] = new_normals
+		new_arrays[Mesh.ARRAY_INDEX] = new_indices
+		out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, new_arrays)
+		out.surface_set_material(s, src.surface_get_material(s))
+	return out
 
 func _build_world_materials() -> void:
 	## ── Wall material ──────────────────────────────────────────────────────

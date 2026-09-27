@@ -119,6 +119,13 @@ var _tracked_bodies: Dictionary = {}   ## Node3D → true
 ## because Jolt Area3D body_entered/exited signals never fire for StaticBody3D.
 var _static_in_range: Dictionary = {}  ## Node3D → true
 
+## Prompt discovery performs the StaticBody/group fallbacks that Jolt's
+## Area3D cannot provide reliably. Those content-scaled scans do not need the
+## render frame rate: 20 Hz is responsive for a proximity prompt, while input
+## dispatch still resolves its target immediately on the button press.
+const PROMPT_REFRESH_INTERVAL: float = 0.05
+var _prompt_refresh_accum: float = PROMPT_REFRESH_INTERVAL
+
 # ─── Medical item injury-selection submenu (Aug 2026) ─────────────────────────
 ## Called by a held medical item's own on_use() (e.g. Bandage.gd) instead of
 ## applying treatment directly. Resets highlight to 0 each time it opens.
@@ -284,11 +291,13 @@ func _handle_medical_submenu_input(event: InputEvent) -> void:
 func _on_body_entered(body: Node3D) -> void:
 	if body.is_in_group("interactable") or body.is_in_group("pickup"):
 		_tracked_bodies[body] = true
+		_prompt_refresh_accum = PROMPT_REFRESH_INTERVAL
 	if body.is_in_group("interactable") and body.has_method("set_player_in_range"):
 		body.set_player_in_range(true)
 
 func _on_body_exited(body: Node3D) -> void:
 	_tracked_bodies.erase(body)
+	_prompt_refresh_accum = PROMPT_REFRESH_INTERVAL
 	if body.is_in_group("interactable") and body.has_method("set_player_in_range"):
 		body.set_player_in_range(false)
 
@@ -324,7 +333,10 @@ func _process(delta: float) -> void:
 	if _medical_submenu_open:
 		if held_item != _medical_submenu_item or not is_instance_valid(_medical_submenu_item):
 			_close_medical_submenu()
-	_update_prompt()
+	_prompt_refresh_accum += delta
+	if _prompt_refresh_accum >= PROMPT_REFRESH_INTERVAL:
+		_prompt_refresh_accum = 0.0
+		_update_prompt()
 
 ## True only when the held item + proximity make the Research Station chute
 ## the ACTUAL F target — the chute is the only non-shelf F-capable body with a
@@ -882,8 +894,8 @@ func _store_item_to_slot(slot: int) -> void:
 
 	held_item.gravity_scale   = 1.0
 	held_item.freeze_mode     = RigidBody3D.FREEZE_MODE_STATIC
-	held_item.collision_layer = 1
-	held_item.collision_mask  = 1
+	held_item.collision_layer = held_item.rest_collision_layer()
+	held_item.collision_mask  = held_item._rest_collision_mask()
 	held_item.linear_velocity = Vector3.ZERO
 
 	inventory.add_item_to_slot(held_item, slot)
@@ -902,8 +914,8 @@ func _store_item() -> void:
 
 	held_item.gravity_scale   = 1.0
 	held_item.freeze_mode     = RigidBody3D.FREEZE_MODE_STATIC
-	held_item.collision_layer = 1
-	held_item.collision_mask  = 1
+	held_item.collision_layer = held_item.rest_collision_layer()
+	held_item.collision_mask  = held_item._rest_collision_mask()
 	held_item.linear_velocity = Vector3.ZERO
 
 	var stored_slot: int = inventory.add_item(held_item)
@@ -1248,7 +1260,7 @@ func _update_prompt() -> void:
 				})
 			var nearby_stove: Node = _find_nearest_stove()
 			if nearby_stove != null:
-				var stove_pos: Vector3 = (nearby_stove as Node3D).global_position + Vector3(0.0, 0.9, 0.0)
+				var stove_pos: Vector3 = (nearby_stove as Node3D).global_position + Vector3(0.0, 0.6, 0.0)
 				if nearby_stove.has_method("get_interact_prompt"):
 					var stove_txt: String = nearby_stove.get_interact_prompt()
 					if not stove_txt.is_empty():
@@ -1468,11 +1480,19 @@ func _update_prompt() -> void:
 		if body.has_method("get_slot_icon_descriptors"):
 			icons = body.get_slot_icon_descriptors()
 
+		## Cooking pot hover (Sep 2026): the panel grows as ingredients are
+		## added (icon row appears, then the label). Anchor its BOTTOM edge at
+		## the world anchor and let it build upward, so the pot's panel never
+		## drifts down into the stove when it expands. InteractPrompt reads
+		## "anchor_bottom" to bottom-align instead of center-align.
+		var anchor_bottom: bool = body is CookingPot
+
 		entries.append({
 			"text":      "\n".join(lines),
 			"world_pos": prompt_pos,
 			"dist":      cand["dist"],
 			"icons":     icons,
+			"anchor_bottom": anchor_bottom,
 		})
 		entry_bodies.append(body)
 
@@ -1948,8 +1968,8 @@ func _finish_take_dish(pot: Node) -> void:
 	var dish_script: GDScript = load("res://scripts/world/items/DishItem.gd")
 	var dish: RigidBody3D = RigidBody3D.new()
 	dish.set_script(dish_script)
-	dish.collision_layer = 1
-	dish.collision_mask  = 1
+	dish.collision_layer = dish.rest_collision_layer()
+	dish.collision_mask  = dish._rest_collision_mask()
 	dish.continuous_cd   = true
 
 	## Must be set BEFORE add_child() — DishItem._ready() reads
@@ -2016,8 +2036,8 @@ func _finish_take_dish_from_held_pot(pot: Node) -> void:
 	var dish_script: GDScript = load("res://scripts/world/items/DishItem.gd")
 	var dish: RigidBody3D = RigidBody3D.new()
 	dish.set_script(dish_script)
-	dish.collision_layer = 1
-	dish.collision_mask  = 1
+	dish.collision_layer = dish.rest_collision_layer()
+	dish.collision_mask  = dish._rest_collision_mask()
 	dish.continuous_cd   = true
 
 	## See _finish_take_dish()'s identical comment — must be set before
@@ -2135,6 +2155,8 @@ func _quick_drop() -> void:
 	else:
 		# World item — just drop it
 		held_item.drop(_world_root, drop_pos)
+	if is_instance_valid(dropped_item) and dropped_item.has_method("mark_cleanup_release"):
+		dropped_item.mark_cleanup_release(&"player")
 
 	held_item = null
 	_held_from_slot = -1
@@ -2181,6 +2203,8 @@ func drop_in_place() -> void:
 		inventory.remove_item(_held_from_slot, drop_pos)
 	else:
 		held_item.drop(_world_root, drop_pos)
+	if is_instance_valid(dropped_item) and dropped_item.has_method("mark_cleanup_release"):
+		dropped_item.mark_cleanup_release(&"player")
 
 	held_item = null
 	_held_from_slot = -1

@@ -41,10 +41,10 @@ func _refresh_data() -> void:
 	var charge: float = float(_data.get("charge_wh", 0.0))
 	var capacity: float = float(_data.get("capacity_wh", 0.0))
 	var percent: float = clampf(charge / maxf(capacity, 1.0) * 100.0, 0.0, 100.0)
-	W.set_meter(_charge, percent, "%d%%" % int(percent), "%.0f / %.0f Wh stored" % [charge, capacity],
+	W.set_meter(_charge, percent, UIFormat.percent(percent), "%.0f / %.0f Wh stored" % [charge, capacity],
 		"critical" if percent <= 15.0 else ("warning" if percent <= 40.0 else "blue"))
 	var health: float = float(_data.get("health", 100.0))
-	W.set_meter(_health, health, "%d%%" % int(health),
+	W.set_meter(_health, health, UIFormat.percent(health),
 		"Health tracking is not active yet." if not bool(_data.get("health_implemented", false)) else "",
 		"critical" if health <= 25.0 else ("warning" if health <= 50.0 else "success"))
 	_toggle.text = "Disable battery" if bool(_data.get("enabled", true)) else "Enable battery"

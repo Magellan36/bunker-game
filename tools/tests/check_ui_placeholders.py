@@ -46,6 +46,7 @@ def main() -> int:
     discovered = {
         "res://" + path.relative_to(ROOT).as_posix()
         for path in PLACEHOLDER_DIR.glob("*_AI_PLACEHOLDER.*")
+        if path.suffix != ".import"
     }
     errors: list[str] = []
     errors.extend(f"manifest entry is missing on disk: {path}" for path in sorted(listed) if not res_to_path(path).is_file())

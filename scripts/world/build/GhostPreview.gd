@@ -96,6 +96,12 @@ func measure_visual_aabb(root: Node3D) -> AABB:
 		var rmi := root as MeshInstance3D
 		if rmi.mesh != null:
 			aabb = rmi.mesh.get_aabb()
+	elif root is MultiMeshInstance3D:
+		var rmmi := root as MultiMeshInstance3D
+		if rmmi.multimesh != null:
+			aabb = rmmi.multimesh.custom_aabb
+			if aabb.size == Vector3.ZERO:
+				aabb = rmmi.get_aabb()
 	for child: Node in root.get_children():
 		if child is Node3D and child.name != "_GhostArrow" and child.name != "_GrowLightFootprintDecal":
 			aabb = _collect_local_visual_aabb(child as Node3D, Transform3D.IDENTITY, aabb)
@@ -111,6 +117,17 @@ func _collect_local_visual_aabb(node: Node3D, parent_t: Transform3D, aabb: AABB)
 				aabb = ta
 			else:
 				aabb = aabb.merge(ta)
+	elif node is MultiMeshInstance3D:
+		var mmi := node as MultiMeshInstance3D
+		if mmi.multimesh != null:
+			var local_aabb: AABB = mmi.multimesh.custom_aabb
+			if local_aabb.size == Vector3.ZERO:
+				local_aabb = mmi.get_aabb()
+			var multimesh_ta: AABB = lt * local_aabb
+			if aabb.size == Vector3.ZERO:
+				aabb = multimesh_ta
+			else:
+				aabb = aabb.merge(multimesh_ta)
 	for child: Node in node.get_children():
 		if child is Node3D and child.name != "_GhostArrow" and child.name != "_GrowLightFootprintDecal":
 			aabb = _collect_local_visual_aabb(child as Node3D, lt, aabb)
@@ -630,8 +647,20 @@ func _update_ghost() -> void:
 
 	var world_pos: Vector3 = result["position"]
 	var snap_pos: Vector3  = _owner._snap_to_grid(world_pos)
+	_owner._ghost_door_candidate = {}
+	if _owner._selected_tile == _owner.TILE_BUNKER_DOOR:
+		var door_candidate: Dictionary = _owner._resolve_door_placement(world_pos)
+		_owner._ghost_door_candidate = door_candidate
+		if door_candidate.has("pos"):
+			snap_pos = door_candidate["pos"]
+			_owner._current_angle_deg = float(door_candidate.get("angle_deg", 0.0))
+	# Door candidates already carry the host wall's exact floor-plane Y. Do not
+	# replace it with the legacy generic PLACEMENT_Y (2.0m), which would make
+	# both the preview and final door hover while the wall cut remained correct.
+	if _owner._selected_tile == _owner.TILE_BUNKER_DOOR:
+		pass
 	# Use shelf-specific Y for the shelf family, standard for everything else
-	if _owner._selected_tile == _owner.TILE_SHELVING or \
+	elif _owner._selected_tile == _owner.TILE_SHELVING or \
 			_owner._selected_tile == _owner.TILE_SMALL_SHELF or \
 			_owner._selected_tile == _owner.TILE_LARGE_SHELF:
 		snap_pos.y = _owner.SHELF_PLACEMENT_Y
@@ -645,8 +674,22 @@ func _update_ghost() -> void:
 	elif _owner._selected_tile == _owner.TILE_GEN_S or _owner._selected_tile == _owner.TILE_GEN_M \
 			or _owner._selected_tile == _owner.TILE_GEN_L:
 		snap_pos.y = _owner.GEN_PLACEMENT_Y
-	elif _owner._selected_tile == _owner.TILE_WIRE or _owner._selected_tile == _owner.TILE_TERMINAL:
+	elif _owner._selected_tile == _owner.TILE_WIRE:
 		snap_pos.y = _owner.PLACEMENT_Y
+	elif _owner._selected_tile == _owner.TILE_TERMINAL:
+		snap_pos.y = _owner.PLACEMENT_Y
+		var terminal_snap: Dictionary = _owner._snap_to_nearest_wall(
+			snap_pos, 0.45, 0.04, _owner.LIGHT_WALL_SNAP_RANGE)
+		if terminal_snap.is_empty():
+			_owner._ghost.visible = false
+			_owner._ghost_valid = false
+			return
+		snap_pos = terminal_snap["pos"]
+		_owner._current_angle_deg = terminal_snap["angle_deg"]
+		for i: int in _owner.EIGHT_DIR_ANGLES.size():
+			if absf(_owner.EIGHT_DIR_ANGLES[i] - _owner._current_angle_deg) < 1.0:
+				_owner._orient_index = i
+				break
 	elif _owner._selected_tile == _owner.TILE_HEAVY:
 		snap_pos.y = _owner.HEAVY_PLACEMENT_Y
 	elif _owner._selected_tile == _owner.TILE_HALF_WALL:
@@ -719,6 +762,10 @@ func _update_ghost() -> void:
 			or _owner._selected_tile == _owner.TILE_CHAIR or _owner._selected_tile == _owner.TILE_STOVE \
 			or _owner._selected_tile == _owner.TILE_END_TABLE or _owner._selected_tile == _owner.TILE_DRESSER \
 			or _owner._selected_tile == _owner.TILE_TRASH_CAN \
+			or _owner._selected_tile == _owner.TILE_CARPET_1 or _owner._selected_tile == _owner.TILE_CARPET_2 \
+			or _owner._selected_tile == _owner.TILE_CARPET_3 or _owner._selected_tile == _owner.TILE_DRAWERS_1 \
+			or _owner._selected_tile == _owner.TILE_DRAWERS_2 or _owner._selected_tile == _owner.TILE_DRAWERS_3 \
+			or _owner._selected_tile == _owner.TILE_SINK \
 			or _owner._selected_tile == _owner.TILE_BUILD_STATION \
 			or _owner._selected_tile == _owner.TILE_RESEARCH_STATION:
 		snap_pos.y = 0.5   ## Floor-standing, same hover-offset convention as farming trays
@@ -774,6 +821,8 @@ func _update_ghost() -> void:
 	var player: Node3D = _owner.get_parent()
 	var dist: float    = player.global_position.distance_to(snap_pos)
 	_owner._ghost_valid = (dist <= _owner.build_reach)
+	if _owner._selected_tile == _owner.TILE_BUNKER_DOOR:
+		_owner._ghost_valid = _owner._ghost_valid and bool(_owner._ghost_door_candidate.get("valid", false))
 
 	# Also invalid if insufficient cash
 	if _owner._ghost_valid and _owner.world_node != null:
@@ -783,7 +832,8 @@ func _update_ghost() -> void:
 	# Also invalid if another object already occupies this snap position.
 	# Lights use a tighter overlap radius so multiple can sit along a wall.
 	_owner._ghost_blocked_by_occupation = false
-	if _owner._ghost_valid and _owner._is_position_occupied_for_tile(snap_pos, _owner._selected_tile):
+	if _owner._ghost_valid and _owner._selected_tile != _owner.TILE_BUNKER_DOOR \
+			and _owner._is_position_occupied_for_tile(snap_pos, _owner._selected_tile):
 		_owner._ghost_valid = false
 		_owner._ghost_blocked_by_occupation = true
 

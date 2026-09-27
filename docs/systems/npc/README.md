@@ -118,6 +118,17 @@ Weighted destinations (near friends, near used furniture, random), pauses
 that look at nearby people (the player first), and a stroll ends after 2–4
 legs so relaxing/chatting/chores get a natural look-in.
 
+### Doors
+`BunkerDoor` adds a NavigationLink through its opening, so routes may cross a
+closed door. `NPC.nav_steer()` notices when the route crosses a door plane
+within `wait_distance`, calls `request_npc_open()` and waits (movement lock,
+so stuck recovery stays quiet); `NPCDoorCoordinator` stops opposite-direction
+residents from meeting in the doorway. A door that stays shut for
+`DOOR_GIVE_UP_SEC` (8 s) sets `npc.door_blocked`; the brain abandons the
+activity at its next tick (never re-entrantly) and benches it for 20 s.
+Movement speed is also capped at the requested pace — avoidance can steer
+a resident but never speed them up.
+
 ### Persistence
 `NPC.get_save_dict()` / `apply_save_dict()` (called BEFORE `add_child`):
 identity, needs, health, mood, irritability, personality, skills, age,
@@ -131,13 +142,14 @@ All cooldowns are in game hours via `NPCClock.now()` (pause-, fast-forward-
 and save-safe). Short physical actions still use frame delta.
 
 ### Testing: headless simulation harness
-`tools/tests/run_npc_sim.sh --scenario=basic|farm|cook|power|stress|scarcity|all
+`tools/tests/run_npc_sim.sh --scenario=basic|farm|cook|power|stress|scarcity|door|all
 --minutes=10 --npcs=4 --seed=1 [--timeline] [--scores=15] [--saveload=300]`
 boots the real MainWorld headless, furnishes it through
 `BuildModeController.restore_placed_objects()`, spawns items and NPCs and
 flags: ghost/stuck/orphaned held items, churn loops, frozen NPCs, escapes
 from the bunker, leaked reservations, starving-with-food-available, and
-save/load field drift. Exit code 0 = clean. Rendered frame capture:
+save/load field drift. `door` splits the room with a closed bunker door
+(shut again every 30 s) and reports crossings. Exit code 0 = clean. Rendered frame capture:
 `tools/tests/run_npc_visual.sh` (Xvfb + software GL; see script header).
 
 ---

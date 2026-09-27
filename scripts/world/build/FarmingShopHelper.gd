@@ -78,22 +78,33 @@ func spawn_purchased_item(item_id: int) -> bool:
 	var kind: String = String(info.get("kind", ""))
 	match kind:
 		"soil":
-			BagOfSoilItem.spawn_at(parent, base_pos)
+			_gate_spawned(BagOfSoilItem.spawn_at(parent, base_pos))
 		"seed":
 			var type: String = String(info.get("type", "tomato"))
-			SeedItem.spawn_at(parent, base_pos, type)   ## One instance, 4 charges — no more count/loop
+			_gate_spawned(SeedItem.spawn_at(parent, base_pos, type))   ## One instance, 4 charges — no more count/loop
 		"fertilizer":
 			var tier: String = String(info.get("type", "normal"))
-			FertilizerItem.spawn_at(parent, base_pos, tier)
+			_gate_spawned(FertilizerItem.spawn_at(parent, base_pos, tier))
 		"scene":
 			var scene_path: String = String(info.get("scene", ""))
 			var offset: Vector3 = Vector3(randf_range(-0.25, 0.25), 0.0, randf_range(-0.25, 0.25))
-			spawn_scene_settled(parent, scene_path, base_pos + offset)
+			_gate_spawned(spawn_scene_settled(parent, scene_path, base_pos + offset))
 		_:
 			push_warning("FarmingShopHelper: unhandled kind '%s' for item_id %d" % [kind, item_id])
 			return false
 
 	return true
+
+## Dynamic shadow gate (Sep 2026) — a freshly bought shop item (bag of soil,
+## seeds, crate, etc.) must never flash a shadow when Layer 2 is off. Gates
+## the spawned node immediately via BuildModeController's shared capture-
+## consistent helper (the world-walk throttle would otherwise take up to a
+## second to turn it off).
+func _gate_spawned(node: Node3D) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	if _owner != null and _owner.has_method("_apply_dynamic_shadow_to_node"):
+		_owner.call("_apply_dynamic_shadow_to_node", node)
 
 ## Atomic multi-item checkout used by the new ShopPanel.  All resources are
 ## validated and instantiated while detached before cash changes.  If a clear
@@ -140,6 +151,9 @@ func checkout_order(lines: Dictionary) -> Dictionary:
 	for i in prepared.size():
 		parent.add_child(prepared[i])
 		prepared[i].global_position = positions[i]
+		## Gate each delivered item immediately — no shadow flash when Layer 2
+		## is off (see _gate_spawned).
+		_gate_spawned(prepared[i])
 	return {"ok": true, "message": "%d item%s delivered nearby." % [item_count, "" if item_count == 1 else "s"], "total": total}
 
 func _prepare_item(item_id: int) -> Node3D:

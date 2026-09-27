@@ -51,6 +51,9 @@ const CLEANING_UNAVAILABLE_REASONS: Dictionary = {
 	"NOTHING_TO_CLEAN": "nothing to clean right now",
 	"NO_TRASH_RECEPTACLE": "there's trash, but nowhere to throw it away yet",
 	"STILL_SETTLING": "everything's still settling — check back shortly",
+	"PHYSICALLY_MOVING": "the loose items are still moving — check back shortly",
+	"STABILIZING": "the loose items just settled — I'll get to them shortly",
+	"RECENTLY_PLACED_BY_PLAYER": "you just put those items down — I'll leave them for a moment",
 	"ALL_CLAIMED": "everything's already being handled by someone else",
 	"NO_LIGHT_STORAGE_AVAILABLE": "there's nothing to put light items away in",
 	"NO_HEAVY_STORAGE_AVAILABLE": "there's nothing to put heavy items away in",
@@ -157,6 +160,7 @@ func open(npc_name: String, npc: Node = null) -> void:
 	if not _is_open:
 		var focus_owner: Control = get_viewport().gui_get_focus_owner()
 		_previous_focus = weakref(focus_owner) if focus_owner != null else null
+	UIPanelLifecycle.prepare_open(self)
 	_is_open = true
 	visible = true
 	set_process(true)
@@ -193,11 +197,9 @@ func close() -> void:
 	if not _is_open:
 		return
 	_is_open = false
-	visible = false
 	set_process(false)
 	_disconnect_npc_signals()
 	_proximity.unbind()
-	_portrait.clear_npc()
 	remove_from_group("npc_talk_ui")
 	var focused: Control = get_viewport().gui_get_focus_owner()
 	if focused != null and _root.is_ancestor_of(focused):
@@ -208,8 +210,16 @@ func close() -> void:
 				and (previous as Control).is_visible_in_tree():
 			(previous as Control).grab_focus()
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+	if _npc != null and is_instance_valid(_npc) and _npc.has_method("end_player_interaction"):
+		_npc.call("end_player_interaction")
 	_npc = null
+	UIPanelLifecycle.dismiss(self, _panel, _finish_close_presentation)
 	closed.emit()
+
+
+func _finish_close_presentation() -> void:
+	if not _is_open:
+		_portrait.clear_npc()
 
 
 func is_open() -> bool:
@@ -351,6 +361,7 @@ func _build_tabs(parent: Container) -> void:
 		C.style_segment(button)
 		button.pressed.connect(_set_tab.bind(index, true))
 		row.add_child(button)
+		button.set_meta(&"ui_tab", true)
 		_tab_buttons.append(button)
 
 
@@ -440,7 +451,7 @@ func _build_needs_strip(parent: Container) -> void:
 		var key: String = String(entry["key"])
 		var color: Color = entry["color"] as Color
 		var card: PanelContainer = _card(Color("151c1b"), S.BRASS.darkened(0.4), 7)
-		card.custom_minimum_size.y = 78.0
+		card.custom_minimum_size.y = 58.0
 		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(card)
 		var card_row: HBoxContainer = HBoxContainer.new()
@@ -522,7 +533,7 @@ func _build_overview(parent: VBoxContainer) -> void:
 	_talk_to_button.text = "Talk to resident"
 	_talk_to_button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	S.icon_button(_talk_to_button, "talk", true)
-	_talk_to_button.custom_minimum_size.y = 55.0
+	_talk_to_button.custom_minimum_size.y = 38.0
 	_talk_to_button.pressed.connect(_open_talk_tab)
 	right.add_child(_talk_to_button)
 
@@ -614,7 +625,7 @@ func _build_at_a_glance(parent: Container) -> void:
 
 func _build_fact_row(parent: Container, symbol: String, title_text: String, value_text: String) -> Label:
 	var row: HBoxContainer = HBoxContainer.new()
-	row.custom_minimum_size.y = 67.0
+	row.custom_minimum_size.y = 48.0
 	row.add_theme_constant_override("separation", 10)
 	parent.add_child(row)
 	row.add_child(_icon(symbol, 23.0, S.IVORY))
@@ -644,7 +655,7 @@ func _build_talk(parent: VBoxContainer) -> void:
 	dialogue_row.add_child(dialogue_copy)
 	_dialogue_label = _label("Select Talk to begin a conversation.", 15, S.IVORY)
 	_dialogue_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_dialogue_label.custom_minimum_size.y = 54.0
+	_dialogue_label.custom_minimum_size.y = 40.0
 	dialogue_copy.add_child(_dialogue_label)
 	var talk_again: Button = Button.new()
 	talk_again.text = "Talk again"
@@ -687,7 +698,7 @@ func _build_requests(parent: VBoxContainer) -> void:
 		button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.custom_minimum_size = Vector2(0.0, 54.0)
+		button.custom_minimum_size = Vector2(0.0, 38.0)
 		S.icon_button(button, String(entry["icon"]))
 		button.pressed.connect(_on_job_command_pressed.bind(String(entry["type"])))
 		grid.add_child(button)
@@ -699,7 +710,7 @@ func _request_button(text_value: String, symbol: String, callback: Callable) -> 
 	button.text = text_value
 	button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	button.custom_minimum_size.y = 52.0
+	button.custom_minimum_size.y = 36.0
 	S.icon_button(button, symbol)
 	button.pressed.connect(callback)
 	return button
@@ -784,8 +795,7 @@ func _set_tab(index: int, refresh_content: bool = true) -> void:
 			_rebuild_health(true)
 		elif index == ResidentTab.ACTIVITY_LOG:
 			_rebuild_log_rows()
-	if index < _scrolls.size():
-		_reset_scroll(_scrolls[index])
+	UIFade.content(_pages[index])
 
 
 func _cycle_tab(direction: int) -> void:
@@ -1138,6 +1148,7 @@ func _select_medical_part(part: int) -> void:
 	for key: Variant in _medical_part_buttons.keys():
 		(_medical_part_buttons[key] as Button).button_pressed = int(key) == part
 	_rebuild_selected_conditions()
+	UIFade.content(_medical_conditions_box)
 
 
 func _rebuild_selected_conditions() -> void:
@@ -1392,9 +1403,9 @@ func _update_footer() -> void:
 	if _footer_hint == null:
 		return
 	_footer_hint.text = (
-		"LB / RB  Switch tab    •    D-pad / Right stick  Navigate    •    A  Select    •    B / E  Close    •    Walk away to close"
+		"LB / RB  Switch tab    •    D-pad / Right stick  Navigate    •    A  Select    •    B / E  Close"
 		if InputMode.is_controller()
-		else "Click  Select    •    Mouse wheel  Scroll    •    E / Esc  Close    •    Walk away to close"
+		else "Click  Select    •    Mouse wheel  Scroll    •    E / Esc  Close"
 	)
 
 
@@ -1402,16 +1413,7 @@ func _layout() -> void:
 	if _panel == null:
 		return
 	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
-	var available: Vector2 = Vector2(
-		maxf(720.0, viewport_size.x - SCREEN_MARGIN.x * 2.0),
-		maxf(560.0, viewport_size.y - SCREEN_MARGIN.y * 2.0)
-	)
-	var panel_size: Vector2 = Vector2(
-		minf(PANEL_MAX.x, available.x),
-		minf(PANEL_MAX.y, available.y)
-	)
-	_panel.position = (viewport_size - panel_size) * 0.5
-	_panel.size = panel_size
+	UIPanelLayout.fit(_panel, viewport_size, PANEL_MAX, SCREEN_MARGIN)
 
 
 func _reset_scrolls() -> void:
@@ -1480,7 +1482,7 @@ func _empty_state(message: String) -> Label:
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	label.custom_minimum_size.y = 58.0
+	label.custom_minimum_size.y = 42.0
 	return label
 
 

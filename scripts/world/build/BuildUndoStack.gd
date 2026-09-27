@@ -58,10 +58,14 @@ func _undo() -> void:
 		if is_instance_valid(body):
 			if body.has_method("eject_all_items"):
 				body.eject_all_items()
+			var removed_from_registry: bool = false
 			for i: int in _owner._placed_objects.size():
 				if _owner._placed_objects[i]["node"] == body:
 					_owner._placed_objects.remove_at(i)
+					removed_from_registry = true
 					break
+			if removed_from_registry:
+				_owner.notify_navigation_topology_changed()
 			## Unregister from power grid before freeing (undo-place path)
 			if undo_tid == _owner.TILE_LIGHT:
 				var pm: PowerManager = _owner.get_tree().get_first_node_in_group("power_manager") as PowerManager
@@ -115,11 +119,32 @@ func _undo() -> void:
 		var price:     int     = entry["price"]
 		var pos:       Vector3 = entry["world_pos"]
 		var angle_deg: float   = entry["angle_deg"]
+		var extra: Dictionary  = entry.get("extra", {})
 
-		if _owner.world_node != null:
-			_owner.world_node.spend_cash(price)
+		## Undoing a refund is a real purchase reversal. Keep the entry available
+		## when the player can no longer afford it instead of spawning for free.
+		if price > 0 and _owner.world_node != null \
+				and _owner.world_node.has_method("get_cash") \
+				and int(_owner.world_node.get_cash()) < price:
+			_owner._undo_stack.append(entry)
+			_owner._show_hud_warning("Not enough cash to undo deconstruction")
+			return
 
 		var body: Node3D = _owner._spawn_placed_object(tile_id, pos, angle_deg)
+		if body == null:
+			_owner._undo_stack.append(entry)
+			_owner._show_hud_warning("Object cannot be restored here")
+			return
+		if price > 0 and _owner.world_node != null \
+				and not _owner.world_node.spend_cash(price):
+			body.queue_free()
+			_owner._undo_stack.append(entry)
+			_owner._show_hud_warning("Not enough cash to undo deconstruction")
+			return
+		var footprint: Vector2 = _owner._tile_half_extents(tile_id)
+		var visual_aabb: AABB = _owner._ghost_preview.measure_visual_aabb(body)
+		if visual_aabb != AABB():
+			footprint = Vector2(visual_aabb.size.x * 0.5, visual_aabb.size.z * 0.5)
 		_owner._placed_objects.append({
 			"node":          body,
 			"tile_id":       tile_id,
@@ -127,8 +152,13 @@ func _undo() -> void:
 			"world_pos":     pos,
 			"angle_deg":     angle_deg,
 			"player_placed": true,
+			"footprint":     footprint,
 		})
+		_owner.notify_navigation_topology_changed()
+		if not extra.is_empty():
+			_owner.call_deferred("_apply_device_extra_deferred", body, tile_id, extra)
 		_owner._spawn_float_label_at_pos(pos, price, false)
+		_owner._refresh_connectable_dots()
 
 	elif type == "dig_rock":
 		## Undo a rock dig: restore the chunk and refund the cost
@@ -145,16 +175,52 @@ func _undo() -> void:
 		_owner._spawn_float_label_at_pos(center, cost, true)
 
 	elif type == "move":
-		## Undo a move: teleport the object back to its original position
+		## Undo a move: restore both transform components used by wall snapping.
 		var body: Node3D = entry["node"] as Node3D
 		if is_instance_valid(body):
+			if entry.has("special_state") and body.has_method("restore_move_state"):
+				body.call("restore_move_state", entry["special_state"])
 			var old_pos: Vector3 = entry["old_pos"]
+			var old_angle: float = float(entry.get("old_angle_deg", body.rotation_degrees.y))
+			var move_delta: Vector3 = old_pos - body.global_position
 			body.global_position = old_pos
+			body.rotation_degrees = Vector3(0.0, old_angle, 0.0)
+			_owner._translate_external_storage_items(body, move_delta)
 			# Update the registry entry too
 			for reg_entry: Dictionary in _owner._placed_objects:
 				if reg_entry["node"] == body:
 					reg_entry["world_pos"] = old_pos
+					reg_entry["angle_deg"] = old_angle
 					break
+			_owner.notify_navigation_topology_changed()
+			# Wall-fed power devices key their invisible electrical attachment by
+			# position, so an undone move must restore that attachment as well.
+			if body.has_method("refresh_power_attachment"):
+				body.call_deferred("refresh_power_attachment")
+			if body.has_method("update_graph_node_position"):
+				body.call("update_graph_node_position")
+
+	elif type == "wire_run":
+		var pm_run: PowerManager = _owner.get_tree().get_first_node_in_group("power_manager") as PowerManager
+		var run: String = entry["run_id"]
+		if pm_run != null:
+			pm_run.begin_bulk()
+		for raw: Node in _owner.get_tree().get_nodes_in_group("wire_segment"):
+			var seg := raw as WireSegment
+			if seg != null and seg.run_id == run and not seg.is_queued_for_deletion():
+				if _owner.world_node != null and _owner.world_node.has_method("forget_player_wire"):
+					_owner.world_node.forget_player_wire(seg)
+				if pm_run != null:
+					pm_run.unregister_wire_edge(seg.edge_id)
+				seg.queue_free()
+		if pm_run != null:
+			pm_run.restore_zone_colors(entry.get("zone_color_snap", {}))
+			pm_run.end_bulk()
+		var refund: int = entry.get("cost", 0)
+		if _owner.world_node != null:
+			_owner.world_node.add_cash(refund)
+		_owner._spawn_float_label_at_pos(entry.get("world_pos", Vector3.ZERO), refund, true)
+		_owner._recolor_wire_zones()
 
 	elif type == "wire":
 		## Undo a wire placement: free the segment node, unregister the PM edge, refund cash.
@@ -238,14 +304,18 @@ func _undo() -> void:
 
 	elif type == "wall_run":
 		var seg_nodes: Array = entry.get("seg_nodes", [])
+		var removed_wall: bool = false
 		for n: Variant in seg_nodes:
 			if n != null and is_instance_valid(n):
 				var body: Node3D = n as Node3D
 				for i: int in _owner._placed_objects.size():
 					if _owner._placed_objects[i]["node"] == body:
 						_owner._placed_objects.remove_at(i)
+						removed_wall = true
 						break
 				body.queue_free()
+		if removed_wall:
+			_owner.notify_navigation_topology_changed()
 		var total_refund: int = entry.get("price_per_segment", 0) * seg_nodes.size()
 		if total_refund > 0 and _owner.world_node != null:
 			_owner.world_node.add_cash(total_refund)
@@ -267,13 +337,15 @@ func _push_undo_place(body: Node3D, tile_id: int, price: int, pos: Vector3,
 	if _owner._undo_stack.size() > _owner.MAX_UNDO:
 		_owner._undo_stack.pop_front()
 
-func _push_undo_remove(tile_id: int, price: int, pos: Vector3, angle_deg: float) -> void:
+func _push_undo_remove(tile_id: int, price: int, pos: Vector3, angle_deg: float,
+		extra: Dictionary = {}) -> void:
 	_owner._undo_stack.append({
 		"type":      "remove",
 		"tile_id":   tile_id,
 		"price":     price,
 		"world_pos": pos,
 		"angle_deg": angle_deg,
+		"extra":     extra.duplicate(true),
 	})
 	if _owner._undo_stack.size() > _owner.MAX_UNDO:
 		_owner._undo_stack.pop_front()
@@ -289,34 +361,32 @@ func _push_undo_dig_rock(chunk_id: Vector2i, center: Vector3) -> void:
 		_owner._undo_stack.pop_front()
 
 func _push_undo_move(body: Node3D, reg_entry: Dictionary, old_pos: Vector3) -> void:
-	_owner._undo_stack.append({
-		"type":    "move",
-		"node":    body,
-		"old_pos": old_pos,
-	})
+	var undo_entry: Dictionary = {
+		"type":          "move",
+		"node":          body,
+		"old_pos":       old_pos,
+		"old_angle_deg": float(reg_entry.get("angle_deg", body.rotation_degrees.y)),
+	}
+	if body.has_method("capture_move_state"):
+		undo_entry["special_state"] = body.call("capture_move_state")
+	_owner._undo_stack.append(undo_entry)
 	if _owner._undo_stack.size() > _owner.MAX_UNDO:
 		_owner._undo_stack.pop_front()
 func _push_undo_wire(seg_node: Node3D, edge_id: String, cost: int, midpoint: Vector3) -> void:
-	## Capture color state BEFORE this wire's placement causes a zone-merge/recolor.
-	var zone_color_snap: Dictionary = {}
-	var pm: PowerManager = _owner.get_tree().get_first_node_in_group("power_manager") as PowerManager
-	if pm != null:
-		zone_color_snap = pm.snapshot_zone_colors()
-
+	var seg := seg_node as WireSegment
+	var run: String = seg.run_id if seg != null else ""
+	var snap: Dictionary = seg_node.get_meta("zone_color_snap", {})
+	if not run.is_empty() and not _owner._undo_stack.is_empty() and _owner._undo_stack[-1].get("run_id", "") == run:
+		_owner._undo_stack[-1]["cost"] += cost
+		return
 	_owner._undo_stack.append({
-		"type":            "wire",
-		"node":            seg_node,
-		"edge_id":         edge_id,
-		"cost":            cost,
-		"world_pos":       midpoint,
-		"zone_color_snap": zone_color_snap,   ## restore on undo
+		"type": "wire" if run.is_empty() else "wire_run", "run_id": run,
+		"node": seg_node, "edge_id": edge_id, "cost": cost,
+		"world_pos": midpoint, "zone_color_snap": snap,
 	})
 	if _owner._undo_stack.size() > _owner.MAX_UNDO:
 		_owner._undo_stack.pop_front()
 
-## Mirrors _push_undo_wire() immediately above. No zone-color snapshot —
-## the water system has no zones/breakers to preserve (see
-## docs/systems/water/README.md Non-responsibilities).
 func _push_undo_pipe(seg_nodes: Array, edge_ids: Array, cost: int, elbow_nodes: Array, midpoint: Vector3) -> void:
 	_owner._undo_stack.append({
 		"type":        "pipe",

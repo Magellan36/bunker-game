@@ -52,6 +52,7 @@ shadow quality/render scale/FOV, persisted independently of game saves).
 | `GraphicsSettingsPanel.gd` | ~575 | Settings UI panel — sectioned layout, live preview, full preset + individual control |
 | `TiltShiftDOF.gd` | ~45 | Screen-space tilt-shift DOF — ColorRect + shader material, dumb forwarder driven by GameCamera |
 | `tilt_shift_dof.gdshader` (`assets/shaders/`) | ~40 | Vertical-band screen-space blur — sharp band + soft ramp, no 3D depth read |
+| `PostGrade.gd` | ~160 | Static factory — procedural colour-grade 3D LUT + lens-dirt glow map, applied to MainWorld's Environment at startup |
 | `CharacterShadowStandIn.gd` | ~95 | Capsule shadow stand-in — NPCs only as of Aug 2026, see "Character shadow stand-in" below |
 
 ## Public API
@@ -79,8 +80,10 @@ slider, see Known tradeoffs), `save_now()` (explicit disk write, pairs with
 `set_setting_live`). Public vars (read directly, e.g.
 `GraphicsSettings.camera_fov`): `current_preset`, `sdfgi_enabled`,
 `ssao_enabled`, `ssil_enabled`, `volumetric_fog_enabled`,
-`flashlight_volumetrics`, `shadow_casting_enabled` (preset-driven Aug 2026:
-LOW/MEDIUM off, HIGH/ULTRA on — see "Unified dynamic shadow casting" below),
+`flashlight_volumetrics`, `shadow_casting_enabled` (preset-driven:
+LOW/MEDIUM off, HIGH/ULTRA on — now gates only the DYNAMIC character/object
+shadow layer; the structural wall/corner cutoff is always on regardless, see
+"Structural shadow cutoff (Sep 2026)" below),
 `glow_enabled`, `dof_enabled`, `msaa: int`, `camera_fov: float` (NOT part of
 any preset — a comfort/motion-sickness setting, defaults to Godot's
 `Camera3D` default of 75.0), `vsync_enabled`, `window_mode`, `fps_cap`,
@@ -244,7 +247,7 @@ MainWorld._setup_tilt_shift_dof() (startup, dynamic instantiation)
   - Off, Fast (FXAA), Balanced (MSAA 2x), Sharp (MSAA 2x+FXAA), Smooth (TAA), Max (MSAA 4x+TAA)
 
 ### Anisotropic Filtering, Shadow Quality, Render Scale (Phase 4)
-- New fields: `anisotropic_filtering` (0/2/4/8/16), `shadow_quality` (atlas size: 1024/2048/4096), `render_scale` (0.5–1.0)
+- New fields: `anisotropic_filtering` (0/2/4/8/16), `shadow_quality` (atlas size: 512/1024/2048/4096/8192), `render_scale` (0.5–1.0)
 - Applied in `_apply_to_display()` and `_apply_to_viewport()`
 
 ### Settings Panel UI Rewrite (Phase 5)
@@ -335,7 +338,114 @@ prop, so the extra precision of a `light_cull_mask` exclusion isn't worth
 it here. The player-body exclusion stays in place alongside this; it
 wasn't wrong, just insufficient alone.
 
-### Unified dynamic shadow casting
+### Lighting review (Sep 2026) — cube omnis, atlas layout, dynamic-shadow budget
+
+Diagnosed with real Forward+ renders (lavapipe/Xvfb, single lamp isolated,
+Low/Medium/High compared) plus the Godot 4.7 source for shadow caching.
+
+**Root causes of the reported symptoms**
+- *Grainy/striped shadows on Low/Medium:* banded shadow acne. The wall
+  lamp's 156° perspective shadow map spreads its texels thinnest exactly
+  across the room centre, Low/Medium only gave each light a 256–512 px atlas
+  slot, and bias had been hand-lowered to 0.025/0.20. Lit floor measured up
+  to 17% darker than an unshadowed render. High (bigger slots) hid it.
+- *"Bubble" light around lamps on player-built walls:* the 156° spot's cone
+  boundary, drawn as a hard curved edge across the adjacent walls/floor; the
+  lamp's own wall was also left pitch black.
+
+**Changes**
+- `WallLight` → `OmniLight3D`, `SHADOW_CUBE`, source 0.18 m off the fixture
+  (soft wash on its own wall, no tight hotspot). The wall behind always
+  casts, so nothing leaks through (verified on the far side of player walls).
+  Dual-paraboloid was tested and rejected: it bends low-poly wall shadows and
+  leaked past pregen walls.
+- Bias back to engine-level (0.03 / normal 1.0) on WallLight, GrowLight and
+  Flashlight. Normal bias scales with texel size; no contact gap at wall bases.
+- Positional atlas: quadrants 0–2 `SUBDIV_16`, quadrant 3 `SUBDIV_64`
+  (`GraphicsSettings.SHADOW_ATLAS_QUADRANTS`). Godot reallocates a light to a
+  different-sized slot whenever its screen coverage changes — a full re-render
+  plus a visible resolution pop while walking. Uniform primary quadrants stop
+  that; the fine quadrant only takes overflow in very large bases so no light
+  ever loses its structural shadow (112 slots; an omni uses two).
+- Preset atlas sizes: Low 2048, Medium 4096, High 4096, Ultra 8192 (slot =
+  atlas/8). Memory: 8/32/32/128 MB (16-bit). Panel labels renamed to match.
+- Soft-shadow filter follows `shadow_quality` (≤2048 Soft Low, 4096 Soft
+  Medium, 8192 Soft High). Very Low was rejected (dithered contact lines).
+
+**Performance model (verified in `renderer_scene_cull.cpp`)** — Godot caches
+every positional shadow map and only re-renders it when a shadow caster in
+the light's range moves, the light changes, or its atlas slot changes. So the
+static structure is a one-off cost; the ongoing cost is (a) the per-pixel
+filter and (b) anything that keeps re-dirtying lights:
+- **Animated-material casters force a re-render every frame.** Water-pipe
+  flow arrows (`pipe_flow.gdshader`, uses `TIME`) cast shadows, so every lamp
+  near a pipe re-rendered permanently → arrows now `cast_shadow = OFF`.
+- Particles (dust motes, breaker sparks, generator exhaust) and the
+  InteractionFocusGlow mask stand-ins no longer cast.
+- **Dynamic-shadow budget** (`GraphicsSettings._update_shadow_budget`, 4 Hz):
+  with Dynamic Shadows on, only the 5 lights nearest the player (8 at 8192)
+  keep character layers in `shadow_caster_mask`; others exclude them and stay
+  cached instead of re-rendering six cube faces every frame around a walking
+  NPC. 1.5 m hysteresis prevents swap churn. Structure/furniture/items still
+  cast in every light. Layers: 12 = player (existing), 13 = NPCs (added by
+  `AdventurerModelController`). Lights opt in via
+  `GraphicsSettings.register_shadow_light()` (WallLight, GrowLight; the
+  flashlight is always beside the player and is not budgeted).
+- Placed furniture deliberately stays in the Dynamic tier (off on Low/Medium):
+  several devices animate in `_process` and would otherwise re-dirty lamps
+  every frame at every quality.
+
+**Tuning knobs:** `WallLight.LIGHT_ENERGY` (omni now also lights the lamp's own
+wall, so the room reads brighter), `LIGHT_WALL_OFFSET`,
+`GraphicsSettings.dynamic_shadow_light_budget()`, `SHADOW_ATLAS_QUADRANTS`.
+
+### Structural shadow cutoff (Sep 2026) — the "classic" two-layer split
+
+**What changed:** the light-level shadow gate was removed entirely. Lights
+(Flashlight, WallLight, GrowLight) now **always cast shadows**
+(`shadow_enabled = true`, no distance LOD), so static geometry — pregenerated
+and player-placed walls, pillars, floor, ceiling, GridMap tiles — always
+occludes them. Result: a dramatic, light-accurate hard shadow cutoff at walls
+and corners is present at **every quality preset**, regardless of
+`shadow_casting_enabled`. No more light bleeding through walls at LOW/MEDIUM
+(the old Aug 2026 "Unified dynamic shadow casting" behavior left that bleed in
+at LOW/MEDIUM because it disabled the light's shadow pass entirely).
+
+**The quality knob still exists — it moved.** `shadow_casting_enabled` now
+means "dynamic per-character/per-object shadows" only:
+- OFF (LOW/MEDIUM): the dynamic shadow layers stop casting entirely, so the
+  only shadows in the scene are the structural wall/geometry ones.
+- ON (HIGH/ULTRA): they cast again.
+- Gating lives where the data lives: `AdventurerModelController` gates
+  characters deterministically — the visible animated model casts its own
+  correctly proportioned shadow only while Layer 2 is ON; no duplicate
+  shadow-only character is evaluated.
+  placed furniture/devices and loose items register their root once with
+  `GraphicsSettings.register_dynamic_shadow_root()`. Quality changes revisit
+  only those registered roots, restoring each geometry instance's authored
+  `cast_shadow` from metadata. Deconstructed roots are held by `WeakRef`, so
+  cleanup is automatic and there is no periodic whole-world traversal.
+- Walls/pillars/doors are excluded from the object gate (static, always cast)
+  — Layer 1 only = walls/corners, never the player or objects.
+- `shadow_quality` scales both positional and directional shadow atlases.
+  Directional light mode is one-pass orthogonal at 512/1024, two-cascade at
+  2048, and four-cascade at 4096/8192, so the setting now affects every real
+  shadow family. Ultra uses a distinct 8192 atlas instead of duplicating
+  High's 4096 value.
+- ~~Wall fixtures are wide, room-facing `SpotLight3D`s (156° cone)~~ —
+  superseded by the Sep 2026 lighting review below (cube-shadow omnis).
+
+**The Aug 2026 distance-based shadow LOD was removed.** It force-disabled a
+far light's `shadow_enabled`, which would have silently removed the wall
+cutoff in the isometric view that sees the whole bunker. Always-on casting
+cost is accepted by design; dynamic roots now register at their existing
+spawn paths instead of being found by a timer.
+
+**History (kept for context):** before this, `shadow_casting_enabled` was a
+light-level on/off ("Unified dynamic shadow casting" below) and the wall
+cutoff was a side effect of HIGH/ULTRA shadows.
+
+#### Unified dynamic shadow casting (Aug 2026, superseded by the above)
 **What changed:** `GraphicsSettings.flashlight_shadows` renamed to
 `shadow_casting_enabled` and generalized from flashlight-only opt-in to all
 three dynamic lights — Flashlight, WallLight, GrowLight. Now preset-driven
@@ -345,11 +455,9 @@ section to Advanced Quality in `GraphicsSettingsPanel.gd`, since it's a
 normal preset-tier toggle now, not a flashlight-specific opt-in one).
 **Per-light shape reasoning:**
 - Flashlight (`SpotLight3D`) — no change, already directional.
-- WallLight (`OmniLight3D`) — stays Omni (correct for a wall-mounted
-  fixture with nothing behind it); just gets `shadow_enabled` wired to the
-  setting. Side benefit: this also stops the fixture's light from bleeding
-  through the wall mesh behind it into an adjacent room, since the wall now
-  correctly self-occludes once shadows are on.
+- WallLight was originally left as an `OmniLight3D`; the current structural
+  cutoff pass supersedes that choice with a wide room-facing spot for better
+  physical behaviour and substantially lower shadow cost.
 - GrowLight — **converted from `OmniLight3D` to a downward-facing
   `SpotLight3D`** (`rotation_degrees.x = -90`, `spot_angle = 35.0`),
   because the fixture only ever shines down onto its tray and Spot shadows
@@ -429,7 +537,16 @@ alone doesn't fully address the "too dramatic" complaint, excluding
 WallLight from character shadows specifically is the documented next
 option — not started here.
 
-### Player model-based shadow (Aug 2026)
+### Character model-based shadow (Sep 2026)
+The visible `AdventurerModel` now casts its own full-height shadow when
+Dynamic Shadows is enabled and casts none when it is disabled. Player and NPC
+scenes no longer contain the second `PlayerModelShadow`/`CharacterModelShadow`
+instance. This restores physically correct body proportions and removes one
+complete `AnimationPlayer`, skeleton evaluation, and skinned model from every
+character. The `is_shadow_only` export remains only as compatibility for old
+scenes/mods; such legacy instances are forced hidden.
+
+#### Historical squashed duplicate approach (Aug 2026, superseded)
 Replaces the capsule stand-in for the player only, now that the player
 has a real animated model (`PlayerModel.tscn`/`PlayerModelController.gd`,
 Player-Model subsystem) instead of a capsule placeholder. Rather than
@@ -611,3 +728,25 @@ like `camera_fov`.
   tripped handler does, rather than building a second shake mechanism.
 
 (End of file - total ~220 lines)
+---
+
+## Recent changes (Sep 2026) — Tier-1 post pass (settings + procedural LUT/lens dirt)
+
+Goal: mask the "playdough" look of hand-made models and add subtle realism
+without changing the art direction. No new settings UI — all always-on.
+- **Debanding** — `project.godot` `rendering/anti_aliasing/quality/use_debanding=true` (dark fog banding).
+- **AgX tonemapper** — `MainWorld.tscn` Environment `tonemap_mode = 4` (was ACES/3). Revert = set back to 3. Note `tonemap_white` is ignored under AgX (`tonemap_agx_white`/`tonemap_agx_contrast` are its knobs).
+- **SSAO retune** — `ssao_radius 0.7`, `ssao_power 1.8`, `ssao_detail 0.9`, `ssao_light_affect 0.2` (AO stays visible under direct lamp light → objects read as grounded). `GraphicsSettings` still only toggles `ssao_enabled`.
+- **Lens dirt** — `glow_map_strength 0.45` + `PostGrade`-generated `glow_map`; `glow_intensity 0.55 → 0.65` to compensate for the map's ~0.8 average multiplier.
+- **Colour grade** — `PostGrade`-generated 64³ LUT into `adjustment_color_correction` (split-tone: teal shadows / olive mids / warm highlights, +10% S-curve). Godot samples the LUT with no half-texel remap, so texels store the grade at their own centre coordinate.
+- Wired by `MainWorld._setup_post_grade()` (preloaded by path, not class_name). Drop `res://assets/textures/post/grade_lut.png` (imported as Texture3D) or `lens_dirt.png` to override the generated textures with hand-authored art.
+
+**Sep 2026 follow-up — pass toned down** after in-game review (shadows read
+grainy/too strong, wall-lamp sources lost their glow):
+- Tonemapper reverted to ACES (`tonemap_mode = 3`) — AgX compressed the lamp
+  emissives so the fixtures stopped reading as bright light sources.
+- SSAO radius/power/detail reverted to engine defaults; `ssao_light_affect`
+  0.2 → 0.05 (high light-affect exposed the half-res SSAO noise in lit areas).
+- `glow_map_strength` 0.45 → 0.2, `glow_intensity` 0.65 → 0.58 (≈ the
+  original 0.55 on clean glass, smudges slightly brighter).
+- `PostGrade` split-tone tints cut ~40%, S-curve `CONTRAST` 0.10 → 0.0.

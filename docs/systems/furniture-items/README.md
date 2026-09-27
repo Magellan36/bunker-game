@@ -116,11 +116,13 @@ to **0.62** (= TestCrate width 0.54 + 0.08 clearance) and widens `unit_w` to
 inside the frame. `multi_col_spacing` is a base export (default 0.30, the old
 hardcoded value) used only by the N-column marker path.
 
-**Item pivot sink pattern (Aug 2026):** `TestCrate`'s mesh uses a centered
-pivot (bottom plate at -0.231 below the item origin), so marker-based
-placement sinks ~0.23m into the shelf platform without a compensating lift
-`_place_item_in_slot()`'s `extra_lift`. The crate now gets `extra_lift = 0.18`.
-`CanCase`/`WaterCase` are `.tscn`-based models that may share the centered-pivot
+**Item pivot sink pattern (Aug 2026, crate updated Sep 2026):** marker-based
+placement sinks a centered-pivot item into the shelf platform without a
+compensating lift. `TestCrate` now loads the human `plastic_crate.glb` model
+(uniform-scaled to the old 0.54 width; 0.54 × 0.2985 × 0.2974), shifted down
+half its height so its pivot stays centered on the item origin (base at -0.149),
+and gets `extra_lift = 0.083` in `_place_item_in_slot()`. `CanCase`/`WaterCase`
+are `.tscn`-based models that may share the centered-pivot
 convention — watch for the same symptom if their upright standing (below)
 looks sunken in-editor, and fix with the same per-type `extra_lift` pattern.
 
@@ -341,9 +343,25 @@ None of these are autoloads. Items are scene instances spawned by
 in the pregen bunker scene or via build mode.
 
 ## Persistence
-**None currently.** Item positions/inventory contents/shelf contents are not
-saved via `SaveManager` â€” a fresh load resets all of it (same known gap as
-the power system â€” see `docs/systems/world-core/README.md` Persistence).
+**Save/Load overhaul (Sep 2026):** inventory contents and storage contents are
+now saved. The player's 4 inventory slots serialize via
+`InventoryManager.get_inventory_save_data()`/`restore_inventory_save_data()`
+(backing the `player_inventory` field). Every storage-capable placed object
+serializes its contents into its `placed_objects` `extra` under `"storage"`:
+- Shelf family (`Shelving`/`SmallShelf`/`LargeShelf`) — per-slot item stacks
+  via `get_storage_save_data()`/`restore_storage_save_data()`.
+- Light-storage family (`EndTable`/`Dresser`/`TrashCan`, `LightStorage.gd`) —
+  fixed slot array via the same methods.
+
+Items serialize through the shared `ItemSaveData.gd` (script/scene identity +
+per-item state via `PickupableItem.get_item_save_state()`/
+`apply_item_save_state()`), including containers (Basket, CookingPot) whose
+contents recurse. **Loose floor items are now saved too (Save/Load overhaul
+pass 2):** everything in the `pickup` group round-trips via the `world_items`
+field (`MainWorld._get_world_items_for_save()`/`_restore_world_items()`) so
+the clutter state survives. Still not saved: items resting on pregen (never
+saved) storage, and the ResearchStation chute. Research progress itself is
+saved separately (see `docs/systems/research/README.md`).
 
 ## Common edits
 - **Flashlight self-shadow exclusion (Aug 2026):** `Flashlight.gd`'s
@@ -438,11 +456,15 @@ prompt is driven by `BuildModeController._process()` — within
 draw-mode tool) closes build mode. `InteractionSystem._process()` yields
 prompt ownership during build mode to avoid a same-frame race.
 
-**Known, inherited limitation (flagged, not silently):** like Water Hookup,
-the station's moved position is NOT persisted across save/load — it's
-excluded from `get_placed_objects_for_save()`, so after a save/reload it
-respawns at world-center. Position-persistence for either object is a real
-but separate follow-up.
+**Moved-position persistence (Save/Load overhaul, Sep 2026):** BuildStation,
+ResearchStation, and pregen wall lights can all be relocated by the Move tool
+but are excluded from the normal `placed_objects` save. Their positions now
+round-trip via the `moved_level_objects` field
+(`BuildModeController.get_moved_level_objects_for_save()`/
+`restore_moved_level_objects()`), which captures each movable level-placed
+object's current position + its original spawn position (matched on reload).
+Research progress itself is saved separately — see
+`docs/systems/research/README.md`.
 
 **Visual (Aug 2026):** the station's tabletop+legs now load
 `assets/models/wooden_table.glb` (same model/scale as `Table.gd`'s Medium
@@ -505,9 +527,11 @@ display (CASE 1 + CASE 2) and the F-press routing (held + empty-handed,
 distance-fair vs. pickup). See `docs/systems/research/README.md`'s
 "Material feed chute" note for the feed logic itself.
 
-**Known, inherited limitation (flagged, not silently):** same as Build
-Station/Water Hookup — moved position is not persisted across save/load
-(respawns at its spawn point). Shared follow-up with the other singletons.
+**Moved-position persistence (Save/Load overhaul, Sep 2026):** same as Build
+Station — the station's relocated position now round-trips via the
+`moved_level_objects` field (see the Build Station note above). Research
+progress and stored materials are also saved (see
+`docs/systems/research/README.md`).
 
 ## Chair sitting (Aug 2026 — sit-animation sequence)
 
@@ -551,7 +575,8 @@ Then re-tune (likely near-zero) `SEAT_RAISE`/`SEAT_FORWARD`.
 
 ## Known tradeoffs / tech debt
 - No automated tests.
-- Item/shelf/furniture state isn't saved (see Persistence).
+- Inventory/storage contents are saved (see Persistence); loose world items
+  outside inventory/storage are not.
 - `Shelving.gd` (~890 lines) is the largest file in this system and mixes
   mesh-building, slot markers, stacking math, and retrieval logic â€” a
   plausible future split candidate (e.g. extract stacking math into an

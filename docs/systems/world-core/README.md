@@ -81,7 +81,7 @@ the chunk-signal handlers `_on_chunk_deconstructed(origin)` /
   into `WireGraphBuilder`.
 
 ## Persistence
-`SaveManager` has 7 fields registered, applied on load in ascending **phase**
+`SaveManager` has 13 fields registered, applied on load in ascending **phase**
 order (`register_field(key, getter, setter, phase)` — world reconstruction is
 order-dependent, e.g. placed objects must exist before wires try to
 reconnect to them):
@@ -90,21 +90,40 @@ reconnect to them):
 - Phase 1 — `placed_objects` (`BuildModeController.get_placed_objects_for_save()`/
   `restore_placed_objects()`) — every player-placed device, each entry
   carrying `tile_id`/`pos`/`angle_deg`/`price` PLUS an embedded per-device
-  `extra` dict (generator fuel/health/backup/running, battery charge/enabled,
-  breaker tripped/pass-through, consumer priority/active, water sink/
-  dispenser priority/rate/fill/on). Devices apply their `extra` state via a
-  `call_deferred` after spawning, since PM/WM registration itself is deferred
-  one level inside each device's own `_ready()`.
+  `extra` dict. `extra` covers generator fuel/health/backup/running, battery
+  charge/enabled, breaker tripped/pass-through, consumer priority/active,
+  water sink/dispenser priority/rate/fill/on, stove powered_on + pot contents,
+  bunker door state, **storage contents** (shelf family + End Table/Dresser/
+  Trash Can — each item serialized via `ItemSaveData.gd`), **farming tray
+  per-cell state** (soil/planted type/fertilizer/seed-lock + per-plant
+  progress/health), and **purifier filter_quality**. Devices apply their
+  `extra` state via a `call_deferred` after spawning, since PM/WM registration
+  itself is deferred one level inside each device's own `_ready()`. The water
+  purifier is restored specially (its scene is spawned without graph insertion
+  in phase 1; `restore_pipe_network()` re-registers its graph node + edges and
+  re-attaches the scene in phase 3).
 - Phase 2 — `player_wires` (`MainWorld.get_player_wires_for_save()`/
   `restore_player_wires()`) — player-placed power wire endpoints only; the
   auto-generated perimeter wiring regenerates itself once `dug_chunks`
-  restores (phase 0), so it is deliberately NOT persisted separately.
+  restores (phase 0), so it is deliberately NOT persisted separately. Also
+  `water_hookup` (`WaterHookup.get_save_data()`/`restore_save_data()`) — the
+  singleton hookup's upgrade tier + water quality + moved position, applied
+  BEFORE phase 3 so restored pipe edges reconnect to its (possibly moved)
+  endpoint node.
 - Phase 3 — `water_pipes` (`WaterManager.get_pipe_network_for_save()`/
-  `restore_pipe_network()`) — pipe-owned graph nodes (`corner`/`pipe_joint`)
-  and edges only; `hookup`/`endpoint` nodes belong to devices restored in
-  phase 1.
-- Phase 4 (last) — `player_position`, `cash`, `game_elapsed` — applied once
-  the whole world above already exists.
+  `restore_pipe_network()`) — pipe-owned graph nodes (`corner`/`pipe_joint`/
+  **`purifier`**) and edges only; `hookup`/`endpoint` nodes belong to devices
+  restored in phase 1.
+- Phase 4 (last) — `player_position`, `cash`, `game_elapsed`, `npcs`,
+  **`player_survival`** (food/water/sleep/health + needs caps),
+  **`medical_conditions`**, **`player_inventory`** (the 4 slots),
+  **`research`** (tier progress + stored materials + in-progress research),
+  **`moved_level_objects`** (BuildStation/ResearchStation + pregen wall light
+  positions, which the Move tool can relocate but the normal placed-objects
+  field excludes), **`world_items`** (loose floor items in the `pickup`
+  group — the clutter state), **`zone_customization`** (player-set breaker
+  zone display names + color overrides) — applied once the whole world above
+  already exists.
 
 Saves to `user://save_slot_<1|2|3>.json`. Loading a save silently skips any
 key that isn't currently registered (safe for adding new fields later — no
@@ -113,9 +132,10 @@ Mid-session Load (not just fresh-boot Load) is supported: `restore_placed_object
 calls `clear_all_player_placed()` first and `restore_pipe_network()` calls
 `clear_water_pipes()` first, so a Load while devices/pipes already exist from
 the current session tears them down before rebuilding from the save.
-**Known gap:** zone name/color overrides (`ZoneCustomization.gd`) are
-best-effort only — not explicitly re-verified across a save/load round trip
-this pass.
+**Known gaps:** world-scattered items on PREGEN (un-saved) storage, and
+pregen bunker contents re-generate on boot. NPC held items/activity remain
+unpersisted by design (residents reload empty-handed — see
+`docs/systems/npc/README.md`).
 
 ## Call graph (brief)
 ```

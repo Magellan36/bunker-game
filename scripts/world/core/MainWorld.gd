@@ -6,30 +6,30 @@ class_name MainWorld
 signal startup_ready
 
 # ─── Dev Tools ────────────────────────────────────────────────────────────────
-## F12 — toggle x50 time warp (speeds up clock + all stat drain)
+## F12 — toggle x10 time warp (speeds up clock + all stat drain)
 ## F11 — spawn a TestCrate in front of the player
 ## F9  — dump wire debug log (only useful when WIRE_DEBUG = true below)
 ## F7  — admin controls menu (system cheats: power, time, water)
 ## F1  — toggle Build Mode
-const DEV_TIME_SCALE: float  = 50.0
+const DEV_TIME_SCALE: float  = 5.0
 const CRATE_SCENE: String    = "res://scenes/world/TestCrate.tscn"
 var _dev_warp_active: bool   = false
 
 # ─── Wire Debug ───────────────────────────────────────────────────────────────
-## Set to true to enable wire/zone debug logging.
-## Logs are BUFFERED (never spammed per-frame).  Press F9 at any time to
-## print the full accumulated log + live graph snapshot to Godot output.
-## Keep false in production — zero cost when false.
-const WIRE_DEBUG: bool = true
+## Wire/zone debug logging is gated by DebugOutput.enabled (the F7 "Toggle
+## All Debug Outputs" switch) — see DebugOutput.gd. Logs are BUFFERED (never
+## spammed per-frame); press F9 at any time to print the full accumulated
+## log + live graph snapshot to Godot output (also gated on the switch).
 
 ## Accumulated log lines for the most recent rebuild cycle.
 ## Cleared at the START of every _rebuild_auto_wires() call so you always
 ## see the log for the LAST rebuild when you hit F9.
 var _wire_log: Array[String] = []
 
-## Append a debug line (no-op when WIRE_DEBUG is false).
+## Append a debug line (no-op when DebugOutput.enabled is false — the F7
+## "Disable All Debug Outputs" switch).
 func _wdbg(msg: String) -> void:
-	if WIRE_DEBUG:
+	if DebugOutput.enabled:
 		_wire_log.append(msg)
 
 ## F9 — print the buffered wire log + live graph state snapshot.
@@ -37,8 +37,8 @@ func _wdbg(msg: String) -> void:
 ## the last rebuild did.  Output is one contiguous block so it won't get
 ## lost in the middle of other Godot output lines.
 func _dump_wire_debug() -> void:
-	if not WIRE_DEBUG:
-		print("[WireDebug] WIRE_DEBUG is false — enable it in MainWorld.gd to collect logs.")
+	if not DebugOutput.enabled:
+		print("[WireDebug] All debug output is OFF — re-enable via the F7 'Toggle All Debug Outputs' switch to collect logs.")
 		return
 
 	var lines: PackedStringArray = PackedStringArray()
@@ -164,6 +164,7 @@ var _pillar_registry: Node = null
 ## Wall-locked pipe routing (Jul 2026) — see scripts/world/structure/WallPerimeterRegistry.gd
 var _wall_perimeter_registry: Node = null
 var _lighting_director: Node = null   ## LightingDirector.gd, built via Node.new()+set_script() same as _power_manager
+const POST_GRADE := preload("res://scripts/core/PostGrade.gd")
 var _tilt_shift_dof: TiltShiftDOF = null   ## TiltShiftDOF.gd, same dynamic-instantiation pattern
 ## _reconciler removed (Stage 5) — reconciler fully retired.
 
@@ -184,13 +185,33 @@ var _cash: int = 50000   ## Starting cash; shown in HUD, spent during Build Mode
 ## We teleport it back to a safe Y above the bunker floor at the same XZ coords.
 const ABYSS_Y:        float = -8.0   ## below floor-grid Y; floor surface ~0
 const ABYSS_RESCUE_Y: float =  1.5   ## respawn height above floor
+## Items and NPCs cannot cross the eight-metre safety margin in a way where a
+## quarter-second delay matters. Keep the single player check per-frame, but
+## bound the two population-wide group walks to 4 Hz.
+const ABYSS_POPULATION_CHECK_INTERVAL: float = 0.25
+var _abyss_population_check_accum: float = ABYSS_POPULATION_CHECK_INTERVAL
 
-func _process(_delta: float) -> void:
+## Player spawn safeguard (Sep 2026) — a bad saved player Y (or a spawn that
+## lands under the floor) used to mean an infinite fall with no rescue, since
+## the abyss checks only covered items and NPCs. The GridMap floor surface sits
+## at ~0.4 (cell_size y 0.1, FLOOR_Y_ROW -6, GridMap origin y 1.0) and the
+## Player.tscn capsule has half-height ~1.0, so a standing player's center is
+## at ~1.4. Every spawn is lifted to at least PLAYER_SPAWN_Y = 2.0 — ~0.6m above
+## the floor, so the player drops in and lands cleanly instead of ever starting
+## embedded in the floor. The interior ceiling (wall tops: WALL_HEIGHT_M 3.0m
+## at PLACEMENT_Y 2.0) is ~3.5, leaving generous headroom at 2.0 + 1.0 capsule.
+const PLAYER_SPAWN_Y: float = 2.0
+
+func _process(delta: float) -> void:
 	## Keep player movement in sync with camera yaw every frame
 	player.set("camera_yaw_rad", camera._cur_yaw_rad)
-	## Check all pickup items for abyss fall
-	_check_abyss_items()
-	_check_abyss_npcs()   ## Aug 2026 — NPC failsafe, see that function's own comment
+	_abyss_population_check_accum += delta
+	if _abyss_population_check_accum >= ABYSS_POPULATION_CHECK_INTERVAL:
+		_abyss_population_check_accum = 0.0
+		_check_abyss_items()
+		_check_abyss_npcs()   ## Aug 2026 — NPC failsafe, see that function's own comment
+	_check_abyss_player()   ## Sep 2026 — player failsafe (no more infinite falls)
+	_safeguard_player_first_frame()
 
 ## WireGraphBuilder.gd — auto-wire perimeter rebuild engine (Stage 10
 ## extraction). No state physically moved here; see WireGraphBuilder.gd
@@ -219,6 +240,7 @@ func _ready() -> void:
 	_setup_lighting()
 	_setup_lighting_director()   ## Needs "power_manager" group populated above
 	_setup_tilt_shift_dof()   ## No ordering dependency — camera already exists via @onready
+	_setup_post_grade()
 	_setup_ambient_dust()
 	_setup_bunker_ceiling()   ## Aug 2026 — NPC/physics failsafe, see that function's own comment
 	_connect_hud()
@@ -241,6 +263,9 @@ func _ready() -> void:
 	get_tree().process_frame.connect(_setup_build_mode, CONNECT_ONE_SHOT)
 
 func _exit_tree() -> void:
+	if _dev_warp_active:
+		Engine.time_scale = 1.0
+		_dev_warp_active = false
 	## The failsafe ceiling lives at the scene root (see _setup_bunker_ceiling)
 	## so the navmesh bake never parses it — that makes it OUTLIVE this scene,
 	## so free it here to avoid a stale duplicate on any scene change.
@@ -249,11 +274,12 @@ func _exit_tree() -> void:
 		_bunker_ceiling = null
 
 ## ── Save/Load field registration ──────────────────────────────────────────
-## Registers the CURRENT minimal set of persistable fields with the SaveManager
-## autoload — player position, cash, and the game clock. Deliberately does NOT
-## register power grid / inventory / placed objects yet (still evolving fast
-## per project decision); add more fields here later the same way, one
-## register_field() call per field, no changes needed in SaveManager itself.
+## Registers every persistable field with the SaveManager autoload — world
+## reconstruction (chunks, placed objects, wires, pipes) plus player state
+## (position/cash/clock/NPCs) plus, since the Save/Load overhaul, survival
+## needs, medical conditions, inventory, research, and moved level-placed
+## objects. Add more fields here the same way, one register_field() call per
+## field, no changes needed in SaveManager itself.
 func _register_save_fields() -> void:
 	## Phase 0 — dug rock chunks. Must exist before anything below is restored
 	## onto/around them (placed objects, wires, pipes).
@@ -283,6 +309,20 @@ func _register_save_fields() -> void:
 		func(v: Array) -> void: restore_player_wires(v),
 		2)
 
+	## Phase 2 — water hookup upgrade state + position. Runs before water_pipes
+	## (phase 3) so the hookup's endpoint graph node sits at its saved (possibly
+	## moved) position before restored pipe edges reconnect to it.
+	SaveManager.register_field(
+		"water_hookup",
+		func() -> Dictionary:
+			var hk: Node = get_tree().get_first_node_in_group("water_hookup")
+			return hk.get_save_data() if hk != null and hk.has_method("get_save_data") else {},
+		func(v: Dictionary) -> void:
+			var hk: Node = get_tree().get_first_node_in_group("water_hookup")
+			if hk != null and hk.has_method("restore_save_data"):
+				hk.restore_save_data(v),
+		2)
+
 	## Phase 3 — water pipe network (corners/joints + segments).
 	SaveManager.register_field(
 		"water_pipes",
@@ -297,7 +337,9 @@ func _register_save_fields() -> void:
 	SaveManager.register_field(
 		"player_position",
 		func() -> Vector3: return player.global_position,
-		func(v: Vector3) -> void: player.global_position = v,
+		func(v: Vector3) -> void:
+			player.global_position = v
+			_safeguard_player_spawn(),
 		4)
 
 	SaveManager.register_field(
@@ -323,6 +365,78 @@ func _register_save_fields() -> void:
 		"npcs",
 		func() -> Array: return _get_npcs_for_save(),
 		func(v: Array) -> void: _restore_npcs(v),
+		4)
+
+	## ── Save/Load overhaul (all phase 4 — applied after the world above
+	## exists). Order matters within the phase: survival needs before medical
+	## conditions (Medical re-derives the needs caps from conditions on
+	## restore), then inventory / research / moved level objects.
+	SaveManager.register_field(
+		"player_survival",
+		func() -> Dictionary: return player_stats.get_survival_save_data(),
+		func(v: Dictionary) -> void: player_stats.apply_survival_save_data(v),
+		4)
+
+	SaveManager.register_field(
+		"medical_conditions",
+		func() -> Array:
+			var pm: Node = get_tree().get_first_node_in_group("player_medical")
+			return pm.get_conditions_save_data() if pm != null else [],
+		func(v: Array) -> void:
+			var pm: Node = get_tree().get_first_node_in_group("player_medical")
+			if pm != null:
+				pm.restore_conditions_save_data(v),
+		4)
+
+	SaveManager.register_field(
+		"player_inventory",
+		func() -> Array: return inventory_manager.get_inventory_save_data() if inventory_manager != null else [],
+		func(v: Array) -> void:
+			if inventory_manager != null:
+				inventory_manager.restore_inventory_save_data(v),
+		4)
+
+	SaveManager.register_field(
+		"research",
+		func() -> Dictionary:
+			var rs: Node = get_tree().get_first_node_in_group("research_station")
+			return rs.get_research_save_data() if rs != null and rs.has_method("get_research_save_data") else {},
+		func(v: Dictionary) -> void:
+			var rs: Node = get_tree().get_first_node_in_group("research_station")
+			if rs != null and rs.has_method("restore_research_save_data"):
+				rs.restore_research_save_data(v),
+		4)
+
+	SaveManager.register_field(
+		"moved_level_objects",
+		func() -> Array: return _build_controller.get_moved_level_objects_for_save() if _build_controller != null else [],
+		func(v: Array) -> void:
+			if _build_controller != null:
+				_build_controller.restore_moved_level_objects(v),
+		4)
+
+	## Phase 4 — loose world items (Save/Load overhaul pass 2). Everything in
+	## the "pickup" group that isn't held/stored/shelved round-trips so the
+	## clutter state (dropped food/cans/produce/trash, etc.) survives. Runs
+	## after placed objects + storage + inventory restore so items land on the
+	## already-rebuilt world.
+	SaveManager.register_field(
+		"world_items",
+		func() -> Array: return _get_world_items_for_save(),
+		func(v: Array) -> void: _restore_world_items(v),
+		4)
+
+	## Phase 4 — zone customization (Save/Load overhaul pass 2): player-set
+	## breaker zone display names + color overrides.
+	SaveManager.register_field(
+		"zone_customization",
+		func() -> Dictionary:
+			var pm: Node = get_tree().get_first_node_in_group("power_manager")
+			return pm.get_zone_customization_for_save() if pm != null and pm.has_method("get_zone_customization_for_save") else {},
+		func(v: Dictionary) -> void:
+			var pm: Node = get_tree().get_first_node_in_group("power_manager")
+			if pm != null and pm.has_method("restore_zone_customization_from_save"):
+				pm.restore_zone_customization_from_save(v),
 		4)
 
 ## ── NPC save/restore (NPC Pass 2, Part 6) ───────────────────────────────────
@@ -359,6 +473,65 @@ func _restore_npcs(saved: Array) -> void:
 		npc.apply_save_dict(entry)   ## before add_child — _ready() keeps the restored identity
 		add_child(npc)
 
+## ── Loose world-item save/restore (Save/Load overhaul pass 2) ───────────────
+## Captures every loose item on the floor (the "pickup" group) so dropped
+## food/cans/produce/trash etc. survive a reload. Excludes stored/shelved
+## items (those leave the "pickup" group when absorbed and are saved via the
+## owning container) and a CookingPot resting on a stove (saved by the stove's
+## own pot extra). Held-from-world items are included — they're still in the
+## "pickup" group, and saving them as loose items at their current position
+## preserves them rather than losing them on reload.
+func _get_world_items_for_save() -> Array:
+	var out: Array = []
+	for item: Node in get_tree().get_nodes_in_group("pickup"):
+		if not is_instance_valid(item) or not (item is RigidBody3D):
+			continue
+		if item.is_in_group("shelved"):
+			continue
+		if "_host_stove" in item and item.get("_host_stove") != null:
+			continue   ## pot on a stove — the stove's extra owns it
+		var spec: Dictionary = ItemSaveData.capture(item)
+		if spec.is_empty():
+			continue
+		out.append({
+			"pos":    SaveManager.vec3_to_dict(item.global_position),
+			"placed": (item as RigidBody3D).freeze,
+			"spec":   spec,
+		})
+	return out
+
+## Re-spawns loose items from _get_world_items_for_save()'s output. Items
+## restore as ordinary world RigidBody3D (rest collision layer/mask, physics
+## live); items that were precisely "placed" (frozen) stay frozen in place.
+func _restore_world_items(data: Array) -> void:
+	var world_root: Node3D = get_tree().get_first_node_in_group("world") as Node3D
+	if world_root == null:
+		return
+	for entry: Dictionary in data:
+		var spec: Dictionary = entry.get("spec", {})
+		if spec.is_empty():
+			continue
+		var item: Node = ItemSaveData.spawn(spec, world_root)
+		if item == null:
+			continue
+		item.global_position = SaveManager.dict_to_vec3(entry.get("pos", {}))
+		if not (item is RigidBody3D):
+			continue
+		var rb: RigidBody3D = item as RigidBody3D
+		rb.collision_layer = rb.rest_collision_layer()
+		rb.collision_mask  = rb._rest_collision_mask()
+		rb.linear_velocity = Vector3.ZERO
+		rb.angular_velocity = Vector3.ZERO
+		rb.gravity_scale   = 1.0
+		if bool(entry.get("placed", false)):
+			rb.freeze = true
+			rb.freeze_mode = RigidBody3D.FREEZE_MODE_STATIC
+			if rb.has_method("deactivate_dynamic_state"):
+				rb.deactivate_dynamic_state(true)
+		else:
+			rb.freeze = false
+			rb.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+
 ## ── Player wire save/restore (Jul 2026) ─────────────────────────────────────
 ## Returns every player-placed wire as a JSON-friendly array of endpoint
 ## position pairs. Positions (not PM keys) are the stable identity here —
@@ -367,12 +540,21 @@ func _restore_npcs(saved: Array) -> void:
 ## _player_wire_segs stores pos_a/pos_b instead of keys.
 func get_player_wires_for_save() -> Array:
 	var out: Array = []
-	for entry: Dictionary in _player_wire_segs.values():
+	for raw: Node in get_tree().get_nodes_in_group("wire_segment"):
+		var seg := raw as WireSegment
+		if seg == null or seg.is_queued_for_deletion() or not seg.player_placed:
+			continue
 		out.append({
-			"pos_a": SaveManager.vec3_to_dict(entry["pos_a"]),
-			"pos_b": SaveManager.vec3_to_dict(entry["pos_b"]),
+			"pos_a": SaveManager.vec3_to_dict(seg.point_a),
+			"pos_b": SaveManager.vec3_to_dict(seg.point_b),
 		})
 	return out
+
+## Explicit delete/undo already owns the refund; discard only its tracking handle.
+func forget_player_wire(seg: Node3D) -> void:
+	for key: String in _player_wire_segs.keys():
+		if _player_wire_segs[key].get("seg_node") == seg:
+			_player_wire_segs.erase(key)
 
 ## Rebuilds every player-placed wire from get_player_wires_for_save()'s
 ## output. Registering a "joint" wire node at a position that already holds a
@@ -390,24 +572,22 @@ func restore_player_wires(data: Array) -> void:
 	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
 	if pm == null:
 		return
+	pm.begin_bulk()
 	for saved: Dictionary in data:
 		var pos_a: Vector3 = SaveManager.dict_to_vec3(saved.get("pos_a", {}))
 		var pos_b: Vector3 = SaveManager.dict_to_vec3(saved.get("pos_b", {}))
-		var key_a: String = pm.register_wire_node(pos_a, "joint", "")
-		var key_b: String = pm.register_wire_node(pos_b, "joint", "")
-		var edge_id: String = pm.register_wire_edge(key_a, key_b)
-		if edge_id.is_empty():
+		var key_a: String = pm.register_wire_node(pos_a, "joint", "", true)
+		var key_b: String = pm.register_wire_node(pos_b, "joint", "", true)
+		var edge_id: String = WireRoute.edge_id(key_a, key_b)
+		if key_a == key_b or pm.has_wire_edge(edge_id):
 			continue
-		var wire_script: GDScript = load("res://scripts/world/power/WireSegment.gd")
-		var seg: Node3D = Node3D.new()
-		if wire_script != null:
-			seg.set_script(wire_script)
+		var seg := WireSegment.new()
+		seg.player_placed = true
+		seg.edge_id = edge_id
 		seg.name = "WireSegment"
 		add_child(seg)
-		if seg.has_method("set_endpoints"):
-			seg.set_endpoints(pos_a, pos_b)
-		if "edge_id" in seg:
-			seg.edge_id = edge_id
+		seg.set_endpoints(pos_a, pos_b)
+		pm.register_wire_edge(key_a, key_b, seg)
 		seg.visible = true
 
 		var stable_key: String = "pw_%s_%s" % [key_a, key_b]
@@ -418,6 +598,7 @@ func restore_player_wires(data: Array) -> void:
 			"pm_edge_id": edge_id,
 			"stable_key": stable_key,
 		}
+	pm.end_bulk()
 
 ## Instantiates PowerManager and adds it to the "power_manager" group so
 ## WallLight nodes can find it via get_first_node_in_group().
@@ -546,6 +727,19 @@ func _setup_debug_overlay() -> void:
 	overlay.set("world_ref",         self)
 	overlay.set("power_manager_ref", _power_manager)
 
+## Sep 2026 — player HP hit 0: opens the permanent game-over overlay behind
+## which the player model plays its dying clip (see scripts/ui/menus/GameOverUI.gd).
+func _open_game_over() -> void:
+	var go_script: GDScript = load("res://scripts/ui/menus/GameOverUI.gd")
+	if go_script == null:
+		push_warning("[MainWorld] GameOverUI.gd not found")
+		return
+	var go: CanvasLayer = CanvasLayer.new()
+	go.set_script(go_script)
+	go.name = "GameOverUI"
+	get_tree().get_root().add_child(go)
+	go.call("open")
+
 ## Aug 2026 — replaces the former separate _setup_shelf_ui()/
 ## _setup_basket_ui() (each built its own ShelfUI/BasketUI CanvasLayer).
 ## One shared StorageUI instance now serves both. InteractionSystem.gd
@@ -659,7 +853,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 
-	# F12 — toggle time warp x50
+	# F12 — toggle time warp x10
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F12:
 		_dev_toggle_warp()
 
@@ -787,8 +981,15 @@ func _dev_spawn_npc() -> void:
 		return
 	var npc: Node3D = npc_scene.instantiate()
 	add_child(npc)
+	## Repeated admin spawns used to stack every CharacterBody at one exact
+	## transform. Collision recovery could launch the pile through the floor,
+	## which then looked like navigation teleporting when the abyss failsafe
+	## rescued them. Fan new residents across a small row instead.
+	var existing_count: int = get_tree().get_nodes_in_group("npc").size()
+	var row_offset: float = float((existing_count % 5) - 2) * 1.1
 	npc.global_position = player.global_position \
-		+ (-player.global_transform.basis.z * 2.0) \
+		+ (-player.global_transform.basis.z * (2.5 + float(existing_count / 5) * 1.1)) \
+		+ (player.global_transform.basis.x * row_offset) \
 		+ Vector3(0.0, 0.5, 0.0)
 	_wdbg("[DEV] Spawned NPC")
 
@@ -842,6 +1043,15 @@ func _setup_tilt_shift_dof() -> void:
 	add_child(_tilt_shift_dof)
 	camera.tilt_shift = _tilt_shift_dof
 	camera._apply_dof_setting()
+
+## Procedural colour-grade LUT + lens-dirt glow map (Sep 2026 tier-1 post
+## pass) — see PostGrade.gd. Preloaded by path rather than via its
+## class_name so a stale global class cache can't break MainWorld's parse.
+func _setup_post_grade() -> void:
+	if world_env == null or world_env.environment == null:
+		push_warning("[MainWorld] No WorldEnvironment — post grade skipped")
+		return
+	POST_GRADE.apply(world_env.environment)
 
 ## Ambient dark-room dust drift (graphics plan Section 4 VFX priority #2) —
 ## a single sparse, world-space GPUParticles3D covering the bunker interior.
@@ -927,7 +1137,7 @@ func _setup_bunker_ceiling() -> void:
 	ceiling_body.add_to_group("physics_failsafe")
 	## Parent to the scene root (NOT this node) so BunkerNavMesh's bake —
 	## which parses the "main_world" subtree — never rasterizes this box.
-	get_tree().root.add_child(ceiling_body)
+	get_tree().root.add_child.call_deferred(ceiling_body)
 	ceiling_body.position = Vector3(center_x, CEILING_Y, center_z)
 	_bunker_ceiling = ceiling_body
 
@@ -950,7 +1160,12 @@ func _connect_hud() -> void:
 	player_stats.food_changed.connect(func(v: float)   -> void: hud.set_food(v))
 	player_stats.water_changed.connect(func(v: float)  -> void: hud.set_water(v))
 	player_stats.sleep_changed.connect(func(v: float)  -> void: hud.set_sleep(v))
-	player_stats.health_changed.connect(func(v: float) -> void: hud.set_health(v))
+	player_stats.health_changed.connect(func(v: float) -> void:
+		hud.set_health(v)
+		## Sep 2026 — permanent death / game over when the player's HP hits 0.
+		if v <= 0.0 and not player.dead:
+			player.die()
+			_open_game_over())
 
 	## Need-cap rendering (Aug 2026, Medical system) — see
 	## docs/systems/medical/README.md's "Needs cap reduction."
@@ -1399,7 +1614,8 @@ func _connect_wire_draw_mode() -> void:
 		wdm.wire_placed.connect(_on_player_wire_placed)
 	if wdm.has_signal("wire_nodes_connected") and not wdm.wire_nodes_connected.is_connected(_on_wire_nodes_connected):
 		wdm.wire_nodes_connected.connect(_on_wire_nodes_connected)
-		print("[MainWorld] wire_placed + wire_nodes_connected connected OK")
+		if DebugOutput.enabled:
+			print("[MainWorld] wire_placed + wire_nodes_connected connected OK")
 
 func _toggle_build_mode() -> void:
 	_build_mode_active = not _build_mode_active
@@ -1654,6 +1870,7 @@ func _spawn_initial_water_hookup() -> void:
 		"angle_deg":     snapped["angle_deg"],
 		"player_placed": true,
 	})
+	bc.notify_navigation_topology_changed()
 
 
 func _spawn_initial_build_station() -> void:
@@ -1685,6 +1902,7 @@ func _spawn_initial_build_station() -> void:
 		"angle_deg":     90.0,
 		"player_placed": true,
 	})
+	bc.notify_navigation_topology_changed()
 
 
 func _spawn_initial_research_station() -> void:
@@ -1737,6 +1955,7 @@ func _spawn_initial_research_station() -> void:
 		"angle_deg":     0.0,
 		"player_placed": true,
 	})
+	bc.notify_navigation_topology_changed()
 
 
 func _on_chunk_deconstructed(chunk_origin: Vector2i) -> void:
@@ -1759,8 +1978,8 @@ func _on_chunk_restored(chunk_origin: Vector2i) -> void:
 
 ## Scans all nodes in the "pickup" group and teleports any that have fallen
 ## below ABYSS_Y back to the same XZ at ABYSS_RESCUE_Y.
-## Called every frame from _process — cheap because get_nodes_in_group()
-## returns a cached list and the abyss check is a single float comparison.
+## Called at a bounded 4 Hz from _process; get_nodes_in_group() returns a
+## cached list, but the walk still scales with every loose item in the bunker.
 func _check_abyss_items() -> void:
 	for node: Node in get_tree().get_nodes_in_group("pickup"):
 		if node is Node3D:
@@ -1789,6 +2008,46 @@ func _check_abyss_items() -> void:
 				else:
 					item.global_position = rescue_pos
 
+## Player spawn/fall failsafe (Sep 2026) — the player is a CharacterBody3D, so
+## unlike RigidBody3D items it needs an explicit velocity reset too. Rescued
+## to the same canonical PLAYER_SPAWN_Y (2.0, feet ~0.6 above the ~0.4 floor) with
+## XZ clamped to the bunker interior, matching the item/NPC rescues.
+var _player_first_frame_checked: bool = false
+
+func _check_abyss_player() -> void:
+	if player.global_position.y < ABYSS_Y:
+		_lift_player_to_safe_height()
+
+## One-time clamp applied on the first process frame after _ready, so the spawn
+## position (scene default OR a just-loaded saved position) is always above the
+## floor. Idempotent — only ever runs once per boot.
+func _safeguard_player_first_frame() -> void:
+	if _player_first_frame_checked:
+		return
+	_player_first_frame_checked = true
+	if player.global_position.y < PLAYER_SPAWN_Y:
+		_lift_player_to_safe_height()
+
+## Direct, order-independent clamp — called from the save "player_position"
+## setter so a bad saved Y is fixed the instant it is applied, regardless of
+## whether that happens before or after the first process frame.
+func _safeguard_player_spawn() -> void:
+	if player.global_position.y < PLAYER_SPAWN_Y:
+		_lift_player_to_safe_height()
+
+func _lift_player_to_safe_height() -> void:
+	var px: float = player.global_position.x
+	var pz: float = player.global_position.z
+	if rock_surround != null:
+		var ox: float = rock_surround.OFFSET_X
+		var oz: float = rock_surround.OFFSET_Z
+		var depth: int = rock_surround.bunker_depth
+		var width: int = rock_surround.bunker_width
+		px = clampf(px, ox + 1.0, ox + float(depth) - 1.0)
+		pz = clampf(pz, oz + 1.0, oz + float(width) - 1.0)
+	player.global_position = Vector3(px, PLAYER_SPAWN_Y, pz)
+	player.velocity = Vector3.ZERO
+
 ## Bunker Ceiling failsafe, layer 2 (Aug 2026, Brannon-requested) — see
 ## MainWorld._setup_bunker_ceiling()'s own comment for the primary fix (a
 ## real, solid invisible ceiling). This is the fallback: if an NPC ends up
@@ -1805,8 +2064,7 @@ func _check_abyss_items() -> void:
 ## stuck-recovery already uses) so it cleanly drops whatever it was doing
 ## and the brain re-decides fresh next tick. Needs/mood/relationships/
 ## held item are all left completely untouched — "no adverse effects,"
-## per spec. Called every frame alongside _check_abyss_items(), same cheap
-## group-scan + float-comparison cost.
+## per spec. Called at the same bounded cadence as _check_abyss_items().
 func _check_abyss_npcs() -> void:
 	if rock_surround == null:
 		return

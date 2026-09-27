@@ -24,7 +24,7 @@ func _ready() -> void:
 	clip_contents = true
 	size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	BunkerUIComponents.style_segment(self)
-	custom_minimum_size = Vector2(118, 144)
+	custom_minimum_size = Vector2(118, 126)
 	add_theme_stylebox_override("normal", BunkerUIComponents.panel_box(
 		Color("181e1d"), BunkerPanelStyle.BRASS.darkened(0.32), 8, 1, 5))
 	add_theme_stylebox_override("hover", BunkerUIComponents.panel_box(
@@ -44,7 +44,7 @@ func _ready() -> void:
 
 	var preview_well := PanelContainer.new()
 	preview_well.name = "PreviewWell"
-	preview_well.custom_minimum_size.y = 91
+	preview_well.custom_minimum_size.y = 78
 	preview_well.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	preview_well.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	preview_well.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(
@@ -83,7 +83,7 @@ func _ready() -> void:
 	_badge_panel.add_child(badge)
 
 	var info_band := PanelContainer.new()
-	info_band.custom_minimum_size.y = 38
+	info_band.custom_minimum_size.y = 32
 	info_band.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	info_band.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(
 		Color("202625"), BunkerPanelStyle.BRASS.darkened(0.44), 6, 1, 4))
@@ -99,6 +99,7 @@ func _ready() -> void:
 	_slot_eyebrow.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
 	_slot_eyebrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	copy.add_child(_slot_eyebrow)
+	_slot_eyebrow.hide()
 	caption = Label.new()
 	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	caption.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
@@ -114,9 +115,7 @@ func display(item_title: String, texture: Texture2D, count: int = 1) -> void:
 	empty = texture == null
 	PREVIEW_MOTION.swap(preview, empty_marker, texture, changed)
 	caption.text = "Empty slot" if empty else item_title
-	_slot_eyebrow.text = "AVAILABLE" if empty else "STORED ITEM"
-	_slot_eyebrow.add_theme_color_override("font_color",
-		BunkerPanelStyle.BRASS.lightened(0.12) if empty else BunkerPanelStyle.BLUE)
+	_slot_eyebrow.text = ""
 	caption.add_theme_color_override("font_color",
 		BunkerPanelStyle.MUTED.darkened(0.12) if empty else BunkerPanelStyle.IVORY)
 	badge.text = "×%d" % count

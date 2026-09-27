@@ -17,6 +17,10 @@ signal dropped()
 var is_held: bool = false
 var _tween: Tween = null
 
+func _ready() -> void:
+	## Legacy pickup base: register once after authored scene children exist.
+	GraphicsSettings.register_dynamic_shadow_root(self)
+
 # ─── Pickup ───────────────────────────────────────────────────────────────────
 func pickup(hold_point: Node3D) -> void:
 	is_held = true
@@ -38,6 +42,17 @@ func pickup(hold_point: Node3D) -> void:
 	_tween.set_trans(Tween.TRANS_BACK)   # TRANS_BACK gives a slight overshoot = satisfying snap
 	_tween.tween_property(self, "position", Vector3.ZERO, tween_speed)
 	_tween.parallel().tween_property(self, "rotation", Vector3.ZERO, tween_speed)
+
+	## Dynamic shadow gate (Sep 2026) — a held item must never cast a shadow
+	## unless dynamic shadows (Layer 2) is ON. Gate immediately at pickup so a
+	## freshly spawned item doesn't flash a shadow; reparenting under the
+	## holder hides it from the world-walk gate, so this is the only gating it
+	## gets while held. Reuses BuildModeController's gate for a consistent
+	## authored cast_shadow capture.
+	var _mw: Node = get_tree().get_first_node_in_group("main_world")
+	var _bc: Node = _mw.get("_build_controller") if _mw != null else null
+	if _bc != null and _bc.has_method("_apply_dynamic_shadow_to_node"):
+		_bc.call("_apply_dynamic_shadow_to_node", self)
 
 	picked_up.emit()
 

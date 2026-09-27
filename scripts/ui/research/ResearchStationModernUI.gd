@@ -31,14 +31,10 @@ var _refresh_elapsed: float = 0.0
 var _controller_hints: bool = false
 var _previous_focus: WeakRef = null
 var _state_signature: String = ""
-var _header_status_key: String = ""
 var _zoom_index: int = 1
 
 var _view: Control = null
 var _panel: PanelContainer = null
-var _header_status: PanelContainer = null
-var _header_status_icon: TextureRect = null
-var _header_status_text: Label = null
 var _close_button: Button = null
 var _tabs: Array[Button] = []
 var _pages: Array[Control] = []
@@ -88,6 +84,7 @@ func open(station: Node) -> void:
 	if not is_open:
 		_previous_focus = weakref(get_viewport().gui_get_focus_owner())
 	_current_station = resolved_station
+	UIPanelLifecycle.prepare_open(self)
 	is_open = true
 	visible = true
 	_refresh_elapsed = REFRESH_INTERVAL
@@ -106,7 +103,7 @@ func open(station: Node) -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	FADE.fade_in(_panel)
 	if _water_node_button != null:
-		_water_node_button.call_deferred("grab_focus")
+		call_deferred("_focus_current_navigation_target")
 
 
 func close() -> void:
@@ -115,7 +112,6 @@ func close() -> void:
 	is_open = false
 	_current_station = null
 	_proximity.unbind()
-	visible = false
 	set_process(false)
 	var focused: Control = get_viewport().gui_get_focus_owner()
 	if focused != null and _view.is_ancestor_of(focused):
@@ -125,12 +121,16 @@ func close() -> void:
 			if is_instance_valid(previous) and previous.is_visible_in_tree():
 				previous.grab_focus()
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	UIPanelLifecycle.dismiss(self, _panel)
 	closed.emit()
 
 
 func _process(delta: float) -> void:
 	if not is_open:
 		return
+	# Progress follows the owner's live clock, independently of the slower
+	# material/tree refresh. Each percent change uses the shared smooth fill.
+	_refresh_research_progress()
 	_refresh_elapsed += delta
 	if _refresh_elapsed >= REFRESH_INTERVAL:
 		_refresh_elapsed = 0.0
@@ -144,7 +144,7 @@ func _process(delta: float) -> void:
 				and _active_tab == BUNKER_TAB
 				and _water_node_button != null
 			):
-				_water_node_button.call_deferred("grab_focus")
+				call_deferred("_focus_current_navigation_target")
 		_refresh_live_data()
 	if _controller_hints != InputMode.is_controller():
 		_update_input_hint()
@@ -201,7 +201,7 @@ func _build_header(parent: Container) -> void:
 	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
 	parent.add_child(row)
-	row.add_child(C.icon_well("general", 54.0, S.BLUE))
+	row.add_child(C.icon_well("general", 40.0, S.BLUE))
 	var titles: VBoxContainer = VBoxContainer.new()
 	titles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	titles.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -210,20 +210,9 @@ func _build_header(parent: Container) -> void:
 	var title: Label = _label("Research Station", 29, S.IVORY)
 	titles.add_child(title)
 
-	_header_status = PanelContainer.new()
-	_header_status.custom_minimum_size = Vector2(176.0, 42.0)
-	row.add_child(_header_status)
-	var status_row: HBoxContainer = HBoxContainer.new()
-	status_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	status_row.add_theme_constant_override("separation", 8)
-	_header_status.add_child(C.inset(status_row, 12, 8, 12, 8))
-	_header_status_icon = _icon("check", 18.0, S.GREEN)
-	status_row.add_child(_header_status_icon)
-	_header_status_text = _label("STATION READY", 13, S.GREEN)
-	status_row.add_child(_header_status_text)
 
 	_close_button = Button.new()
-	_close_button.custom_minimum_size = Vector2(48.0, 48.0)
+	_close_button.custom_minimum_size = Vector2(40.0, 40.0)
 	_close_button.tooltip_text = "Close research station"
 	S.icon_button(_close_button, "close")
 	_close_button.text = ""
@@ -250,6 +239,7 @@ func _build_tabs(parent: Container) -> void:
 		C.style_segment(button)
 		button.pressed.connect(_set_tab.bind(index))
 		row.add_child(button)
+		button.set_meta(&"ui_tab", true)
 		_tabs.append(button)
 	_right_bumper_badge = _input_badge("RB")
 	row.add_child(_right_bumper_badge)
@@ -622,6 +612,7 @@ func _update_water_node_text(button: Button) -> void:
 
 func _select_water_upgrade() -> void:
 	_rebuild_detail()
+	UIFade.content(_detail_content)
 	if _detail_scroll != null:
 		_detail_scroll.set_deferred("scroll_vertical", 0)
 
@@ -669,7 +660,7 @@ func _rebuild_detail() -> void:
 
 	_detail_content.add_child(_tier_segments(completed, maximum))
 	_action_button = Button.new()
-	_action_button.custom_minimum_size.y = 48.0
+	_action_button.custom_minimum_size.y = 36.0
 	_action_button.pressed.connect(_on_research_action)
 	_detail_content.add_child(_action_button)
 	_style_research_action()
@@ -807,12 +798,11 @@ func _on_research_action() -> void:
 	_refresh_live_data()
 	_state_signature = _research_state_signature()
 	if _action_button != null:
-		_action_button.call_deferred("grab_focus")
+		call_deferred("_focus_current_action")
 
 
 func _refresh_live_data() -> void:
 	_refresh_materials()
-	_refresh_header_status()
 	_refresh_research_progress()
 	if _water_node_button != null:
 		_update_water_node_text(_water_node_button)
@@ -839,30 +829,6 @@ func _refresh_materials() -> void:
 			requirement.add_theme_color_override("font_color", requirement_color)
 
 
-func _refresh_header_status() -> void:
-	var text_value: String = "STATION READY"
-	var color: Color = S.GREEN
-	var icon_name: String = "check"
-	if _current_station != null and _current_station.active_upgrade != null:
-		if _current_station.is_paused:
-			text_value = "RESEARCH PAUSED"
-			color = S.BRASS.lightened(0.28)
-			icon_name = "stopped"
-		else:
-			text_value = "RESEARCH ACTIVE"
-			color = S.BLUE
-			icon_name = "running"
-	if text_value == _header_status_key:
-		return
-	_header_status_key = text_value
-	_header_status_text.text = text_value
-	_header_status_text.add_theme_color_override("font_color", color)
-	_header_status_icon.texture = S.icon(icon_name)
-	_header_status_icon.self_modulate = color
-	_header_status.add_theme_stylebox_override(
-		"panel", C.panel_box(S.BG.lerp(color, 0.10), S.BG.lerp(color, 0.52), 7, 1, 7)
-	)
-
 
 func _refresh_research_progress() -> void:
 	if _current_station == null or _current_station.active_upgrade != WATER_UPGRADE:
@@ -871,9 +837,9 @@ func _refresh_research_progress() -> void:
 	var fraction: float = clampf(_current_station._elapsed / duration, 0.0, 1.0)
 	var remaining: float = maxf(duration - _current_station._elapsed, 0.0)
 	if _research_progress_bar != null:
-		SMOOTH_BAR.apply(_research_progress_bar, fraction * 100.0)
+		SMOOTH_BAR.apply(_research_progress_bar, floorf(fraction * 100.0))
 	if _research_progress_label != null:
-		_research_progress_label.text = "%d%%" % roundi(fraction * 100.0)
+		_research_progress_label.text = "%d%%" % floori(fraction * 100.0)
 	if _research_time_value != null:
 		_research_time_value.text = "%s remaining" % _format_duration(remaining)
 
@@ -928,12 +894,9 @@ func _set_tab(index: int) -> void:
 		_tabs[button_index].set_pressed_no_signal(button_index == _active_tab)
 	for page_index: int in range(_pages.size()):
 		_pages[page_index].visible = page_index == _active_tab
+	UIFade.content(_pages[_active_tab])
 	if InputMode.is_controller():
-		var target: Control = (
-			_water_node_button if _active_tab == BUNKER_TAB else _tabs[_active_tab]
-		)
-		if target != null:
-			target.call_deferred("grab_focus")
+		call_deferred("_focus_current_navigation_target")
 
 
 func _cycle_tab(direction: int) -> void:
@@ -944,7 +907,7 @@ func _change_zoom(direction: int) -> void:
 	_zoom_index = clampi(_zoom_index + direction, 0, ZOOM_STEPS.size() - 1)
 	_rebuild_pathway()
 	if _water_node_button != null:
-		_water_node_button.call_deferred("grab_focus")
+		call_deferred("_focus_current_navigation_target")
 
 
 func _reset_path_view() -> void:
@@ -953,7 +916,22 @@ func _reset_path_view() -> void:
 	_path_scroll.set_deferred("scroll_horizontal", 0)
 	_path_scroll.set_deferred("scroll_vertical", 0)
 	if _water_node_button != null:
-		_water_node_button.call_deferred("grab_focus")
+		call_deferred("_focus_current_navigation_target")
+
+
+func _focus_current_action() -> void:
+	if is_open and is_instance_valid(_action_button) and _action_button.is_inside_tree():
+		_action_button.grab_focus()
+
+
+func _focus_current_navigation_target() -> void:
+	if not is_open:
+		return
+	var target: Control = (
+		_water_node_button if _active_tab == BUNKER_TAB else _tabs[_active_tab]
+	)
+	if is_instance_valid(target) and target.is_inside_tree() and target.is_visible_in_tree():
+		target.grab_focus()
 
 
 func _scaled_rect(rect: Rect2, zoom: float) -> Rect2:
@@ -964,11 +942,7 @@ func _layout() -> void:
 	if _panel == null:
 		return
 	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
-	var available: Vector2 = Vector2(
-		maxf(320.0, viewport_size.x - EDGE.x * 2.0), maxf(320.0, viewport_size.y - EDGE.y * 2.0)
-	)
-	_panel.size = Vector2(minf(PANEL_MAX.x, available.x), minf(PANEL_MAX.y, available.y))
-	_panel.position = (viewport_size - _panel.size) * 0.5
+	UIPanelLayout.fit(_panel, viewport_size, PANEL_MAX, EDGE)
 
 
 func _update_input_hint() -> void:

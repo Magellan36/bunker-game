@@ -127,9 +127,15 @@ instantiated/wired by `MainWorld` and found elsewhere via
 single raw elapsed-seconds float is sufficient; day/hour/minute recompute
 automatically next frame. `player_position` is also a registered
 `SaveManager` field but its getter/setter live on `MainWorld`, not `Player`
-itself. **Not persisted:** stamina, food/water/sleep/health values,
-held/inventory item state (tracked gap, not scheduled — see
-`docs/systems/world-core/README.md` Known tradeoffs).
+itself. **Survival needs now saved (Save/Load overhaul):**
+`PlayerStats.get_survival_save_data()`/`apply_survival_save_data()` back the
+`player_survival` field — food/water/sleep/health plus the Medical-derived
+needs caps (caps are re-derived from saved conditions by `PlayerMedical`
+right after, since medical conditions are saved too). Player inventory (the 4
+slots) is saved via `InventoryManager`'s `player_inventory` field. **Not
+persisted:** stamina (fast-regen combat resource), the transient `sleeping`
+flag. Loose world items outside inventory/storage are saved separately via
+`world_items`.
 
 ## Call graph (brief)
 ```
@@ -712,7 +718,8 @@ own held item while CASE 1 scans for a different target — guarded with
 
 ## Known tradeoffs / tech debt
 - No automated tests.
-- Survival stat/inventory state isn't saved (see Persistence above).
+- Survival stats and inventory are saved (see Persistence above); stamina
+  and loose world items are not.
 - `InteractionSystem.gd` is a single ~1,245-line file covering pickup,
   drop, store, scroll, prompt-building, AND the NPC Give/Takeaway/Snatch
   transfer path — see the Player subsystem's cleanup assessment plan

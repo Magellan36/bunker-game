@@ -74,15 +74,21 @@ before starting any of these):**
   `docs/systems/water/README.md` Purification & Quality section. Known gap:
   `WaterPurifier` nodes/edges are NOT yet persisted by save/load — see that
   section's own note, deferred to the save/load project below.)
-- **Save/load system — full infrastructure carryover (next up).** Extend the
-  existing `SaveManager` field-registry (bunker expansions, exact power
-  setup incl. wiring/zones/batteries/generators, water pipe network incl.
-  purifiers) to cover everything currently built. Read
-  `docs/systems/water/README.md`'s Persistence section and Purification &
-  Quality's "Known gap" note first — the purifier save gap should likely be
-  closed as part of this pass.
-- Main Menu scene, Death/game-over state — mentioned early in the project,
-  never started, no trace in the repo currently.
+- **Save/load — HIGH-value carryover (Sep 2026).** Two passes closed the
+  biggest gaps in the `SaveManager` field-registry: player survival needs,
+  medical conditions, player inventory, storage contents
+  (shelves/dressers/end-tables/trash-cans), farming tray per-cell state,
+  water purifier graph nodes + filter, research progress, moved level-placed
+  objects (Build/Research Station, pregen wall lights), loose world-floor
+  items, zone name/color overrides, and water-hookup tier/quality. See
+  `docs/systems/world-core/README.md` Persistence. Remaining lower-priority
+  gaps: NPC held items/activity (deliberate), pregen loot/lighting, items on
+  pregen storage.
+- Death/game-over state — mentioned early in the project, never started.
+  (Main Menu shipped Sep 2026 — `docs/systems/main-menu/README.md`. Its 3D
+  surface backdrop is greybox until Brannon's human-made building/sky/audio
+  assets fill its slots; `tools/tests/check_menu_backdrop_slots.py --release`
+  gates that. "Exit to Main Menu" from pause is not built yet.)
 - Placing `emergency_light` device instances near breaker boxes (device
   type already exists, build-menu placement task only).
 - Generator exhaust smoke scaled to fuel-burn/load (design worked out,
@@ -111,6 +117,7 @@ before starting any of these):**
 | Water (hookup/sink/dispenser/purifier, pipe placement, quality/flow shader) | `docs/systems/water/README.md` | migrated |
 | Farming (trays, plants, grow lights, seeds/soil/produce items) | `docs/systems/farming/README.md` | migrated |
 | NPC (wandering, talk UI, admin spawn) | `docs/systems/npc/README.md` | migrated |
+| Main Menu + surface backdrop (boot scene, storm/wind scene, asset slots, AI-content release gate) | `docs/systems/main-menu/README.md` | migrated |
 
 **All 11 systems now migrated (Aug 2026, NPC added).** 
 
@@ -135,6 +142,8 @@ scripts/
     water/       WaterManager + WaterGraph + WaterHookup + pipe [migrated, §2]
                  tool/visuals + WaterTestSink (Phase 1 groundwork)
     cooking/     Stove.gd, CookingPot.gd, DishItem.gd          [migrated, §2]
+    menu_backdrop/ MenuBackdrop, MenuCameraRig, LightningStorm, WindAmbience,
+                 FlickerLamp, BackdropAssetSlot (main-menu 3D scene) [migrated, §2]
     npc/         NPC.gd                                         [migrated, §2]
   ui/
     power/       PowerTerminalUI, PowerPriorityUI, GeneratorInspectUI  [migrated, §2]
@@ -146,6 +155,8 @@ scripts/
                  GraphicsSettingsPanel                                [migrated, §2]
     build/       BuildModeHUD                                         [migrated, §2]
     debug/       DebugOverlay                                         [migrated, §2]
+    main_menu/   MainMenu, MainMenuScreen, MainMenuItem, MainMenuSelector,
+                 MainMenuCredits (boot scene UI)                      [migrated, §2]
     common/      UIFade.gd (shared fade-in helper)                    [migrated, §2]
     npc/         NPCTalkMenuUI.gd                                     [migrated, §2]
 scenes/          still flat under scenes/world|ui|player|npc/ (NOT reorganized — out of scope)

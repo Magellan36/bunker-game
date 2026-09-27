@@ -3,7 +3,7 @@
 [ext_resource type="Script" path="res://scripts/world/items/TestCrate.gd" id="1_testcrate"]
 
 [sub_resource type="BoxShape3D" id="shape_crate"]
-size = Vector3(0.54, 0.48, 0.73)
+size = Vector3(0.54, 0.2985, 0.2974)
 
 [node name="TestCrate" type="RigidBody3D"]
 script = ExtResource("1_testcrate")
@@ -11,5 +11,4 @@ continuous_cd = true
 mass = 7.0
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
-position = Vector3(0, 0.019, 0)
 shape = SubResource("shape_crate")

@@ -41,7 +41,8 @@ stack, and the wire-draw tool's host controller.
 - `WallSnapHelpers.gd`: snaps wall-lights and breakers to the nearest wall
   face within range, and the pregen-vs-player-wall interior-face check used
   to fix the expanded-area wall/breaker snap bug (see `HANDOVER.md`
-  history).
+  history). Breaker visuals stay on the true wall face; their separate
+  electrical cut point is sampled from the physical wire beneath.
 - `WallDrawMode.gd`: click-drag-click wall placement tool. See "Wall Draw
   Mode" section below.
 - `PlacementIndicator.gd`: small standalone visual indicator node (not part
@@ -102,6 +103,19 @@ the seat's exact footprint/position, decoupled from the visual mesh
 handling as the Medium Table fix — see that entry for the general
 explanation; this file's node carried its own stray `(-4.1, 0, 0.8)`
 offset, corrected the same way via `_recenter_glb_mesh()`.
+
+**Sep 2026 — Chair model swapped to `Chair_1` (Ultimate House Interior
+Pack).** `Chair.gd` now loads `assets/models/chair1.glb` (exported from
+`Blends/Chair_1.blend`; low-poly, single flat-brown `Wood` material, no
+textures). Non-uniform scale `Vector3(0.8202, 0.7027, 0.7576)`:
+`scale.y = SEAT_SURFACE_Y / seat_top = 0.4971 / 0.7074` so the new seat
+lands EXACTLY on the existing `SEAT_SURFACE_Y = 0.4971` constant (the
+dominant seat slab's top surface is at GLB-local Y ≈ 0.7074); `scale.x/z`
+map the 0.762×0.825 native footprint to the existing `FOOTPRINT = 0.625`
+so the visual sits inside the same collision box. Backrest verified on
+local -Z (all verts above y=1.0 are at -Z), matching the backrest-at--Z
+convention — no rotation. This GLB's wrapper carries no stray translation
+(identity transform), so `_recenter_glb_mesh()` is a harmless no-op here.
 
 **Aug 2026 — Medium Table + Build Station now use a real GLB model.**
 `Table.gd`'s `cell_count == 2` path and `BuildStation.gd`'s tabletop both
@@ -228,6 +242,31 @@ current **reference example of complete new-object wiring** (see the
 checklist below): every layer that a new placeable furniture type must
 touch is wired here.
 
+**Sep 2026 — End Table visual swapped to `NightStand_2` (Ultimate House
+Interior Pack).** `EndTable.gd` now loads `assets/models/nightstand2.glb`
+(exported from `Blends/NightStand_2.blend`; 2 materials — Wood body +
+Metal drawer knob). Uniform scale `0.9451` maps the native 0.952×0.952
+footprint to the existing 0.90×0.90 occupancy (`_tile_half_extents`
+0.45); scaled height 0.893. The knob is authored on the model's +Z, which
+IS the EndTable's front (no rotation — verified in-editor that the knob
+faces the player/arrow). The procedural leg+tabletop+cabinet mesh and its
+cabinet trimesh collision were removed; collision is now a single
+invisible box matching the scaled footprint. `build_ghost_mesh()` returns
+the scaled 0.90×0.893×0.90 box.
+
+**Sep 2026 — Dresser visual swapped to `Drawer_5` (Ultimate House
+Interior Pack).** `Dresser.gd` now loads `assets/models/drawer5.glb`
+(exported from `Blends/Drawer_5.blend`; 3 materials — Wood body,
+Wood_Dark drawer faces, Wood_Light knobs). Uniform scale `0.68` maps the
+native 2.794 width to the existing 1.90 Dresser width (`_tile_half_extents`
+0.95) — no scrunching, so height/depth follow the model's natural
+proportions (scaled 0.906 × 0.784, both inside the 1.90×0.96 occupancy
+box). Drawer fronts/knobs are authored on the model's +Z, same as the old
+procedural Dresser, so no rotation. The procedural body+top+2×3-drawer
+mesh and its trimesh collision were removed; collision is now a single
+invisible box matching the scaled footprint.
+`build_ghost_mesh()` returns the scaled 1.90×0.906×0.784 box.
+
 - `EndTable.gd` / `Dresser.gd`: mesh-only subclasses of
   `scripts/world/furniture/LightStorage.gd`, each exposing
   `static func build_ghost_mesh()`.
@@ -268,6 +307,17 @@ straight to the player. See `docs/systems/furniture-items/README.md` for
 the full behavior + the hover panel (`TrashBagInfoPanel.gd`, new ambient
 UI category).
 
+**Sep 2026 — visual swapped to `Trashcan_Cylindric` (Ultimate House
+Interior Pack).** `TrashCan.gd` now loads `assets/models/trashcan.glb`
+(exported from `Blends/Trashcan_Cylindric.blend`; single `LightMetal`
+material). Uniform scale `0.7417` maps the native 0.755 diameter to the
+existing 0.56 footprint (`_tile_half_extents` 0.28) — no scrunching, so
+height follows the model's natural proportion (scaled 0.797). The model
+is a symmetric cylinder (no directional front), so no rotation. The
+procedural tapered cylinder + rim was removed; collision is now a single
+invisible `CylinderShape3D` matching the scaled footprint.
+`build_ghost_mesh()` returns the scaled 0.28-radius × 0.797 cylinder.
+
 Wired across the same complete set as End Table/Dresser above:
 - `BuildModeController.gd`: `TILE_TRASH_CAN` const (36); `spawn_structure()`
   shared Light-Storage branch extended to a three-way; tile added to the
@@ -281,6 +331,83 @@ Wired across the same complete set as End Table/Dresser above:
   floor-standing `snap_pos.y = 0.5` elif extended.
 - `MainWorld.gd`: one `_setup_trash_bag_panel()` call (hover-panel wiring;
   new — End Table/Dresser needed no MainWorld change, this one does).
+
+## Carpets (Sep 2026)
+Tile IDs **40** (`Carpet #1`, $75), **41** (`Carpet #2`, $75) and **42**
+(`Carpet #3`, $75) in Construct → Furniture — decorative flat floor rugs,
+no interaction. One shared `Carpet.gd` (StaticBody3D) with a `variant`
+export (1/2/3) mapping to `Carpet_1`/`Carpet_2`/`Carpet_Round` from the
+Ultimate House Interior Pack (Blends/*.blend, exported to GLB) — mirrors
+the GrowLight tier-export convention rather than three near-duplicate
+classes.
+
+- **Scaling:** each carpet is scaled UNIFORMLY so its longest side lands at
+  1.80m — "about 4 end tables in a square" (4×0.90 = 1.80). No scrunching:
+  the other axis follows the model's natural aspect. Carpet_1 → 1.24×1.80,
+  Carpet_2 → 1.75×1.80, Carpet_Round → 1.80 round (native 2.13×3.09 /
+  3.09×3.18 / 2.49×2.53). Sits flush on the floor, raised `FLOOR_CLEARANCE`
+  (0.025) above it to avoid floor clipping (base at y=0.025), snapping to
+  the standard floor-standing `snap_pos.y = 0.5` hover offset in build mode.
+- `BuildModeController.gd`: `TILE_CARPET_1`/`TILE_CARPET_2`/`TILE_CARPET_3`
+  consts (40/41/42); a spawn branch setting the `variant` from the tile ID;
+  `_tile_half_extents()` arms `Vector2(0.62, 0.90)` / `Vector2(0.875, 0.90)`
+  / `Vector2(0.90, 0.90)` (scaled half-extents).
+- `BuildModeHUD.gd`: three data lines in `CATEGORIES["Furniture"]`
+  (`"Carpet #1"` / `"Carpet #2"` / `"Carpet #3"`, $75 each).
+- `GhostModelBuilder.gd`: `PROCEDURAL_PREVIEW_SOURCES` entries for 40/41/42
+  (with `tier_prop = "variant"` so the submenu preview + in-world ghost build
+  the correct carpet model automatically; facing arrow via the default 180°).
+- `GhostPreview.gd`: floor-standing `snap_pos.y = 0.5` elif extended.
+- **Occupancy — carpets are always passable (Sep 2026):** carpets never block
+  placement of any other object, and — except for walls/pillars — nothing
+  blocks them. In `_is_position_occupied`, an existing carpet entry is always
+  skipped (so furniture/cabinets/etc. place right on top of it), and a NEW
+  carpet is only tested against walls/pillars (`BunkerStructure.is_wall_or_pillar`,
+  which covers both pregen and player-placed ones — they keep their flush
+  allowance so a rug can sit edge-to-edge against a wall without going
+  through it); every other placed object is skipped so the rug slides beneath
+  furniture. Walls/pillars still block carpets (no placing a rug through a
+  wall), and non-carpet placement is unchanged. See `_is_carpet_tile()`.
+- Save/load, move, deconstruct: all generic — carpets have no mutable state
+  (variant is implied by tile_id), no `_EXTRA_STATE_TILES` entry needed.
+
+## Drawers #1/#2/#3 + Sink (Sep 2026)
+Tile IDs **43/44/45/46** (`Drawers #1/#2/#3`, `Sink`, $75 each) in Construct →
+Furniture — decorative kitchen units, no interaction. `Drawers.gd`
+(StaticBody3D) loads `Kitchen_1/2/3Drawers`, `Sink.gd` loads `Kitchen_Sink`
+— all from the Ultimate House Interior Pack (same pack as the Stove's
+`Kitchen_Oven_Large`; Blends/Kitchen_*Drawers.blend + Kitchen_Sink.blend,
+exported to GLB). The Drawers script is variant-based (`@export variant` 1/2/3,
+mirroring the Carpet tier-export convention) and is spawned with
+`variant = tile_id - TILE_DRAWERS_1 + 1`. Materials (Kitchen / White /
+KitchenTop, Sink adds LightMetal / Glass) are the same kitchen palette as the
+stove, so all units read cohesively beside it.
+
+- **One shared scaling — every unit connects in a run:** all four units share
+  the same modular footprint (native X=1.011, Y=1.120) and the SAME
+  non-uniform scale. Y/Z use `0.6935` to bring depth to the stove's exact
+  scaled depth (1.070 × 0.7257 = 0.7768) — every unit's front edge is flush
+  with a stove in the same run. X uses `0.7420` to land on exactly **0.75** —
+  a clean multiple of every snap grid (3×0.25, 6×0.125) — so any unit placed
+  side-by-side on the grid connects seamlessly (no gaps from a
+  non-grid-multiple width, and the occupancy check's 0.98 tolerance lets
+  flush-adjacent placements coexist without the "already placed there"
+  block). Height follows native: Drawers #1 = 1.119, #2/#3 = 1.127 (their
+  native model is slightly taller, 1.625 vs 1.614), Sink = 1.335 (taller
+  backsplash/faucet, native 1.924). All sit on the floor (base at y≈0),
+  snapping to the standard floor-standing `snap_pos.y = 0.5` hover offset.
+- `BuildModeController.gd`: `TILE_DRAWERS_1/2/3` consts (43/44/45) + `TILE_SINK`
+  (46); spawn branches (Drawers sets `variant` from the tile id); the
+  `_tile_half_extents()` arm returns `Vector2(0.375, 0.3885)` for all four
+  (shared 0.75×0.777 footprint).
+- `BuildModeHUD.gd`: `{ "tile_id": 43..46, "name": "Drawers #1/2/3"/"Sink",
+  "price": 75 }` in `CATEGORIES["Furniture"]`.
+- `GhostModelBuilder.gd`: `PROCEDURAL_PREVIEW_SOURCES` entries for 43/44/45
+  (`is_script`, `tier_prop: "variant"`, `tier`: 1/2/3) and 46 (`is_script`).
+- `GhostPreview.gd`: floor-standing `snap_pos.y = 0.5` elif extended to
+  all four tiles.
+- Save/load, move, deconstruct: generic — no mutable state, no
+  `_EXTRA_STATE_TILES` entry needed.
 
 ## Build Station (Aug 2026)
 Tile ID **37** — a singleton `BuildStation.gd` object that spawns once at
@@ -418,12 +545,15 @@ selection rather than a separate toolbar tool).
   1m segment.
 - **Cost:** `price_per_meter × length` — no separate `$/meter` constant,
   reuses each tier's existing Construct-menu price.
-- **Save/restore:** `BuildModeController._spawn_stretched_wall()` is the
-  single source of truth for real (non-ghost) wall geometry — both live
-  placement (`WallDrawMode._confirm_wall()`) and `restore_placed_objects()`
-  call it, so a reloaded wall reconstructs at its exact saved length
-  (`wall_length` stored via `node.set_meta()`, read back through
-  `_get_device_extra()`), not a fixed stub.
+- **Save/restore:** `BuildModeController._spawn_wall_run()` is the single
+  source of truth for real (non-ghost) wall geometry — both live placement
+  (`WallDrawMode._confirm_wall()`) and `restore_placed_objects()` call it, so
+  a reloaded wall reconstructs at its exact saved length, not a fixed 1×1
+  stub. The run length lives in the placed-object entry's `footprint`
+  (`Vector2(thickness/2, run_length/2)`) and is persisted as `"run_length"`
+  by `get_placed_objects_for_save()`; restore passes it back to
+  `_spawn_wall_run()`. (Before this fix, a drawn wall collapsed to a single
+  cell on reload.)
 
 ## Ghost Model System (`GhostModelBuilder.gd`)
 **Master file** for every ghost/preview visual in Build Mode — both the
@@ -695,9 +825,11 @@ Player enters build mode (BuildModeHUD tool_selected / enter_build_mode())
   `PowerManager` in the new device's own `_ready()` (see
   `docs/systems/power/README.md` Common edits — nothing else in
   `BuildModeController` needs to know about the device's internal behavior).
-- **New wall-snappable device (like lights/breakers):** add a
+- **New wall-snappable device (like lights/breakers/terminals):** add a
   `_snap_*_to_wall()` method to `WallSnapHelpers.gd` following
-  `_snap_light_to_wall()`/`_snap_breaker_to_wall()`'s shape.
+  `_snap_light_to_wall()`/`_snap_breaker_to_wall()`'s shape, or use the shared
+  nearest-wall path when the device only needs a simple face offset. Add the
+  same rule to move placement so the committed and preview transforms match.
 - **New tool (beyond Construct/Deconstruct/Move/Duplicate/Wire):** add a new
   `TOOL_*` constant, a new `RefCounted` helper slice (own file) following the
   `_owner: BuildModeController` pattern if the tool's logic is self-contained

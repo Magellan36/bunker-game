@@ -9,10 +9,9 @@ class_name GeneratorObject
 ## Interaction (E key): opens GeneratorInspectUI panel with fuel bar, HP, backup toggle, grid state.
 
 # ─── Debug ────────────────────────────────────────────────────────────────────
-## Flip false to silence all [GEN] registration/ready prints.
-const WIRE_DEBUG: bool = true
+## Flip DebugOutput.enabled (F7 "Disable All Debug Outputs") to silence all [GEN] registration/ready prints.
 func _wdbg(msg: String) -> void:
-	if WIRE_DEBUG:
+	if DebugOutput.enabled:
 		print(msg)
 
 # ─── Tier config ──────────────────────────────────────────────────────────────
@@ -21,6 +20,30 @@ const TIER_CONFIG: Array = [
 	{ "size": Vector3(1.24, 1.13, 0.62), "watts": 2000, "label": "Generator M" },
 	{ "size": Vector3(1.85, 1.70, 0.925), "watts": 5000, "label": "Generator L" },
 ]
+
+const NPC_WORK_STANDOFF: float = 0.75
+
+func get_npc_interaction_slots(_action: StringName) -> Array[Dictionary]:
+	## Every tier's control panel is on local +Z. Larger generators expose two
+	## non-overlapping positions for observation and future repair work.
+	var cfg: Dictionary = TIER_CONFIG[clampi(generator_tier, 0, TIER_CONFIG.size() - 1)]
+	var size: Vector3 = cfg["size"]
+	var offsets: Array[float] = [0.0]
+	if size.x >= 1.0:
+		offsets = [-size.x * 0.22, size.x * 0.22]
+	var result: Array[Dictionary] = []
+	var basis: Basis = global_transform.basis.orthonormalized()
+	for index: int in offsets.size():
+		var position: Vector3 = global_transform * Vector3(
+			offsets[index], 0.0, size.z * 0.5 + NPC_WORK_STANDOFF)
+		var slot_id: StringName = &"front" if offsets.size() == 1 \
+			else (&"front_left" if index == 0 else &"front_right")
+		result.append({
+			"slot_id": slot_id,
+			"claim_group": slot_id,
+			"transform": Transform3D(basis, position),
+		})
+	return result
 
 const COLOR_BODY:     Color = Color(0.38, 0.38, 0.38, 1.0)
 const COLOR_PANEL:    Color = Color(0.25, 0.25, 0.28, 1.0)
@@ -472,6 +495,9 @@ func _add_door(parent: Node3D, sz: Vector3, x_offset: float, door_w: float, door
 ## on/off with _is_running via set_running() instead.
 func _build_exhaust(sz: Vector3) -> void:
 	_exhaust = GPUParticles3D.new()
+	## Sep 2026 lighting review: particles never cast — tiny sprite shadows add
+	## cost to every shadow re-render for no visible benefit.
+	_exhaust.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_exhaust.amount       = 10
 	_exhaust.lifetime     = 2.0
 	_exhaust.local_coords = true

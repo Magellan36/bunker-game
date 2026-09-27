@@ -15,6 +15,11 @@ const PORTRAIT_DISTANCE: float = 1.4
 const PORTRAIT_FACE_TO_CHEST_OFFSET: float = 0.20
 const FALLBACK_PORTRAIT_TARGET: Vector3 = Vector3(0.0, 1.42, 0.0)
 
+## Callers that reuse this renderer in denser surfaces may lower the backing
+## resolution before the node enters the tree. The talk workspace keeps the
+## established full-size default.
+var viewport_size: Vector2i = VIEWPORT_SIZE
+
 var _viewport: SubViewport = null
 var _stage: Node3D = null
 var _resident_root: CharacterBody3D = null
@@ -89,10 +94,14 @@ func clear_npc() -> void:
 	_clear_resident()
 
 
+func get_portrait_texture() -> Texture2D:
+	return _viewport.get_texture() if _viewport != null else null
+
+
 func _build_viewport() -> void:
 	_viewport = SubViewport.new()
 	_viewport.name = "ResidentSubViewport"
-	_viewport.size = VIEWPORT_SIZE
+	_viewport.size = viewport_size
 	_viewport.own_world_3d = true
 	_viewport.transparent_bg = false
 	_viewport.handle_input_locally = false

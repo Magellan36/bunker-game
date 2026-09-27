@@ -119,6 +119,21 @@ Libraries in `assets/models/player/anims/` wired into
 | `stand_to_sit_lib` | `stand_to_sit` | 2.23s | no | sit-down |
 | `sit_lib` | `sit` | 1.15s | yes | seated anchor |
 | `sit_to_stand_lib` | `sit_to_stand` | 2.25s | no | stand-up |
+| `lying_down_male_lib` / `lying_down_female_lib` | `lying_down` | — | no | bed sleep recline (gender-specific) |
+| `sleep_hybrid_male_lib` / `sleep_hybrid_female_lib` | `sleeping` | — | yes | sleep loop (gender-specific) |
+| `dying_male_lib` / `dying_female_lib` | `dying` | 2.6s / 3.5s | no | **death collapse (Sep 2026)** — one-shot; holds the final frame as the frozen corpse. Wired as `"dying"` in `ANIMATION_NAMES` + both gender overrides; played whenever the parent reports `is_dead()` |
+
+## Death state (Sep 2026)
+
+When a character's HP hits 0, `AdventurerModelController._process` checks
+`_is_dead()` (duck-typed `is_dead()`/`dead` on the parent) at the very top and
+plays the `dying` one-shot clip (LOOP_NONE — freezes on the last frame), then
+returns — preempting locomotion, sit phases, and speed scaling. The non-shadow
+instance also eases the root down onto the floor (found by a downward raycast
+on the first dead frame, `DEATH_DROP_SPEED`), so the corpse settles on the
+ground instead of hovering at standing height. NPC death (`NPC.die()`) stops
+the brain, locks movement, drops the held item, and disables collision; player
+death opens `GameOverUI` (`MainWorld._open_game_over()`) and is permanent.
 
 ### Gender-specific selection (`AdventurerModelController.gd`)
 
@@ -129,6 +144,25 @@ state: **male and female each override only `idle`** (the locomotive packs'
 idle clips); walk/run/carry/sit are the shared clips for both. Adding a
 gender-specific clip = add the library to `AdventurerModel.tscn` + one
 line in the matching dict.
+
+### Playback-rate scaling (Sep 2026)
+
+`AdventurerModelController._apply_locomotion_speed_scale()` scales the
+walk/run clip playback rate to the character's **actual** movement speed,
+per-character normalized: `speed_scale = real_speed / nominal_speed_for_band`
+where the nominal is the character's own `move_speed` (walk) or
+`sprint_speed` (run) — read duck-typed, so it works for both Player and NPC
+(NPCs expose `move_speed`, never reach the run band). Full nominal speed
+plays at 1.0x (authored cadence); a slowed character (elder NPC, low
+energy/hunger/thirst/mood, medical injury) visibly slows its stride to
+match. Idle resets to 1.0. Clamped `0.2..1.5`, lerped toward target at
+`LOCOMOTION_SPEED_SCALE_LERP = 8.0`/s so the walk→run handoff and
+start/stop don't pop. Applied every frame in the locomotion branch, after
+state selection, from the same `get_real_velocity()` that drives
+idle/walk/run — carry clips scale identically (suffix stripped). The sit/
+lying/sleeping phases keep their own fixed speed_scale (1.0, or the
+`LIE_DOWN_2ND_HALF_SPEED` override) because those branches return before
+locomotion runs.
 
 ## Sit animation sequence
 

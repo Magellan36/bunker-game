@@ -2,20 +2,28 @@ extends LightStorage
 class_name Dresser
 ## Dresser.gd
 ## Tall 2×1 dresser with 6 hidden drawers — light-item storage, capacity 6.
-## Furniture category, TILE 33, $150. Solid wood body with a beige top slab
-## and a 2×3 grid of drawer faces + knobs on the +Z (back) side (flipped).
-## Footprint 1.90×0.45, height 0.80.
+## Furniture category, TILE 33, $150.
+##
+## Sep 2026 — visual model swapped to `Drawer_5` from the Ultimate House
+## Interior Pack (Blends/Drawer_5.blend, exported to GLB). The previous
+## procedural body+top+2×3-drawer mesh was removed. Collision is now a single
+## invisible box matching the scaled model footprint, decoupled from the
+## visual (model's own imported collision is stripped).
 
-const BODY_SIZE: Vector3 = Vector3(1.90, 0.75, 0.45)
-const TOP_THICKNESS: float = 0.05
-const TOP_SIZE: Vector3 = Vector3(1.96, TOP_THICKNESS, 0.51)
-const TOP_Y: float = BODY_SIZE.y + TOP_THICKNESS * 0.5
-const DRAWER_W: float = 0.60
-const DRAWER_H: float = 0.18
-const DRAWER_THICKNESS: float = 0.02
+## The model's native width is 2.794 — scaled UNIFORMLY by 0.68 so the width
+## lands EXACTLY on the current Dresser width (1.90, matching the occupancy
+## footprint / _tile_half_extents fallback of 0.95). No scrunching: height and
+## depth follow the model's natural proportions (scaled 0.906 × 0.784, both
+## within the 1.90×0.96 occupancy box). The drawer fronts/knobs are authored
+## on the model's +Z side, same as the old procedural Dresser, so no rotation.
+const MODEL_PATH: String = "res://assets/models/drawer5.glb"
+const MODEL_SCALE: float  = 0.68
+const MODEL_ROT_Y_DEG: float = 0.0
 
-const COLOR_WOOD: Color = Color(0.55, 0.36, 0.22, 1.0)
-const COLOR_TOP:  Color = Color(0.82, 0.74, 0.60, 1.0)   ## matches Table beige
+## Scaled model dims — used for the collision box and ghost.
+const SCALED_W: float = 1.90
+const SCALED_H: float = 0.906
+const SCALED_D: float = 0.784
 
 func _init() -> void:
 	capacity      = 6
@@ -25,68 +33,41 @@ func _init() -> void:
 	grid_rows     = 3
 
 func _build_mesh() -> void:
-	var wood_mat: StandardMaterial3D = StandardMaterial3D.new()
-	wood_mat.albedo_color = COLOR_WOOD
-	wood_mat.metallic  = 0.0
-	wood_mat.roughness = 0.8
+	## Hand-made OBJ/GLB swap convention (Sep 2026) — load the real model,
+	## scale + rotate it into place, strip its own collision, and add a single
+	## invisible box collider matching the footprint. Same shape as the
+	## Chair / EndTable swaps.
+	var packed: PackedScene = load(MODEL_PATH) if ResourceLoader.exists(MODEL_PATH) else null
+	if packed != null:
+		var model: Node3D = packed.instantiate() as Node3D
+		if model != null:
+			model.position = Vector3.ZERO
+			model.scale    = Vector3.ONE * MODEL_SCALE
+			model.rotation_degrees = Vector3(0.0, MODEL_ROT_Y_DEG, 0.0)
+			_strip_model_collision(model)
+			add_child(model)
+	else:
+		push_warning("Dresser.gd: drawer5.glb missing at %s — falling back to no visual mesh" % MODEL_PATH)
 
-	var top_mat: StandardMaterial3D = StandardMaterial3D.new()
-	top_mat.albedo_color = COLOR_TOP
-	top_mat.metallic  = 0.0
-	top_mat.roughness = 0.85
+	## Invisible collision box matching the scaled model footprint.
+	var col_shape: CollisionShape3D = CollisionShape3D.new()
+	var box: BoxShape3D = BoxShape3D.new()
+	box.size = Vector3(SCALED_W, SCALED_H, SCALED_D)
+	col_shape.shape = box
+	col_shape.position = Vector3(0.0, SCALED_H * 0.5, 0.0)
+	add_child(col_shape)
 
-	## Main body with collision.
-	var body_mi: MeshInstance3D = MeshInstance3D.new()
-	var body_mesh: BoxMesh = BoxMesh.new()
-	body_mesh.size = BODY_SIZE
-	body_mi.mesh = body_mesh
-	body_mi.position = Vector3(0.0, BODY_SIZE.y * 0.5, 0.0)
-	body_mi.set_surface_override_material(0, wood_mat)
-	add_child(body_mi)
-	body_mi.create_trimesh_collision()
-	for child in body_mi.get_children():
-		if child is StaticBody3D:
-			(child as StaticBody3D).collision_layer = 5
-			(child as StaticBody3D).collision_mask  = 0
-
-	## Top slab.
-	var top_mi: MeshInstance3D = MeshInstance3D.new()
-	var top_mesh: BoxMesh = BoxMesh.new()
-	top_mesh.size = TOP_SIZE
-	top_mi.mesh = top_mesh
-	top_mi.position = Vector3(0.0, TOP_Y, 0.0)
-	top_mi.set_surface_override_material(0, top_mat)
-	add_child(top_mi)
-
-	## 2×3 drawer grid on the +Z face (flipped 180°).
-	var face_z: float = BODY_SIZE.z * 0.5 + DRAWER_THICKNESS * 0.5
-	var start_y: float = BODY_SIZE.y - 0.10
-	var gap_x: float = DRAWER_W + 0.06
-	var start_x: float = -gap_x * 0.5
-	for row: int in 3:
-		var y: float = start_y - row * (DRAWER_H + 0.04)
-		for col: int in 2:
-			var x: float = start_x + col * gap_x
-
-			var drawer_mi: MeshInstance3D = MeshInstance3D.new()
-			var drawer_mesh: BoxMesh = BoxMesh.new()
-			drawer_mesh.size = Vector3(DRAWER_W, DRAWER_H, DRAWER_THICKNESS)
-			drawer_mi.mesh = drawer_mesh
-			drawer_mi.position = Vector3(x, y, face_z)
-			drawer_mi.set_surface_override_material(0, top_mat)
-			add_child(drawer_mi)
-
-			var knob_mi: MeshInstance3D = MeshInstance3D.new()
-			var knob_mesh: CylinderMesh = CylinderMesh.new()
-			knob_mesh.top_radius = 0.02
-			knob_mesh.bottom_radius = 0.02
-			knob_mesh.height = 0.04
-			knob_mi.mesh = knob_mesh
-			knob_mi.position = Vector3(x, y, face_z + 0.03)
-			knob_mi.set_surface_override_material(0, top_mat)
-			add_child(knob_mi)
+## Recursively disables collision on every CollisionObject3D descendant of an
+## instanced model — same convention as Chair.gd/Table.gd/BuildStation.gd.
+func _strip_model_collision(node: Node) -> void:
+	if node is CollisionObject3D:
+		var co: CollisionObject3D = node as CollisionObject3D
+		co.collision_layer = 0
+		co.collision_mask  = 0
+	for child: Node in node.get_children():
+		_strip_model_collision(child)
 
 static func build_ghost_mesh() -> Mesh:
 	var box: BoxMesh = BoxMesh.new()
-	box.size = Vector3(TOP_SIZE.x, TOP_Y + TOP_THICKNESS * 0.5, TOP_SIZE.z)
+	box.size = Vector3(SCALED_W, SCALED_H, SCALED_D)
 	return box

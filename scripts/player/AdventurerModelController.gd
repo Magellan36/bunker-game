@@ -21,6 +21,8 @@ extends Node3D
 
 ## Crossfade time between animation states, in seconds.
 const BLEND_TIME: float = 0.3
+## Short crossfade into the death collapse (the one-shot dying clip).
+const DEATH_BLEND_TIME: float = 0.2
 ## Longer ease between the base locomotion states (idle↔walk↔run). The
 ## gender-specific locomotion poses differ noticeably from each other
 ## (male idle especially), so the standard 0.3s blend still reads as a snap
@@ -37,19 +39,31 @@ const LOCOMOTION_STATES: Array[String] = ["idle", "walk", "run"]
 ## Run only kicks in once real velocity is closing in on sprint_speed.
 const RUN_SPEED_FRACTION: float = 0.85
 
+## Playback-rate scaling (Sep 2026) — per-character normalization: the walk/
+## run clips play at speed_scale = actual_speed / the character's OWN nominal
+## speed for that band (move_speed for walk, sprint_speed for run). A slowed
+## character (elder NPC, low energy, medical injury, heavy-carry) reads as
+## actually moving slower, because its stride cadence drops with its real
+## velocity. Full nominal speed = 1.0x (authored cadence).
+const LOCOMOTION_SPEED_SCALE_MIN: float = 0.2    ## floor — a nearly-stopped but mid-blend character
+const LOCOMOTION_SPEED_SCALE_MAX: float = 1.5    ## ceiling — guards walk-over-drive / edge cases
+const LOCOMOTION_SPEED_SCALE_LERP: float = 8.0   ## per-second lerp toward target — smooths the
+	## walk→run handoff (1.0x walk → 0.85x run) and start/stop acceleration
+	## so the cadence doesn't pop.
+
 ## How quickly the model's VISUAL facing catches up to Player's actual
 ## rotation.y. Same convention/reasoning as the old controller.
 @export var turn_speed: float = 12.0
 
-## When true, casts a real shadow but never renders to camera — set on
-## the second, scaled-down shadow instance (see Player.tscn). Same
-## mechanism as the old PlayerModelController.
+## Legacy compatibility for old scenes that still contain a shadow-only model.
+## Current Player/NPC scenes use the visible model itself for a physically
+## accurate silhouette and avoid a second animated/skinned character instance.
 @export var is_shadow_only: bool = false
 
 ## Aug 2026 — opt-in flag for NPCs: each NPC randomly picks a gender
 ## (which Adventurer model loads) on spawn, independent of the player's
 ## CharacterCreationData choice and every other NPC. Set true on
-## NPC.tscn's CharacterModel/CharacterModelShadow nodes. Simpler than the
+## NPC.tscn's CharacterModel node. Simpler than the
 ## old PlayerModelController's randomize_appearance — there's no hair/
 ## color/beard to roll anymore, just which complete body loads. Mutually
 ## exclusive in practice with reading CharacterCreationData: when true,
@@ -88,6 +102,7 @@ const ANIMATION_NAMES: Dictionary = {
 	"sit_to_stand": "sit_to_stand_lib/sit_to_stand",
 	"lying_down": "lying_down_male_lib/lying_down",
 	"sleeping": "sleep_hybrid_male_lib/sleeping",
+	"dying": "dying_male_lib/dying",
 }
 
 ## Male-only idle override (Aug 2026) — the Male Locomotion Pack idle clip
@@ -100,6 +115,7 @@ const ANIMATION_NAMES: Dictionary = {
 const MALE_ANIMATION_NAMES: Dictionary = {
 	"idle": "idle_male_lib/idle_male",
 	"sit": "sit_hybrid_lib/sit_hybrid",
+	"dying": "dying_male_lib/dying",
 }
 
 ## Female-only idle override (Aug 2026) — the Female Basic Locomotion Pack
@@ -116,6 +132,7 @@ const FEMALE_ANIMATION_NAMES: Dictionary = {
 	"sit_to_stand": "sit_to_stand_female_lib/sit_to_stand",
 	"lying_down": "lying_down_female_lib/lying_down",
 	"sleeping": "sleep_hybrid_female_lib/sleeping",
+	"dying": "dying_female_lib/dying",
 }
 
 var _player: CharacterBody3D = null
@@ -141,7 +158,10 @@ var _sole_offset_measured: bool = false
 var _sole_root_offset: float = -0.98
 ## Diagnostic (Aug 2026) — set true to log the lowest sole Y every few frames
 ## during the sit transitions, to confirm the pose-dependent-gap theory.
-const SOLE_DIAGNOSTIC: bool = true
+## Sep 2026 — left OFF: this was a per-frame stdout flood (captured and
+## re-sent by the debugger bridge) that throttled the game whenever
+## characters sat/stood. Flip back on only while debugging the sole gap.
+const SOLE_DIAGNOSTIC: bool = false
 var _diag_sole_frames: int = 0
 var _current_state: String = ""
 var _last_state: String = ""
@@ -305,12 +325,8 @@ func _ready() -> void:
 	## Aug 2026 — gender comes from CharacterCreationData for the real
 	## player (the creation screen's Body/gender category is still
 	## functional in V1; only Hair is disabled), or from a random per-NPC
-	## roll when randomize_gender is set. The two instances per NPC
-	## (CharacterModel/CharacterModelShadow) synchronize through node
-	## metadata on their shared parent, same pattern the old
-	## PlayerModelController used for its fuller random roll: whichever
-	## runs _ready() first rolls and stashes the result, the second reads
-	## it back, so a body and its shadow always match.
+	## roll when randomize_gender is set. The result remains cached on the
+	## parent so save/load or compatibility scenes resolve consistently.
 	var gender: String = "male"
 	if randomize_gender and _player != null:
 		if not _player.has_meta("_adventurer_random_gender"):
@@ -381,11 +397,11 @@ func _ready() -> void:
 		var mi: MeshInstance3D = node as MeshInstance3D
 		if _player != null and "PLAYER_SELF_LIGHT_LAYER_BIT" in _player:
 			mi.layers = _player.PLAYER_SELF_LIGHT_LAYER_BIT
-		mi.cast_shadow = (
-			GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
-			if is_shadow_only
-			else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		)
+		else:
+			## NPCs: tag with the NPC shadow layer so the dynamic-shadow budget
+			## can keep far lamps from re-rendering around them every frame
+			## (GraphicsSettings.NPC_SHADOW_LAYER_BIT). Visibility is unchanged.
+			mi.layers |= GraphicsSettings.NPC_SHADOW_LAYER_BIT
 		## Aug 2026 — the male Adventurer body ships its own separate
 		## "Backpack" mesh piece (the female body has no equivalent node at
 		## all, confirmed directly — this check naturally no-ops for her).
@@ -397,6 +413,10 @@ func _ready() -> void:
 		## as-is (flat colors, no texture files, confirmed directly
 		## against the source pack). No skin/eye/eyebrow override logic
 		## needed here, unlike the old controller.
+	_apply_dynamic_shadow()
+	## Dynamic character casting follows the quality setting live.
+	if not GraphicsSettings.settings_changed.is_connected(_apply_dynamic_shadow):
+		GraphicsSettings.settings_changed.connect(_apply_dynamic_shadow)
 
 	if _anim_player != null and skeleton != null:
 		if not _root_motion_track_valid(_anim_player, skeleton):
@@ -406,8 +426,41 @@ func _ready() -> void:
 		_anim_player.animation_finished.connect(_on_anim_finished)
 		_play_state("idle")
 
+## Sep 2026 — dynamic shadow gate (Layer 2 of the "classic" two-layer split).
+## Lights always cast (Layer 1) so static walls/pillars cut light at every
+## quality; characters are NOT part of Layer 1. The visible animated mesh casts
+## its own full-height silhouette only while Layer 2 is enabled. This is both
+## physically correct and substantially cheaper than the former second,
+## vertically-squashed animated model per player/NPC. Legacy shadow-only scene
+## instances are kept hidden if an old save/mod still provides one.
+func _apply_dynamic_shadow() -> void:
+	var layer2: bool = GraphicsSettings.shadow_casting_enabled
+	for node in _find_all_of_type(self, "MeshInstance3D"):
+		var mi := node as MeshInstance3D
+		if mi == null:
+			continue
+		mi.cast_shadow = (
+			GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+			if layer2 and not is_shadow_only
+			else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
+	if is_shadow_only:
+		visible = false
+
 func _process(delta: float) -> void:
 	if _player == null:
+		return
+
+	## Dead — the one-shot dying clip plays once and holds its final frame
+	## (the frozen corpse). Preempts everything: no locomotion, no sit
+	## phases, no speed scaling. Both the visible model and the shadow-only
+	## silhouette play it, so the dead body casts a matching shadow.
+	if _is_dead():
+		## The dying clip's armature tracks (kept in the bake) tip the runtime
+		## `MaleModel` root ~86° about X; MaleModel's origin sits at the floor,
+		## so the body falls from the feet and ends lying on the ground. No
+		## root-position driving needed — the character body stays put (dead
+		## NPCs have collision disabled; the player is locked).
+		_play_state("dying", DEATH_BLEND_TIME)
 		return
 
 	## Sitting (Aug 2026): the model faces the seat's backrest — 180° from
@@ -501,16 +554,9 @@ func _process(delta: float) -> void:
 	if _anim_player == null:
 		return
 
-	## Sit sequence overrides locomotion entirely while it's active.
-	## Aug 2026 fix — the XZ-lerp calls below are guarded to the REAL
-	## (non-shadow) instance only. Both PlayerModel and PlayerModelShadow
-	## are separate AdventurerModelController instances under the SAME
-	## player node, both independently reaching this code every frame
-	## (seated just checks the shared _player.seated_chair) — without this
-	## guard, the shadow instance's own _chair_approach_pos/_chair_seat_pos
-	## (never set externally, still their Vector3.ZERO default) fought the
-	## real instance over the SAME shared player.global_position every
-	## frame, snapping the player to world origin.
+	## Sit sequence overrides locomotion entirely while it's active. The
+	## is_shadow_only guard remains for compatibility scenes; current scenes
+	## contain only the real model.
 	if seated:
 		if _sit_phase == "":
 			_sit_phase = "sitting_down"
@@ -570,6 +616,33 @@ func _process(delta: float) -> void:
 	if _is_holding_item():
 		next_state += "_carry"
 	_play_state(next_state)
+	_apply_locomotion_speed_scale(speed, next_state, delta)
+
+## Per-character playback-rate scaling (Sep 2026): the walk/run clips play at
+## speed_scale = actual_speed / the character's OWN nominal speed for that band
+## (move_speed for walk, sprint_speed for run), clamped and lerped for smooth
+## transitions. Idle always resets to 1.0. Duck-typed like the rest of the
+## controller so it works for both Player and NPC (NPC exposes move_speed but
+## no sprint_speed — it never reaches the run band, so walk normalization is
+## all that matters there). The "_carry" suffix is stripped before matching,
+## so carry clips scale exactly like their non-carry siblings.
+func _apply_locomotion_speed_scale(speed: float, state: String, delta: float) -> void:
+	if _anim_player == null:
+		return
+	if not state.begins_with("walk") and not state.begins_with("run"):
+		_anim_player.speed_scale = 1.0
+		return
+	var is_run: bool = state.begins_with("run")
+	var nominal: float = 7.5 if is_run else 4.0
+	if is_run and "sprint_speed" in _player:
+		nominal = _player.sprint_speed
+	elif not is_run and "move_speed" in _player:
+		nominal = _player.move_speed
+	var target: float = clampf(
+		speed / nominal if nominal > 0.0 else 1.0,
+		LOCOMOTION_SPEED_SCALE_MIN, LOCOMOTION_SPEED_SCALE_MAX)
+	_anim_player.speed_scale = lerpf(_anim_player.speed_scale, target,
+		clampf(LOCOMOTION_SPEED_SCALE_LERP * delta, 0.0, 1.0))
 
 ## True while the owning character is seated in a chair. Player exposes
 ## `seated_chair`; NPC.gd mirrors it (set by SitActivity/RelaxSitActivity).
@@ -853,6 +926,17 @@ func _is_holding_item() -> bool:
 		return _player.get_held_item() != null
 	if "held_item" in _player:
 		return _player.held_item != null
+	return false
+
+## True when the owning character is dead (duck-typed: an `is_dead()` method
+## or a `dead` bool on the parent — Player or NPC both provide one).
+func _is_dead() -> bool:
+	if _player == null:
+		return false
+	if _player.has_method("is_dead"):
+		return bool(_player.is_dead())
+	if "dead" in _player:
+		return bool(_player.get("dead"))
 	return false
 
 func _play_state(state: String, blend_override: float = -1.0) -> void:

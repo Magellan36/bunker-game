@@ -14,11 +14,12 @@ const BACK_HEIGHT: float  = 0.5625  ## was 0.45 → ×1.25
 const LEG_HEIGHT: float   = SEAT_Y - SEAT_THICKNESS * 0.5   ## unchanged formula — auto-scales
 const FOOTPRINT: float    = 0.625   ## was 0.50 → ×1.25
 
-## Aug 2026 — the character's SEATED HEIGHT now targets the GLB's ACTUAL
+## Aug 2026 — the character's SEATED HEIGHT targets the model's ACTUAL
 ## visual seat top, not the invisible collision box (SEAT_Y). Measured from
-## wooden_chair.glb via a vertex-Y histogram: the dominant horizontal seat
-## slab sits at GLB-local Y ≈ 0.70, × CHAIR_MODEL_SCALE.y (0.7102) = 0.4971
-## in chair-local space. The old SEAT_Y (0.5625) is the collision-box CENTRE,
+## the chair model via a vertex-Y histogram: the dominant horizontal seat
+## slab sits at GLB-local Y ≈ 0.71 (Chair_1 from the Ultimate House Interior
+## Pack, swapped Sep 2026), × CHAIR_MODEL_SCALE.y (0.7001) = 0.4971 in
+## chair-local space. The old SEAT_Y (0.5625) is the collision-box CENTRE,
 ## ~0.06 above the visible wood — which is why the sit read as floating/
 ## sinking relative to the actual seat. SEAT_SURFACE_Y is where the hips
 ## should land (used by AdventurerModelController._lerp_sit_position and
@@ -32,8 +33,15 @@ const SEAT_CLEARANCE: float = 0.02
 
 const COLOR_METAL: Color = Color(0.60, 0.62, 0.65, 1.0)   ## Matches Table.gd
 
-const CHAIR_MODEL_PATH: String = "res://assets/models/wooden_chair.glb"
-const CHAIR_MODEL_SCALE: Vector3 = Vector3(0.8946, 0.7102, 0.7667)
+## Sep 2026 — Chair_1 from the Ultimate House Interior Pack (Blends/Chair_1.blend,
+## exported to GLB). Replaces wooden_chair.glb. Scale is derived so the seat
+## lands EXACTLY on SEAT_SURFACE_Y (0.4971): the model's dominant seat slab's
+## TOP surface is at GLB-local Y ≈ 0.7074, so scale.y = 0.4971/0.7074 ≈ 0.7027.
+## X/Z are scaled to the existing FOOTPRINT (0.625) so the visual sits inside
+## the same collision box the old chair used. Backrest is on local -Z
+## (verified), matching Chair.gd's backrest-at--Z convention, so no rotation.
+const CHAIR_MODEL_PATH: String = "res://assets/models/chair1.glb"
+const CHAIR_MODEL_SCALE: Vector3 = Vector3(0.8202, 0.7027, 0.7576)
 
 ## Aug 2026 sit-animation pass — SUPERSEDED note, kept for history: this
 ## used to compensate for a baked root-offset bug in the sit clips (the

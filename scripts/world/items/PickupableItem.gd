@@ -71,8 +71,23 @@ var _out_of_range_time: float = 0.0
 const SETTLE_VELOCITY: float = 0.06    ## m/s
 const SETTLE_ANGULAR: float = 0.12     ## rad/s
 const SETTLE_FRAMES: int = 25          ## ~0.4 s of stillness at 60 Hz
+const SETTLED_FALL_RECOVERY_DISTANCE: float = 0.75
 
 var _settle_frames: int = 0
+var _has_settled_transform: bool = false
+var _last_settled_transform: Transform3D = Transform3D.IDENTITY
+
+## Cleaning provenance is intentionally separate from the physics sleep state.
+## JobBoard uses it to protect something the player deliberately put down for
+## longer than an ordinary spawned/NPC-dropped object. The serial lets a live
+## tracker notice a fresh release even if the item never disappeared from its
+## periodic scan between pickup and drop.
+var cleanup_release_source: StringName = &"world"
+var cleanup_release_serial: int = 0
+
+func mark_cleanup_release(source: StringName) -> void:
+	cleanup_release_source = source
+	cleanup_release_serial += 1
 
 ## Real collision-shape footprint, computed lazily on first pickup() (see
 ## below) rather than in _ready() — Basket/CookingPot build their
@@ -106,41 +121,184 @@ var _is_preview_only: bool = false
 
 func _ready() -> void:
 	if not _is_preview_only:
+		## Sleeping bodies leave the physics solver, but Godot still calls their
+		## script process unless it is explicitly disabled. Wake/contact events
+		## re-enable processing through this signal.
+		sleeping_state_changed.connect(_on_sleeping_state_changed)
+		## High time scales magnify a single-frame displacement. CCD is a cheap
+		## second line of defense for active loose items; sleeping bodies still
+		## leave the physics solver normally.
+		continuous_cd = true
 		add_to_group("pickup")
 		_maybe_create_nav_obstacle()
+		## Procedural subclasses commonly create their collision shapes after
+		## calling super._ready(). Re-measure once that construction stack ends.
+		call_deferred("_refresh_nav_obstacle_radius")
+		## Sep 2026 — apply the mass-based rest collision layer/mask AFTER the
+		## whole _ready chain settles (deferred), so EVERY spawn path is
+		## covered — not just drop()/place()/knocked-out, but direct
+		## instantiation like WaterCase._spawn_one() adding a bottle straight
+		## into the world, which previously left items on the default layer 1
+		## and kept them physically colliding with the player/NPC. Items that
+		## are immediately held get re-layered by the pickup path anyway.
+		call_deferred("_apply_rest_collision")
+		## Register after the full subclass _ready() chain: most item subclasses
+		## build their procedural MeshInstance3D children after super._ready().
+		## Event-driven registration replaces GraphicsSettings' old periodic
+		## whole-world mesh walk.
+		call_deferred("_register_dynamic_shadow_root")
 
-## NPC Pass 2, Part 11 — every loose item (light and heavy alike, Aug 2026
-## update) gets a NavigationObstacle3D child so every NavigationAgent3D in
-## the world (i.e. every NPC) routes around its CURRENT position
-## continuously via real-time avoidance, instead of only reacting after
-## physically colliding.
-## Aug 2026 fix (Brannon-requested) — previously gated on `mass >=
-## HEAVY_OBSTACLE_MASS`, so light items (a can, a bottle) had zero
-## avoidance presence and NPCs would path straight through/into a pile of
-## them, only noticing via physics collision after the fact (part of the
-## "ghost walking" complaint). Deliberate design intent per Brannon: light
-## clutter should ALSO register as something to route around — if enough
-## of it piles up that NPCs are constantly detouring, that's exactly the
-## pressure that should make Cleaning look more attractive, not a gap to
-## paper over. `_handle_physics_pushes()`'s light-item shove-through logic
-## in NPC.gd is UNCHANGED and still applies once an NPC is close enough
-## that avoidance alone didn't fully route around a small item — the two
-## systems complement each other rather than one replacing the other.
-## HEAVY_OBSTACLE_MASS/OBSTACLE_MIN_RADIUS are kept (radius floor still
-## applies uniformly) even though the mass gate itself is gone, so a
-## future reason to reintroduce a threshold has the constant ready.
+func _register_dynamic_shadow_root() -> void:
+	if is_instance_valid(self):
+		GraphicsSettings.register_dynamic_shadow_root(self)
+
+func _on_sleeping_state_changed() -> void:
+	if sleeping and not is_held and not freeze:
+		## Preserve bulky-object avoidance while removing the per-item script
+		## callback entirely for settled floor clutter.
+		_last_settled_transform = global_transform
+		_has_settled_transform = true
+		_settle_frames = 0
+		deactivate_dynamic_state(true)
+	elif not freeze:
+		restore_dynamic_state()
+
+## Applies the loose-item rest collision layer/mask (mass-based) to this item.
+## Idempotent — safe to call on an item already in rest state.
+func _apply_rest_collision() -> void:
+	if not is_instance_valid(self):
+		return
+	collision_layer = rest_collision_layer()
+	collision_mask  = _rest_collision_mask()
+
+## Loose bodies at/above this mass are meaningful navigation blockers. Small
+## items deliberately have no RVO obstacle: residents walk through a pile of
+## cans, bottles, filters, medicine, etc. while the one-sided shove query below
+## moves those objects out of their path. Cases, crates, pots, baskets, and
+## similarly bulky bodies keep avoidance plus hard collision.
 const HEAVY_OBSTACLE_MASS: float = 3.0
 const OBSTACLE_MIN_RADIUS: float = 0.3   ## floor so a tiny/degenerate shape
 										 ## never produces a near-zero obstacle
 
+## ─── Collision-layer separation for loose items (Sep 2026) ────────────────
+## Small loose items (mass < HEAVY_OBSTACLE_MASS: food cans, water bottles,
+## medical items, purifier filters, ...) rest on collision LAYER 4 (bit 3),
+## which the player/NPC CharacterBody3D (mask 1) does NOT collide with — you
+## walk straight through them instead of them launching you / shoving you
+## around. Large items (mass >= 3: cases, crates, pots, ...) stay on layer 1
+## and still physically block/slow the player like always. The DetectArea
+## (player pickup) mask is widened to include bit 3 so small items remain
+## grabbable. Layer 4 is deliberately NOT bit 2 (held-item layer).
+const ITEM_LAYER_SMALL: int = 4   ## loose small items — pass-through to characters
+const ITEM_LAYER_LARGE: int = 1   ## loose large items — block characters
+## Small items still rest on / bounce off the floor, walls, and each other via
+## their MASK (unchanged, still bit 1 + bit 3 so they interact with layer-1
+## world geometry and other layer-4 items), while their LAYER (what they ARE)
+## is what excludes them from character collision.
+## Returns the layer a loose item should rest on, by mass.
+func rest_collision_layer() -> int:
+	return ITEM_LAYER_SMALL if mass < HEAVY_OBSTACLE_MASS else ITEM_LAYER_LARGE
+
+## Returns the collision MASK a loose item should use while resting — bit 1
+## (floor / walls / large items / characters' own layer) plus bit 3 (other
+## small items, so dropped cans/bottles stack and bounce off each other).
+## The mask is the same for small and large items; it's the LAYER that
+## differs.
+func _rest_collision_mask() -> int:
+	return 1 | ITEM_LAYER_SMALL
+
+## ─── Character walk-through shove (Sep 2026) ────────────────────────────────
+## Small loose items rest on ITEM_LAYER_SMALL (bit 3), which the player/NPC
+## CharacterBody3D (mask 1) does NOT collide with — so the character walks
+## through them without tripping/being launched. But without collision there's
+## also no natural push, so the bottle would just sit there. THIS provides the
+## one-sided shove: a spatial query around the character's body finds nearby
+## small loose items and applies a gentle outward impulse so they get shoved
+## out of the way as the character walks through — the item is the only thing
+## affected, the character is not.
+const SHOVE_RADIUS: float = 0.72   ## reaches floor items beside/near the character's feet
+const SHOVE_IMPULSE: float = 0.65  ## repeated walking nudge, not a launch
+const SHOVE_MASS_CAP: float = 3.0  ## mirrors HEAVY_OBSTACLE_MASS / NPC HEAVY_PUSH_MASS
+const SHOVE_COOLDOWN_MSEC: int = 200
+
+## Static, shared by Player.gd and NPC.gd so both characters shove small
+## items identically. `character` is the CharacterBody3D; a shove fires at
+## most once per item per SHOVE_COOLDOWN_MSEC (tracked per character via the
+## supplied dict so multiple characters can shove independently).
+static func shove_small_items_near(character: CharacterBody3D, cooldown_by_item: Dictionary,
+		excluded_item: RigidBody3D = null) -> void:
+	if character == null or not is_instance_valid(character):
+		return
+	var travel := Vector3(character.velocity.x, 0.0, character.velocity.z)
+	if travel.length_squared() < 0.01:
+		return
+	travel = travel.normalized()
+	var space: PhysicsDirectSpaceState3D = character.get_world_3d().direct_space_state
+	if space == null:
+		return
+	## Query a sphere around the character's LOWER body / feet, mask =
+	## ITEM_LAYER_SMALL. The character body's origin sits at the capsule CENTER
+	## (~y=0.8), while loose items rest near the FLOOR (~y=0.05–0.1), so the
+	## query is dropped to the character's lower half (origin − ~0.45) where
+	## floor items actually are — a query at center height would float ~0.8m
+	## above the items and never overlap them.
+	var params := PhysicsShapeQueryParameters3D.new()
+	params.shape = SphereShape3D.new()
+	(params.shape as SphereShape3D).radius = SHOVE_RADIUS
+	params.transform = Transform3D(Basis.IDENTITY, character.global_position + Vector3(0.0, -0.45, 0.0))
+	params.collision_mask = ITEM_LAYER_SMALL
+	params.exclude = [character.get_rid()]
+	var results: Array[Dictionary] = space.intersect_shape(params, 64)
+	var now: int = Time.get_ticks_msec()
+	for r: Dictionary in results:
+		var collider: Object = r.get("collider")
+		if collider == null or not (collider is RigidBody3D):
+			continue
+		var rb: RigidBody3D = collider as RigidBody3D
+		## A resident deliberately approaching a loose item must not kick that
+		## same item ahead of themselves. Other clutter in the pile still parts
+		## normally, so the route stays clear without turning pickup into a chase.
+		if rb == excluded_item:
+			continue
+		if not rb.is_in_group("pickup"):
+			continue
+		if ("is_held" in rb) and bool(rb.get("is_held")):
+			continue
+		if rb.freeze:
+			continue
+		if rb.mass >= SHOVE_MASS_CAP:
+			continue
+		var item_id: int = rb.get_instance_id()
+		if now - int(cooldown_by_item.get(item_id, -SHOVE_COOLDOWN_MSEC)) < SHOVE_COOLDOWN_MSEC:
+			continue
+		cooldown_by_item[item_id] = now
+		## Primarily continue the character's travel direction so walking through
+		## a pile parts it ahead instead of pulling pieces sideways/backward. A
+		## small radial contribution prevents several items stacking perfectly.
+		var away: Vector3 = rb.global_position - character.global_position
+		away.y = 0.0
+		if away.length() <= 0.01:
+			away = -character.global_transform.basis.z
+		away = away.normalized()
+		var push_direction: Vector3 = (travel * 0.82 + away * 0.18).normalized()
+		rb.sleeping = false
+		rb.apply_central_impulse(push_direction * SHOVE_IMPULSE / maxf(1.0, rb.mass))
+
 var _nav_obstacle: NavigationObstacle3D = null
 
 func _maybe_create_nav_obstacle() -> void:
+	if is_soft_navigation_clutter():
+		return
 	_nav_obstacle = NavigationObstacle3D.new()
 	_nav_obstacle.name = "NavObstacle"
 	_nav_obstacle.radius = _compute_obstacle_radius()
 	_nav_obstacle.avoidance_enabled = true
 	add_child(_nav_obstacle)
+
+
+func _refresh_nav_obstacle_radius() -> void:
+	if _nav_obstacle != null:
+		_nav_obstacle.radius = _compute_obstacle_radius()
 
 ## Lets external code (an NPC actively approaching this item to grab it)
 ## temporarily suspend obstacle avoidance while it's still on the ground.
@@ -150,7 +308,26 @@ func _maybe_create_nav_obstacle() -> void:
 ## a heavy item.
 func set_nav_obstacle_enabled(enabled: bool) -> void:
 	if _nav_obstacle != null:
-		_nav_obstacle.avoidance_enabled = enabled
+		_nav_obstacle.avoidance_enabled = enabled and not is_soft_navigation_clutter()
+
+
+func is_soft_navigation_clutter() -> bool:
+	return mass < HEAVY_OBSTACLE_MASS
+
+## Debug-only readout used by the NPC navigation flight recorder. Keeping the
+## obstacle's measured footprint beside the body's real physics state makes
+## radius/state mismatches visible without exposing the obstacle to gameplay.
+func get_navigation_obstacle_debug_info() -> Dictionary:
+	return {
+		"radius": _nav_obstacle.radius if _nav_obstacle != null else -1.0,
+		"enabled": _nav_obstacle.avoidance_enabled if _nav_obstacle != null else false,
+		"mass": mass,
+		"sleeping": sleeping,
+		"freeze": freeze,
+		"held": is_held,
+		"shelved": is_in_group("shelved"),
+		"linear_velocity": linear_velocity,
+	}
 
 ## ─── Deactivate / restore for stored & placed items (Aug 2026) ──────────────
 ## A frozen item (placed, shelved, basket-stashed, stove-resting, in an
@@ -166,9 +343,9 @@ func set_nav_obstacle_enabled(enabled: bool) -> void:
 ## a PickupableItem's own body_shape_entered/exited, so it was pure physics-
 ## server overhead on every active item (not just stored ones) for no
 ## payoff. Removed entirely in _ready() rather than toggled.
-func deactivate_dynamic_state() -> void:
+func deactivate_dynamic_state(keep_navigation_obstacle: bool = false) -> void:
 	set_physics_process(false)
-	set_nav_obstacle_enabled(false)
+	set_nav_obstacle_enabled(keep_navigation_obstacle)
 
 func restore_dynamic_state() -> void:
 	set_physics_process(true)
@@ -181,6 +358,12 @@ func restore_dynamic_state() -> void:
 ## Shape3D type via Shape3D.get_debug_mesh(), which is available at runtime
 ## (not editor-only).
 func _compute_obstacle_radius() -> float:
+	return get_navigation_footprint_radius()
+
+## World-space XZ footprint. Unlike the old local-space estimate, this includes
+## body rotation and scale, so a long object that tips onto its side publishes
+## the space it actually occupies instead of its original upright radius.
+func get_navigation_footprint_radius() -> float:
 	var max_r: float = OBSTACLE_MIN_RADIUS
 	for child: Node in get_children():
 		if not (child is CollisionShape3D):
@@ -194,13 +377,19 @@ func _compute_obstacle_radius() -> float:
 				aabb.size.x * float(i & 1),
 				aabb.size.y * float((i >> 1) & 1),
 				aabb.size.z * float((i >> 2) & 1))
-			var local: Vector3 = cs.transform * corner
-			max_r = maxf(max_r, Vector2(local.x, local.z).length())
+			var world_corner: Vector3 = cs.global_transform * corner
+			var offset: Vector3 = world_corner - global_position
+			max_r = maxf(max_r, Vector2(offset.x, offset.z).length())
 	return max_r
 
 # ─── Physics: follow hold point + knockout check ─────────────────────────────
 func _physics_process(delta: float) -> void:
+	if _nav_obstacle != null:
+		## RVO needs the obstacle's actual motion to predict where it will be;
+		## position alone only produces late, reactive sidestepping.
+		_nav_obstacle.velocity = linear_velocity
 	if not is_held or _hold_point == null:
+		_recover_settled_fall()
 		_apply_settle_sleep()
 		return
 	_settle_frames = 0
@@ -254,16 +443,42 @@ func _physics_process(delta: float) -> void:
 ## moving bodies just reset the counter. Once asleep, a real contact wakes
 ## it and the cycle restarts automatically.
 func _apply_settle_sleep() -> void:
-	if freeze or sleeping:
+	if freeze:
+		return
+	if sleeping:
+		if not _has_settled_transform:
+			_last_settled_transform = global_transform
+			_has_settled_transform = true
 		return
 	if linear_velocity.length() < SETTLE_VELOCITY \
 			and angular_velocity.length() < SETTLE_ANGULAR:
 		_settle_frames += 1
 		if _settle_frames >= SETTLE_FRAMES:
 			_settle_frames = 0
+			_refresh_nav_obstacle_radius()
+			_last_settled_transform = global_transform
+			_has_settled_transform = true
 			sleeping = true
+			## Property assignment does not consistently emit the physics-server
+			## sleeping transition signal in the same frame. Suspend explicitly;
+			## sleeping_state_changed remains responsible for contact wakeup.
+			deactivate_dynamic_state(true)
 	else:
 		_settle_frames = 0
+
+func _recover_settled_fall() -> void:
+	if Engine.time_scale <= 1.0 or not _has_settled_transform or freeze or is_held:
+		return
+	if global_position.y >= _last_settled_transform.origin.y - SETTLED_FALL_RECOVERY_DISTANCE:
+		return
+	## A body which had already reached a legitimate resting place cannot
+	## naturally fall this far without first being picked up/dropped (those
+	## paths clear the anchor). Treat it as tunneling/contact-solver failure.
+	global_transform = _last_settled_transform
+	linear_velocity = Vector3.ZERO
+	angular_velocity = Vector3.ZERO
+	_settle_frames = 0
+	sleeping = true
 
 ## Continuous (no state machine) head-clearance boost for bulky held items.
 ## Compares the item's ACTUAL current bearing from the player against its
@@ -304,6 +519,41 @@ func _carry_arc_height_boost(target: Vector3) -> float:
 func is_heavy_item() -> bool:
 	return not is_in_group("inventory_item")
 
+## Resolves the CharacterBody3D currently holding this item, or null when not
+## held. Walks up from _hold_point until it finds one — Player: hold_point →
+## InteractionSystem → Player; NPC: hold_point → NPC. Both face local -Z, so
+## callers can use the returned body's `-global_transform.basis.z` as the
+## holder's facing direction (used by CanCase/WaterCase ejection).
+func _get_holder() -> CharacterBody3D:
+	if _hold_point == null:
+		return null
+	var node: Node = _hold_point
+	while node != null:
+		if node is CharacterBody3D:
+			return node as CharacterBody3D
+		node = node.get_parent()
+	return null
+
+# ─── Save/Load hooks (Save/Load overhaul) ─────────────────────────────────────
+## Subclasses override these to persist item-specific mutable state via
+## ItemSaveData.capture()/spawn() (used by the "player_inventory" save field
+## and placed-object storage contents). See ItemSaveData.gd's header for the
+## exact contract: get_/apply_ run on the item's own state fields;
+## sync_saved_state_visuals() is called by spawn() AFTER _ready() for items
+## whose visuals can't be fully derived from state inside _ready() (empty-
+## model swap, case depletion count, etc.).
+func get_item_save_state() -> Dictionary:
+	return {}
+
+## Applied on a fresh instance BEFORE it enters the tree, so _ready() builds
+## the correct visual/prompt from the saved state.
+func apply_item_save_state(_state: Dictionary) -> void:
+	pass
+
+## Optional post-_ready visual fix-up; base no-op.
+func sync_saved_state_visuals() -> void:
+	pass
+
 # ─── Prompt interface (override in subclass) ─────────────────────────────────
 func get_display_name() -> String:
 	return "Item"
@@ -316,6 +566,7 @@ func get_use_prompt() -> String:
 
 # ─── Pickup ──────────────────────────────────────────────────────────────────
 func pickup(hold_point: Node3D) -> void:
+	_has_settled_transform = false
 	is_held            = true
 	sleeping           = false   ## wake from settle-to-sleep (Aug 2026)
 	restore_dynamic_state()   ## undo a stored/placed item's deactivation (Aug 2026)
@@ -336,6 +587,15 @@ func pickup(hold_point: Node3D) -> void:
 												  ## "wall" around while carried
 	_set_held_culling(true)
 	_on_pickup_extra()
+	## Dynamic shadow gate (Sep 2026) — a held item must never cast a shadow
+	## unless dynamic shadows (Layer 2) is ON. Gate immediately at pickup so a
+	## freshly spawned/retrieved item doesn't flash a shadow before the world-
+	## walk's 1s throttle catches it. Reuses BuildModeController's gate so the
+	## authored cast_shadow capture stays consistent.
+	var _mw: Node = get_tree().get_first_node_in_group("main_world")
+	var _bc: Node = _mw.get("_build_controller") if _mw != null else null
+	if _bc != null and _bc.has_method("_apply_dynamic_shadow_to_node"):
+		_bc.call("_apply_dynamic_shadow_to_node", self)
 	picked_up.emit()
 
 ## Override for item-specific pickup side effects (e.g. finding player ref).
@@ -344,16 +604,21 @@ func _on_pickup_extra() -> void:
 
 # ─── Drop ────────────────────────────────────────────────────────────────────
 func drop(_world_parent: Node3D, drop_position: Vector3) -> void:
+	_has_settled_transform = false
+	## Default every loose-world release to the short grace. Player/NPC hand
+	## controllers immediately refine this provenance after calling drop().
+	mark_cleanup_release(&"world")
 	is_held         = false
 	_hold_point     = null
 	global_position = drop_position
 	gravity_scale   = 1.0
 	freeze          = false
-	collision_layer = 1
-	collision_mask  = 1
+	collision_layer = rest_collision_layer()
+	collision_mask  = _rest_collision_mask()
 	linear_velocity = Vector3.ZERO
 	if _nav_obstacle != null:
 		_nav_obstacle.avoidance_enabled = true   ## back on the floor — resume
+	call_deferred("_refresh_nav_obstacle_radius")
 												 ## acting as a real obstacle
 	add_to_group("pickup")
 	_set_held_culling(false)
@@ -366,6 +631,7 @@ func _on_drop_extra() -> void:
 
 # ─── Place (precise) ─────────────────────────────────────────────────────────
 func place(_world_parent: Node3D, place_position: Vector3, _rot: Vector3 = Vector3.ZERO) -> void:
+	_has_settled_transform = false
 	is_held         = false
 	_hold_point     = null
 	global_position = place_position
@@ -373,9 +639,11 @@ func place(_world_parent: Node3D, place_position: Vector3, _rot: Vector3 = Vecto
 	gravity_scale   = 1.0
 	freeze          = true
 	freeze_mode     = RigidBody3D.FREEZE_MODE_STATIC
-	collision_layer = 1
-	collision_mask  = 1
-	deactivate_dynamic_state()   ## placed/frozen — stop spending CPU on it (Aug 2026)
+	collision_layer = rest_collision_layer()
+	collision_mask  = _rest_collision_mask()
+	## A floor-placed RigidBody is excluded from static navmesh parsing. Keep
+	## its avoidance footprint active even while its own physics tick sleeps.
+	deactivate_dynamic_state(true)
 	add_to_group("pickup")
 	_set_held_culling(false)
 	_on_drop_extra()
@@ -383,12 +651,13 @@ func place(_world_parent: Node3D, place_position: Vector3, _rot: Vector3 = Vecto
 
 # ─── Knocked out ─────────────────────────────────────────────────────────────
 func _do_knocked_out() -> void:
+	_has_settled_transform = false
 	is_held         = false
 	_hold_point     = null
 	gravity_scale   = 1.0
 	freeze          = false
-	collision_layer = 1
-	collision_mask  = 1
+	collision_layer = rest_collision_layer()
+	collision_mask  = _rest_collision_mask()
 	linear_velocity = Vector3(randf_range(-2.0, 2.0), 2.0, randf_range(-2.0, 2.0))
 	restore_dynamic_state()   ## back to a live loose item (Aug 2026)
 	_set_held_culling(false)
@@ -406,6 +675,7 @@ func _set_held_culling(held: bool) -> void:
 ## after spawning (so it doesn't fall through a floor that physics hasn't
 ## "seen" yet), then call this deferred to unfreeze it.
 func _unfreeze_after_spawn() -> void:
+	_has_settled_transform = false
 	restore_dynamic_state()   ## spawn freeze was transient — back to live (Aug 2026)
 	freeze = false
 

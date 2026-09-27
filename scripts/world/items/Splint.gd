@@ -97,6 +97,13 @@ func get_use_prompt() -> String:
 func has_charges_left() -> bool:
 	return _charges_left > 0
 
+# ─── Save/Load (Save/Load overhaul) ──────────────────────────────────────────
+func get_item_save_state() -> Dictionary:
+	return {"charges": _charges_left}
+
+func apply_item_save_state(state: Dictionary) -> void:
+	_charges_left = int(state.get("charges", _charges_left))
+
 # ─── Use — opens the injury-selection submenu instead of applying directly ──
 func on_use() -> void:
 	var isys: Node = _find_interaction_system()

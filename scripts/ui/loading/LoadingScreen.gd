@@ -108,6 +108,15 @@ func _finish_world_startup() -> void:
 	if _finishing or _world == null or not is_instance_valid(_world):
 		return
 	_finishing = true
+	var slot: int = WorldManager.pending_load_slot
+	if slot > 0:
+		# Continue/Load from the main menu: restore the save into the freshly
+		# started world while this screen still covers it.
+		WorldManager.pending_load_slot = 0
+		_subtitle_label.text = "Restoring your shelter"
+		await get_tree().process_frame
+		if not SaveManager.load_game(slot):
+			push_warning("LoadingScreen: save slot %d could not be restored." % slot)
 	_subtitle_label.text = "Shelter ready"
 	FADE.fade_out(_root, 0.18, Callable(self, "_complete_world_handoff"))
 
@@ -185,7 +194,7 @@ func _build_ui() -> void:
 	column.add_child(_spacer(2.0))
 	var title := Label.new()
 	title.name = "BrandTitle"
-	title.text = "BUNKER"
+	title.text = "BUNKER GAME"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 78)
 	title.add_theme_color_override("font_color", S.IVORY)
@@ -215,9 +224,10 @@ func _build_ui() -> void:
 	column.add_child(_ornament())
 
 	var navigation: ControllerUINavigation = NAV_SCRIPT.new() as ControllerUINavigation
+	navigation.mouse_cursor_required = false
 	navigation.ui_root = _root
 	navigation.close_on_cancel = false
-	navigation.stick_navigation = true
+	navigation.stick_navigation = false
 	_root.add_child(navigation)
 
 

@@ -17,7 +17,7 @@ const EDGE := Vector2(44.0, 36.0)
 const SAMPLE_INTERVAL: float = 1.0
 const REFRESH_INTERVAL: float = 0.20
 const LIVE_VALUE_RESPONSE: float = 9.0
-const HISTORY_LEN: int = 60
+const HISTORY_LEN: int = 61 # endpoints cover a full 60-second window
 const OVERVIEW: int = 0
 const DEVICES: int = 1
 const PRIORITY: int = 2
@@ -27,6 +27,7 @@ var connected_grid_key: String = ""
 var connected_zone_index: int = -1
 var _is_open: bool = false
 var _sample_elapsed: float = 0.0
+var _history_serial: int = 0
 var _refresh_elapsed: float = 0.0
 var _controller_hints: bool = false
 var _active_tab: int = OVERVIEW
@@ -127,6 +128,7 @@ func _ready() -> void:
 func open() -> void:
 	if not _is_open:
 		_previous_focus = weakref(get_viewport().gui_get_focus_owner())
+	UIPanelLifecycle.prepare_open(self)
 	_is_open = true
 	visible = true
 	_refresh_elapsed = REFRESH_INTERVAL
@@ -147,7 +149,6 @@ func close() -> void:
 			and bool(_zone_customize_ui.call("is_open")):
 		_zone_customize_ui.call("close")
 	_proximity.unbind()
-	visible = false
 	var focused: Control = get_viewport().gui_get_focus_owner()
 	if focused != null and _view.is_ancestor_of(focused):
 		focused.release_focus()
@@ -155,6 +156,7 @@ func close() -> void:
 			var previous: Control = _previous_focus.get_ref() as Control
 			if is_instance_valid(previous) and previous.is_visible_in_tree():
 				previous.grab_focus()
+	UIPanelLifecycle.dismiss(self, _view)
 	closed.emit()
 
 
@@ -269,18 +271,19 @@ func _build_tabs(parent: Container) -> void:
 	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
 	parent.add_child(row)
-	var labels: Array[String] = ["OVERVIEW", "DEVICES", "LOAD PRIORITY", "ZONE NETWORK"]
+	var labels: Array[String] = ["OVERVIEW", "DEVICES", "LOAD ORDER", "ZONE NETWORK"]
 	var icons: Array[String] = ["general", "battery", "log", "grid"]
 	for index: int in range(labels.size()):
 		var button: Button = Button.new()
 		button.text = labels[index]
 		button.icon = S.icon(icons[index])
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.custom_minimum_size.y = 44.0
+		button.custom_minimum_size.y = 32.0
 		button.toggle_mode = true
 		C.style_segment(button)
 		button.pressed.connect(_set_tab.bind(index))
 		row.add_child(button)
+		button.set_meta(&"ui_tab", true)
 		_tabs.append(button)
 
 
@@ -338,7 +341,7 @@ func _build_metrics(parent: Container) -> void:
 	_headroom_meta = _label("Stable", 13, S.MUTED)
 	body.add_child(_headroom_meta)
 	body = _metric(parent, "BATTERY RESERVE", "battery", 1.2)
-	_battery_value = _label("NONE", 27, S.BLUE.lightened(0.18))
+	_battery_value = _label("0 W", 27, S.BLUE.lightened(0.18))
 	body.add_child(_battery_value)
 	_battery_meta = _label("No battery connected", 13, S.MUTED)
 	body.add_child(_battery_meta)
@@ -397,7 +400,7 @@ func _build_sources_card(parent: Container) -> void:
 	_source_list = VBoxContainer.new()
 	_source_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_source_list.add_theme_constant_override("separation", 6)
-	scroll.add_child(_source_list)
+	C.scroll_content(scroll, _source_list, 0, 0, 2)
 
 
 func _build_zone_card(parent: Container) -> void:
@@ -421,9 +424,9 @@ func _build_zone_card(parent: Container) -> void:
 	identity.add_child(_zone_name)
 	_zone_state = _label("OFFLINE", 14, S.RED)
 	identity.add_child(_zone_state)
-	_zone_counts = _label("0 nodes\n0 edges\n0 reachable", 13, S.MUTED)
+	_zone_counts = _label("0 generators\n0 devices", 13, S.MUTED)
 	main.add_child(_zone_counts)
-	_zone_brownout = _status_line("No brownout edges", S.GREEN)
+	_zone_brownout = _status_line("Supply stable", S.GREEN)
 	body.add_child(_zone_brownout)
 	_zone_flow = _status_line("Single zone · No cross-zone flow", S.MUTED)
 	body.add_child(_zone_flow)
@@ -453,8 +456,8 @@ func _build_preview_card(parent: Container) -> void:
 	body.add_child(scroll)
 	_consumer_preview = VBoxContainer.new()
 	_consumer_preview.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(_consumer_preview)
-	_manage_priorities = _action("Manage load priorities", "log")
+	C.scroll_content(scroll, _consumer_preview, 0, 0, 2)
+	_manage_priorities = _action("Manage load order", "log")
 	_manage_priorities.pressed.connect(_set_tab.bind(PRIORITY))
 	body.add_child(_manage_priorities)
 
@@ -481,7 +484,7 @@ func _device_column(parent: Container, title_text: String, icon: String) -> VBox
 	var list: VBoxContainer = VBoxContainer.new()
 	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	list.add_theme_constant_override("separation", 7)
-	scroll.add_child(list)
+	C.scroll_content(scroll, list, 0, 0, 2)
 	return list
 
 
@@ -495,7 +498,7 @@ func _build_priority(stack: Control) -> void:
 	var body: VBoxContainer = VBoxContainer.new()
 	body.add_theme_constant_override("separation", 8)
 	list_card.add_child(C.inset(body, 14, 11, 14, 11))
-	var heading: HBoxContainer = _heading("LOAD PRIORITY", "log")
+	var heading: HBoxContainer = _heading("LOAD ORDER", "log")
 	body.add_child(heading)
 	_priority_count = _label("0 DEVICES", 12, S.BRASS.lightened(0.35))
 	heading.add_child(_priority_count)
@@ -509,7 +512,7 @@ func _build_priority(stack: Control) -> void:
 	_priority_list = VBoxContainer.new()
 	_priority_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_priority_list.add_theme_constant_override("separation", 6)
-	scroll.add_child(_priority_list)
+	C.scroll_content(scroll, _priority_list, 0, 0, 2)
 
 	var guide_card: PanelContainer = _card()
 	guide_card.custom_minimum_size.x = 350.0
@@ -522,7 +525,7 @@ func _build_priority(stack: Control) -> void:
 		"Higher-numbered tiers are disconnected first during an overload.", 13, S.MUTED)
 	copy.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	guide.add_child(copy)
-	var names: Array[String] = ["P1 · Critical", "P2 · Essential", "P3 · Standard", "P4 · Comfort", "P5 · First shed"]
+	var names: Array[String] = ["P1 · CRITICAL", "P2 · IMPORTANT", "P3 · STANDARD", "P4 · LOW", "P5 · LUXURY"]
 	var details: Array[String] = ["Never intentionally shed", "Life-support systems", "Normal bunker equipment", "Nonessential comfort", "Disconnected first"]
 	for index: int in range(names.size()):
 		guide.add_child(_priority_guide(names[index], details[index], index + 1))
@@ -530,7 +533,7 @@ func _build_priority(stack: Control) -> void:
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	guide.add_child(spacer)
 	var note: Label = _status_line(
-		"Priority changes settle after a short grid grace period.", S.BRASS.lightened(0.32))
+		"Order changes settle after a short grid grace period.", S.BRASS.lightened(0.32))
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	guide.add_child(note)
 
@@ -551,10 +554,10 @@ func _build_network(stack: Control) -> void:
 	_network_detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	summary.add_child(_network_detail)
 	C.divider(summary)
-	_network_counts = _label("Nodes  0\nEdges  0\nReachable  0", 16, S.IVORY)
+	_network_counts = _label("Generators  0\nBatteries  0\nDevices  0", 16, S.IVORY)
 	_network_counts.add_theme_constant_override("line_spacing", 5)
 	summary.add_child(_network_counts)
-	_network_brownout = _status_line("No brownout edges", S.GREEN)
+	_network_brownout = _status_line("Supply stable", S.GREEN)
 	summary.add_child(_network_brownout)
 	C.divider(summary)
 	_network_rename = _action("Rename zone", "general")
@@ -587,7 +590,7 @@ func _build_network(stack: Control) -> void:
 	_network_flow_list = VBoxContainer.new()
 	_network_flow_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_network_flow_list.add_theme_constant_override("separation", 7)
-	flow_scroll.add_child(_network_flow_list)
+	C.scroll_content(flow_scroll, _network_flow_list, 0, 0, 2)
 
 	var shared_card: PanelContainer = _card()
 	shared_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -602,7 +605,7 @@ func _build_network(stack: Control) -> void:
 	_network_shared_list = VBoxContainer.new()
 	_network_shared_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_network_shared_list.add_theme_constant_override("separation", 7)
-	shared_scroll.add_child(_network_shared_list)
+	C.scroll_content(shared_scroll, _network_shared_list, 0, 0, 2)
 
 
 func _page(stack: Control, page_name: String, vertical: bool) -> Control:
@@ -623,21 +626,14 @@ func _set_tab(index: int) -> void:
 	var focus: Control = get_viewport().gui_get_focus_owner()
 	if focus != null and not focus.is_visible_in_tree():
 		_tabs[_active_tab].grab_focus()
-	_reset_scrolls(_pages[_active_tab])
+	UIFade.content(_pages[_active_tab])
 
 
 func _apply_panel_metrics() -> void:
 	if _panel == null:
 		return
 	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
-	var panel_size: Vector2 = Vector2(
-		minf(PANEL_MAX.x, maxf(760.0, viewport_size.x - EDGE.x * 2.0)),
-		minf(PANEL_MAX.y, maxf(620.0, viewport_size.y - EDGE.y * 2.0)))
-	_panel.set_anchors_preset(Control.PRESET_CENTER)
-	_panel.offset_left = -panel_size.x * 0.5
-	_panel.offset_right = panel_size.x * 0.5
-	_panel.offset_top = -panel_size.y * 0.5
-	_panel.offset_bottom = panel_size.y * 0.5
+	UIPanelLayout.fit(_panel, viewport_size, PANEL_MAX, EDGE)
 
 
 func _sample_history() -> void:
@@ -647,6 +643,7 @@ func _sample_history() -> void:
 		return
 	_draw_history.append(float(snapshot.get("total_draw_watts", 0.0)))
 	_cap_history.append(float(snapshot.get("total_capacity_watts", 0.0)))
+	_history_serial += 1
 	while _draw_history.size() > HISTORY_LEN:
 		_draw_history.remove_at(0)
 	while _cap_history.size() > HISTORY_LEN:
@@ -664,7 +661,7 @@ func _refresh_interface() -> void:
 		return
 	_refresh_header(snapshot, zone)
 	_refresh_metrics(snapshot)
-	_graph.call("set_history", _draw_history, _cap_history)
+	_graph.call("set_history", _draw_history, _cap_history, _history_serial, _sample_elapsed)
 	_sync_sources(snapshot, zone, zones)
 	_refresh_zone(snapshot, zone)
 	_sync_preview(snapshot)
@@ -795,7 +792,7 @@ func _refresh_metrics(snapshot: Dictionary) -> void:
 		battery_capacity += float(battery.get("capacity_wh", 0.0))
 	if batteries.is_empty() or battery_capacity <= 0.0:
 		_battery_connected = false
-		_battery_value.text = "NONE"
+		_battery_value.text = "0 W"
 		_battery_meta.text = "No battery connected"
 		_battery_bar.visible = false
 	else:
@@ -838,14 +835,14 @@ func _render_live_metrics() -> void:
 	var display_percent: float = 0.0
 	if _display_capacity_watts > 0.0:
 		display_percent = _display_draw_watts / _display_capacity_watts * 100.0
-	_load_percent.text = "%d%%" % int(round(display_percent))
+	_load_percent.text = UIFormat.percent(display_percent)
 	var headroom: float = _display_capacity_watts - _display_draw_watts
-	_headroom_value.text = "%s%s" % ["+" if headroom >= 0.0 else "", _watts(headroom)]
+	_headroom_value.text = "%s%s" % ["+" if roundi(headroom) > 0 else "", _watts(headroom)]
 	if _battery_connected and _display_battery_capacity > 0.0:
 		var battery_percent: float = clampf(
 			_display_battery_charge / _display_battery_capacity * 100.0, 0.0, 100.0
 		)
-		_battery_value.text = "%d%%" % int(round(battery_percent))
+		_battery_value.text = UIFormat.percent(battery_percent)
 		_battery_meta.text = "%s of %s reserved" % [
 			_wh(_display_battery_charge), _wh(_display_battery_capacity)
 		]
@@ -879,17 +876,21 @@ func _add_source(device: Dictionary, kind: String, shared: bool, peers: Array) -
 	var id: String = String(device.get("id", ""))
 	var key: String = ("shared:" if shared else "local:") + kind + ":" + id
 	var card: PanelContainer = _card(Color("1a201f"))
-	card.custom_minimum_size.y = 66.0
+	card.custom_minimum_size.y = 46.0
 	_source_list.add_child(card)
 	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
-	card.add_child(C.inset(row, 12, 8, 12, 8))
-	row.add_child(C.icon_well("power" if kind == "generator" else "battery", 44.0, S.BLUE))
-	var identity: VBoxContainer = VBoxContainer.new()
+	card.add_child(C.inset(row, 12, 5, 12, 5))
+	row.add_child(C.icon_well("power" if kind == "generator" else "battery", 32.0, S.BLUE))
+	var identity: HBoxContainer = HBoxContainer.new()
 	identity.custom_minimum_size.x = 150.0
 	identity.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	identity.add_theme_constant_override("separation", 10)
 	row.add_child(identity)
-	identity.add_child(_label(_device_name(kind, id, peers), 15, S.IVORY))
+	var name_label := _label(_device_name(kind, id, peers), 15, S.IVORY)
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	identity.add_child(name_label)
 	var status: Label = _label("", 12, S.GREEN)
 	identity.add_child(status)
 	var value: Label = _label("", 17, S.IVORY)
@@ -941,7 +942,7 @@ func _refresh_battery_sources(batteries: Array, shared: bool) -> void:
 		var status: Label = row.get("status") as Label
 		status.text = "●  %s%s" % [state, " · SHARED" if shared else ""]
 		status.add_theme_color_override("font_color", _battery_color(state))
-		(row.get("value") as Label).text = "%d%%" % int(round(percent))
+		(row.get("value") as Label).text = UIFormat.percent(percent)
 		(row.get("detail") as Label).text = "%s of %s" % [_wh(charge), _wh(capacity)]
 		var bar: ProgressBar = row.get("bar") as ProgressBar
 		SMOOTH_BAR.apply(bar, percent)
@@ -955,11 +956,11 @@ func _refresh_zone(snapshot: Dictionary, zone: Dictionary) -> void:
 	_zone_name.text = _zone_name_for(zone) if wired else "Unwired"
 	_zone_state.text = "●  " + state
 	_zone_state.add_theme_color_override("font_color", _state_color(state))
-	_zone_counts.text = "%d nodes\n%d edges\n%d reachable" % [
-		int(snapshot.get("wire_node_count", 0)), int(snapshot.get("wire_edge_count", 0)),
-		int(snapshot.get("reachable_node_count", 0))]
+	_zone_counts.text = "%d generators\n%d devices" % [
+		(snapshot.get("generators", []) as Array).size(),
+		(snapshot.get("consumers", []) as Array).size()]
 	var overloaded: bool = bool(zone.get("overloaded", false)) if wired else false
-	_zone_brownout.text = "⚠  Brownout edges detected" if overloaded else "●  No brownout edges"
+	_zone_brownout.text = "⚠  Supply overloaded" if overloaded else "●  Supply stable"
 	_zone_brownout.add_theme_color_override("font_color", S.BRASS.lightened(0.3) if overloaded else S.GREEN)
 	_zone_flow.text = _flow_summary(zone)
 	var can_customize: bool = wired and not String(zone.get("zone_key", "")).is_empty()
@@ -1053,11 +1054,11 @@ func _build_device_column(parent: VBoxContainer, devices: Array,
 		var id: String = String(device.get("id", ""))
 		var key: String = ("remote:" if remote else "local:") + kind + ":" + id
 		var card: PanelContainer = _card(Color("1a201f"))
-		card.custom_minimum_size.y = 104.0
+		card.custom_minimum_size.y = 64.0
 		parent.add_child(card)
 		var body: VBoxContainer = VBoxContainer.new()
 		body.add_theme_constant_override("separation", 5)
-		card.add_child(C.inset(body, 11, 9, 11, 9))
+		card.add_child(C.inset(body, 11, 6, 11, 6))
 		var heading: HBoxContainer = HBoxContainer.new()
 		body.add_child(heading)
 		var shown_kind: String = String(device.get("type", "device")) if kind == "consumer" else kind
@@ -1065,11 +1066,11 @@ func _build_device_column(parent: VBoxContainer, devices: Array,
 		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		heading.add_child(name_label)
+		var status: Label = _label("", 13, S.GREEN)
+		heading.add_child(status)
 		var badge: Button = _pill("SHARED" if kind == "battery" else "REMOTE", S.BLUE)
 		badge.visible = remote
 		heading.add_child(badge)
-		var status: Label = _label("", 13, S.GREEN)
-		body.add_child(status)
 		var value: Label = _label("", 13, S.MUTED)
 		body.add_child(value)
 		var bar: ProgressBar = _progress(S.BLUE)
@@ -1138,7 +1139,7 @@ func _refresh_device_consumers(consumers: Array, remote: bool) -> void:
 		var status: Label = row.get("status") as Label
 		status.text = "●  " + state
 		status.add_theme_color_override("font_color", _consumer_color(state))
-		(row.get("value") as Label).text = "%s · Priority P%d" % [
+		(row.get("value") as Label).text = "%s · P%d" % [
 			_watts(float(consumer.get("watts", 0.0))), int(consumer.get("priority", 3))]
 
 
@@ -1162,30 +1163,36 @@ func _sync_priorities(snapshot: Dictionary) -> void:
 func _add_priority_row(consumer: Dictionary, peers: Array) -> void:
 	var id: String = String(consumer.get("id", ""))
 	var card: PanelContainer = _card(Color("1a201f"))
-	card.custom_minimum_size.y = 68.0
+	card.add_theme_stylebox_override("panel", C.panel_box(S.SURFACE, S.BRASS, 7, 1))
+	card.custom_minimum_size.y = 40.0
 	_priority_list.add_child(card)
 	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
-	card.add_child(C.inset(row, 12, 8, 12, 8))
-	var identity: VBoxContainer = VBoxContainer.new()
+	card.add_child(C.inset(row, 12, 4, 12, 4))
+	var identity: HBoxContainer = HBoxContainer.new()
 	identity.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	identity.add_theme_constant_override("separation", 10)
 	row.add_child(identity)
-	identity.add_child(_label(_device_name(
-		String(consumer.get("type", "device")), id, peers), 15, S.IVORY))
+	var name_label := _label(_device_name(
+		String(consumer.get("type", "device")), id, peers), 15, S.IVORY)
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	identity.add_child(name_label)
 	var detail: Label = _label("", 12, S.MUTED)
+	detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	identity.add_child(detail)
 	var state: Button = _pill("ON", S.GREEN)
 	state.custom_minimum_size.x = 78.0
 	row.add_child(state)
 	var decrement: Button = _priority_button("−")
-	decrement.tooltip_text = "Move toward critical priority"
+	decrement.tooltip_text = "Move toward CRITICAL"
 	decrement.pressed.connect(_change_priority.bind(id, -1))
 	row.add_child(decrement)
 	var priority_label: Button = _pill("P3", S.BLUE)
-	priority_label.custom_minimum_size = Vector2(54.0, 34.0)
+	priority_label.custom_minimum_size = Vector2(54.0, 28.0)
 	row.add_child(priority_label)
 	var increment: Button = _priority_button("+")
-	increment.tooltip_text = "Move toward first-shed priority"
+	increment.tooltip_text = "Move toward FIRST SHED"
 	increment.pressed.connect(_change_priority.bind(id, 1))
 	row.add_child(increment)
 	_priority_rows[id] = {"detail": detail, "state": state, "decrement": decrement,
@@ -1198,7 +1205,7 @@ func _refresh_priority_row(consumer: Dictionary) -> void:
 	if row.is_empty():
 		return
 	var priority_value: int = clampi(int(consumer.get("priority", 3)), 1, 5)
-	(row.get("detail") as Label).text = "%s draw" % _watts(float(consumer.get("watts", 0.0)))
+	(row.get("detail") as Label).text = "%s DRAW" % _watts(float(consumer.get("watts", 0.0)))
 	var state_name: String = _consumer_state(consumer)
 	var state: Button = row.get("state") as Button
 	state.text = state_name
@@ -1229,14 +1236,12 @@ func _refresh_network(snapshot: Dictionary, zone: Dictionary, zones: Array) -> v
 	_network_state.add_theme_color_override("font_color", _state_color(state))
 	_network_detail.text = "This terminal's enclosed power segment and permitted cross-zone links." \
 		if wired else "Wire this terminal into an enclosed zone to inspect network flow."
-	_network_counts.text = "Nodes  %d\nEdges  %d\nReachable  %d\nGenerators  %d\nBatteries  %d\nConsumers  %d" % [
-		int(snapshot.get("wire_node_count", 0)), int(snapshot.get("wire_edge_count", 0)),
-		int(snapshot.get("reachable_node_count", 0)),
+	_network_counts.text = "Generators  %d\nBatteries  %d\nDevices  %d" % [
 		(snapshot.get("generators", []) as Array).size(),
 		(snapshot.get("batteries", []) as Array).size(),
 		(snapshot.get("consumers", []) as Array).size()]
 	var overloaded: bool = bool(zone.get("overloaded", false)) if wired else false
-	_network_brownout.text = "⚠  Brownout edges detected" if overloaded else "●  No brownout edges"
+	_network_brownout.text = "⚠  Supply overloaded" if overloaded else "●  Supply stable"
 	_network_brownout.add_theme_color_override("font_color", S.BRASS.lightened(0.32) if overloaded else S.GREEN)
 	var customizable: bool = wired and not String(zone.get("zone_key", "")).is_empty()
 	_network_rename.disabled = not customizable
@@ -1331,13 +1336,13 @@ func _device_zone_name(device_id: String, zones: Array, field: String) -> String
 func _flow_row(direction: String, zone_label: String, amount: float,
 		color: Color) -> PanelContainer:
 	var card: PanelContainer = _card(Color("1a201f"))
-	card.custom_minimum_size.y = 64.0
+	card.custom_minimum_size.y = 50.0
 	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
-	card.add_child(C.inset(row, 11, 8, 11, 8))
+	card.add_child(C.inset(row, 11, 5, 11, 5))
 	var swatch: ColorRect = ColorRect.new()
 	swatch.color = color
-	swatch.custom_minimum_size = Vector2(8.0, 42.0)
+	swatch.custom_minimum_size = Vector2(8.0, 34.0)
 	row.add_child(swatch)
 	var identity: VBoxContainer = VBoxContainer.new()
 	identity.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1351,11 +1356,11 @@ func _flow_row(direction: String, zone_label: String, amount: float,
 
 func _connection_row(copy: String, device: Dictionary, kind: String) -> PanelContainer:
 	var card: PanelContainer = _card(Color("1a201f"))
-	card.custom_minimum_size.y = 66.0
+	card.custom_minimum_size.y = 52.0
 	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
-	card.add_child(C.inset(row, 11, 8, 11, 8))
-	row.add_child(C.icon_well("battery" if kind == "battery" else "running", 42.0, S.BLUE))
+	card.add_child(C.inset(row, 11, 5, 11, 5))
+	row.add_child(C.icon_well("battery" if kind == "battery" else "running", 36.0, S.BLUE))
 	var identity: VBoxContainer = VBoxContainer.new()
 	identity.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(identity)
@@ -1460,7 +1465,7 @@ func _on_zone_color_changed(zone_key: String, new_color: Color) -> void:
 
 func _update_input_hint() -> void:
 	_controller_hints = InputMode.is_controller()
-	_footer.text = "[A] Select     D-pad / R-stick  Navigate     Scrollbar  Scroll     [B] Close" \
+	_footer.text = "LB / RB  Tabs     [A] Select     D-pad / R-stick  Navigate     Scrollbar  Scroll     [B] Close" \
 		if _controller_hints else "Enter / Space  Select     Arrows  Navigate     Scrollbar / Wheel  Scroll     Esc / E  Close"
 
 
@@ -1541,7 +1546,7 @@ func _action(text_value: String, icon: String) -> Button:
 	button.text = text_value
 	button.icon = S.icon(icon)
 	S.button(button)
-	button.custom_minimum_size.y = 38.0
+	button.custom_minimum_size.y = 32.0
 	button.add_theme_font_size_override("font_size", 13)
 	button.add_theme_constant_override("icon_max_width", 20)
 	return button
@@ -1550,8 +1555,8 @@ func _action(text_value: String, icon: String) -> Button:
 func _priority_button(text_value: String) -> Button:
 	var button: Button = Button.new()
 	button.text = text_value
-	button.custom_minimum_size = Vector2(42.0, 38.0)
 	S.button(button)
+	button.custom_minimum_size = Vector2(34.0, 28.0)
 	button.add_theme_font_size_override("font_size", 20)
 	return button
 
@@ -1586,14 +1591,14 @@ func _status_line(text_value: String, color: Color) -> Label:
 func _empty(text_value: String, icon: String) -> PanelContainer:
 	var card: PanelContainer = _card(Color("1a201f"))
 	card.name = "EmptyState"
-	card.custom_minimum_size.y = 62.0
+	card.custom_minimum_size.y = 48.0
 	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
-	card.add_child(C.inset(row, 12, 9, 12, 9))
+	card.add_child(C.inset(row, 12, 6, 12, 6))
 	var texture: TextureRect = TextureRect.new()
 	texture.texture = S.icon(icon)
 	texture.self_modulate = S.MUTED.darkened(0.25)
-	texture.custom_minimum_size = Vector2(30.0, 30.0)
+	texture.custom_minimum_size = Vector2(26.0, 26.0)
 	texture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	texture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	row.add_child(texture)
@@ -1613,11 +1618,12 @@ func _priority_guide(title_text: String, detail_text: String,
 	var color: Color = S.BLUE if priority_value <= 2 else (
 		S.BRASS.lightened(0.25) if priority_value <= 4 else S.RED)
 	row.add_child(_pill("P%d" % priority_value, color))
-	var copy: VBoxContainer = VBoxContainer.new()
-	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(copy)
-	copy.add_child(_label(title_text, 13, S.IVORY))
-	copy.add_child(_label(detail_text, 11, S.MUTED))
+	var title := _label(title_text, 13, S.IVORY)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(title)
+	var detail := _label(detail_text, 11, S.MUTED)
+	detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(detail)
 	return card
 
 
@@ -1669,6 +1675,8 @@ func _device_plural(kind: String) -> String:
 
 
 func _watts(value: float) -> String:
+	if roundi(value) == 0:
+		return "0 W"
 	var sign_value: String = "-" if value < 0.0 else ""
 	var magnitude: float = absf(value)
 	if magnitude >= 10000.0:

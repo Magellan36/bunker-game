@@ -64,6 +64,7 @@ func open(title: String, message: String, confirm_label: String = "Confirm",
 	_cancel_text = cancel_label
 	_tone = tone
 	_symbol = symbol
+	UIPanelLifecycle.prepare_open(self)
 	_is_open = true
 	visible = true
 	_refresh_presentation()
@@ -83,9 +84,9 @@ func close() -> void:
 	if not _is_open:
 		return
 	_is_open = false
-	visible = false
 	Input.mouse_mode = _previous_mouse_mode
 	_restore_previous_focus()
+	UIPanelLifecycle.dismiss(self, _root)
 
 
 func is_open() -> bool:
@@ -110,7 +111,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not _is_open:
 		return
 	var cancel_pressed: bool = event is InputEventKey and event.pressed \
-		and event.keycode == KEY_ESCAPE
+		and event.keycode in [KEY_ESCAPE, KEY_E]
 	cancel_pressed = cancel_pressed or (event is InputEventJoypadButton \
 		and event.pressed and event.button_index == JOY_BUTTON_B)
 	if cancel_pressed:
@@ -173,7 +174,7 @@ func _build_interface() -> void:
 	_cancel_button = Button.new()
 	_cancel_button.name = "Cancel"
 	_cancel_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_cancel_button.custom_minimum_size.y = 48.0
+	_cancel_button.custom_minimum_size.y = 36.0
 	_cancel_button.icon = S.icon("close")
 	S.button(_cancel_button)
 	_cancel_button.pressed.connect(_cancel)
@@ -181,7 +182,7 @@ func _build_interface() -> void:
 	_confirm_button = Button.new()
 	_confirm_button.name = "Confirm"
 	_confirm_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_confirm_button.custom_minimum_size.y = 48.0
+	_confirm_button.custom_minimum_size.y = 36.0
 	_confirm_button.icon = S.icon("check")
 	S.button(_confirm_button, true)
 	_confirm_button.pressed.connect(_confirm)
@@ -191,8 +192,8 @@ func _build_interface() -> void:
 	footer.alignment = BoxContainer.ALIGNMENT_CENTER
 	footer.add_theme_constant_override("separation", 18)
 	body.add_child(footer)
-	C.key_hint(footer, "A / ENTER", "Select")
-	C.key_hint(footer, "B / ESC", "Cancel")
+	C.key_hint(footer, "ENTER", "Select", "ENTER", "A")
+	C.key_hint(footer, "ESC", "Cancel", "ESC", "B")
 
 	_controller_nav = NAV.new() as ControllerUINavigation
 	_controller_nav.ui_root = self
@@ -250,13 +251,8 @@ func _layout() -> void:
 		return
 	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
 	var requested_height: float = PANEL_SIZE.y if _message_card.visible else 224.0
-	var target: Vector2 = Vector2(
-		minf(PANEL_SIZE.x, maxf(360.0, viewport_size.x - SCREEN_MARGIN.x * 2.0)),
-		minf(requested_height, maxf(200.0, viewport_size.y - SCREEN_MARGIN.y * 2.0))
-	)
-	_panel.custom_maximum_size = target
-	_panel.position = (viewport_size - target) * 0.5
-	_panel.size = target
+	UIPanelLayout.fit(_panel, viewport_size,
+		Vector2(PANEL_SIZE.x, requested_height), SCREEN_MARGIN)
 
 func _restore_previous_focus() -> void:
 	if _previous_focus == null:

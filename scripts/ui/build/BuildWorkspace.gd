@@ -61,6 +61,8 @@ func _ready() -> void:
 	## hovering a Control transfers focus and A activates it.
 	_controller_nav.right_stick_navigation = false
 	_controller_nav.blocks_world_cursor = false
+	_controller_nav.mouse_cursor_required = true
+	_controller_nav.tab_provider = _controller_tabs
 	add_child(_controller_nav)
 	get_viewport().size_changed.connect(_layout)
 	_controller_hints = InputMode.is_controller()
@@ -100,7 +102,9 @@ func _build_shop_button() -> void:
 	shop_button = Button.new()
 	shop_button.name = "SupplyShop"
 	shop_button.toggle_mode = true
-	shop_button.custom_minimum_size = Vector2(230, 60)
+	## Match the normal cash plate's compact 162 x 40 footprint. Keeping this
+	## directly below Cash makes the two top-right actions read as one HUD stack.
+	shop_button.custom_minimum_size = Vector2(162, 40)
 	shop_button.tooltip_text = "Open the supply shop"
 	BunkerUIComponents.style_segment(shop_button)
 	shop_button.add_theme_stylebox_override("normal", BunkerUIComponents.panel_box(
@@ -113,38 +117,21 @@ func _build_shop_button() -> void:
 	add_child(shop_button)
 	var content := HBoxContainer.new()
 	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	content.add_theme_constant_override("separation", 10)
-	var inset := BunkerUIComponents.inset(content, 10, 7, 11, 7)
+	content.alignment = BoxContainer.ALIGNMENT_CENTER
+	content.add_theme_constant_override("separation", 8)
+	var inset := BunkerUIComponents.inset(content, 9, 4, 9, 4)
 	inset.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	inset.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	shop_button.add_child(inset)
-	content.add_child(BunkerUIComponents.icon_well("shop", 40.0))
-	var copy := VBoxContainer.new()
-	copy.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	copy.alignment = BoxContainer.ALIGNMENT_CENTER
-	copy.add_theme_constant_override("separation", 0)
-	content.add_child(copy)
-	var eyebrow := Label.new()
-	eyebrow.text = "SUPPLIES"
-	eyebrow.add_theme_font_size_override("font_size", 10)
-	eyebrow.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
-	eyebrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	copy.add_child(eyebrow)
+	content.add_child(BunkerUIComponents.icon_well("shop", 30.0))
 	var title := Label.new()
-	title.text = "Open shop"
-	title.add_theme_font_size_override("font_size", 17)
+	title.text = "SHOP"
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.add_theme_font_size_override("font_size", 15)
 	title.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	copy.add_child(title)
-	var arrow := TextureRect.new()
-	arrow.texture = BunkerPanelStyle.icon("arrow")
-	arrow.self_modulate = BunkerPanelStyle.IVORY
-	arrow.custom_minimum_size = Vector2(22, 22)
-	arrow.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	arrow.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	arrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	content.add_child(arrow)
+	content.add_child(title)
 
 
 func _build_toolbar() -> void:
@@ -209,7 +196,7 @@ func _build_helper() -> void:
 	_helper_panel.name = "PlacementHelper"
 	_helper_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_helper_panel.add_theme_stylebox_override("panel", BunkerUIComponents.panel_box(
-		Color("111615ef"), BunkerPanelStyle.BRASS.darkened(0.2), 8, 1, 6))
+		Color("111615ef"), BunkerPanelStyle.BRASS.darkened(0.2), 8, 1, 3))
 	add_child(_helper_panel)
 	_helper_row = HBoxContainer.new()
 	_helper_row.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -221,13 +208,14 @@ func _rebuild_helper_hints() -> void:
 	for child: Node in _helper_row.get_children():
 		child.queue_free()
 	if _controller_hints:
-		BunkerUIComponents.key_hint(_helper_row, "A", "Place")
-		BunkerUIComponents.key_hint(_helper_row, "LT / RT", "Rotate")
-		BunkerUIComponents.key_hint(_helper_row, "B", "Cancel")
+		BunkerUIComponents.key_hint(_helper_row, "A", "Place", "A", "A", true)
+		BunkerUIComponents.key_hint(_helper_row, "LT / RT", "Rotate", "LT / RT", "LT / RT", true)
+		BunkerUIComponents.key_hint(_helper_row, "B", "Cancel", "B", "B", true)
 	else:
-		BunkerUIComponents.key_hint(_helper_row, "LMB", "Place")
-		BunkerUIComponents.key_hint(_helper_row, "WHEEL", "Rotate")
-		BunkerUIComponents.key_hint(_helper_row, "RMB", "Cancel")
+		BunkerUIComponents.key_hint(_helper_row, "LMB", "Place", "LMB", "LMB", true)
+		BunkerUIComponents.key_hint(_helper_row, "CTRL", "45° Snap", "CTRL", "CTRL", true)
+		BunkerUIComponents.key_hint(_helper_row, "WHEEL", "Rotate", "WHEEL", "WHEEL", true)
+		BunkerUIComponents.key_hint(_helper_row, "RMB", "Cancel", "RMB", "RMB", true)
 	var separator := VSeparator.new()
 	separator.custom_minimum_size.x = 1
 	_helper_row.add_child(separator)
@@ -249,37 +237,40 @@ func _build_compatibility_summary() -> void:
 
 func _layout() -> void:
 	var viewport_size := get_viewport().get_visible_rect().size
-	_banner_panel.position = Vector2((viewport_size.x - 286.0) * 0.5, 18)
+	## The persistent clock occupies y=10..52. Build-specific controls begin
+	## below that normal HUD row instead of covering it.
+	_banner_panel.position = Vector2((viewport_size.x - 286.0) * 0.5, 62)
 	_banner_panel.size = Vector2(286, 52)
-	shop_button.position = Vector2(viewport_size.x - 254, 18)
-	shop_button.size = Vector2(230, 60)
+	shop_button.position = Vector2(viewport_size.x - 174, 60)
+	shop_button.size = Vector2(162, 40)
 
 	var toolbar_size := Vector2(minf(700.0, viewport_size.x - 48.0), 82)
 	_toolbar_panel.position = Vector2(maxf(24.0, (viewport_size.x - toolbar_size.x) * 0.5),
 		viewport_size.y - toolbar_size.y - 18.0)
 	_toolbar_panel.size = toolbar_size
-	var helper_size := Vector2(minf(720.0, viewport_size.x - 48.0), 42)
+	## Toasts end immediately above this strip when the inventory is hidden.
+	## A 28 px helper preserves every binding while removing the old overlap.
+	var helper_size := Vector2(minf(720.0, viewport_size.x - 48.0), 28)
 	_helper_panel.position = Vector2(maxf(24.0, (viewport_size.x - helper_size.x) * 0.5),
-		_toolbar_panel.position.y - helper_size.y - 10.0)
+		_toolbar_panel.position.y - helper_size.y - 6.0)
 	_helper_panel.size = helper_size
 
 	var catalog_top := 88.0
 	var catalog_bottom := _helper_panel.position.y - 14.0
-	var catalog_height := minf(610.0, maxf(420.0, catalog_bottom - catalog_top))
-	var catalog_size := Vector2(minf(488.0, viewport_size.x - 48.0), catalog_height)
-	catalog.custom_maximum_size = catalog_size
-	catalog.position = Vector2(24, catalog_top + maxf(0.0,
-		(catalog_bottom - catalog_top - catalog_height) * 0.5))
-	catalog.size = catalog_size
+	## Match Storage's approved 440 x 760 target while preserving Build's
+	## left-side identity. On short displays, the helper owns overflow inside
+	## the safe region above the placement controls.
+	var catalog_region := Vector2(viewport_size.x, maxf(1.0, catalog_bottom - catalog_top))
+	UIPanelLayout.fit(catalog, catalog_region, Vector2(440.0, 760.0),
+		Vector2(24.0, 0.0), 0.0, 0.5)
+	catalog.position.y += catalog_top
 
-	var shop_size := Vector2(minf(1380.0, viewport_size.x - 96.0),
-		minf(780.0, viewport_size.y - 120.0))
-	shop.custom_maximum_size = shop_size
-	shop.position = (viewport_size - shop_size) * 0.5
-	shop.size = shop_size
+	UIPanelLayout.fit(shop, viewport_size, Vector2(1380.0, 780.0),
+		Vector2(48.0, 60.0))
 
 
 func show_catalog() -> void:
+	_controller_nav.mouse_cursor_required = true
 	shop.hide()
 	summary.hide()
 	_toolbar_panel.show()
@@ -289,6 +280,7 @@ func show_catalog() -> void:
 
 
 func show_shop() -> void:
+	_controller_nav.mouse_cursor_required = true
 	catalog.hide()
 	summary.hide()
 	_helper_panel.hide()
@@ -299,6 +291,7 @@ func show_shop() -> void:
 
 
 func hide_menus() -> void:
+	_controller_nav.mouse_cursor_required = false
 	catalog.hide()
 	shop.hide()
 	_toolbar_panel.show()
@@ -306,6 +299,7 @@ func hide_menus() -> void:
 
 
 func placement_started(tile_id: int, item_name: String, price: int) -> void:
+	_controller_nav.mouse_cursor_required = false
 	shop.hide()
 	summary.hide()
 	catalog.set_selected_item(tile_id, item_name, price)
@@ -316,6 +310,7 @@ func placement_started(tile_id: int, item_name: String, price: int) -> void:
 
 
 func close_all() -> void:
+	_controller_nav.mouse_cursor_required = false
 	var focus: Control = get_viewport().gui_get_focus_owner()
 	if focus != null and is_ancestor_of(focus):
 		focus.release_focus()
@@ -409,3 +404,12 @@ func _focusable_at(node: Node, point: Vector2) -> Control:
 					and control.get_global_rect().has_point(point):
 				return control
 	return null
+
+
+func _controller_tabs() -> Array:
+	if shop.visible:
+		return shop._category_buttons.values()
+	if catalog.visible:
+		return catalog._category_buttons.values()
+	# Undo is an action, not a persistent tool mode.
+	return _tool_buttons.filter(func(button: Button) -> bool: return button != _tool_buttons[4])

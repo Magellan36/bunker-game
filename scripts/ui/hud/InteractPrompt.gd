@@ -107,6 +107,7 @@ var _job_glyphs: Array = []
 var _panel_appear: Array[float] = []
 var _panel_was_visible: Array[bool] = []
 var _fuel_percent_regex: RegEx = RegEx.new()
+var _suppressed_for_build: bool = false
 
 # ─────────────────────────────────────────────────────────────────────────────
 func _ready() -> void:
@@ -119,6 +120,11 @@ func _ready() -> void:
 	_fuel_percent_regex.compile("(?i)([0-9]+)%[ ]+fuel")
 
 func _process(delta: float) -> void:
+	## Build owns the screen while active. Existing prompt cards finish their
+	## standard short fade, then remain suppressed even if InteractionSystem
+	## continues publishing candidates during the handoff.
+	if _suppressed_for_build:
+		return
 	var camera: Camera3D = get_viewport().get_camera_3d()
 
 	# ── No camera — hide everything ──────────────────────────────────────────
@@ -259,8 +265,16 @@ func _process(delta: float) -> void:
 				p.custom_minimum_size.x = 0.0
 
 		p.reset_size()
+		## Sep 2026 — bottom-anchored panels (CookingPot's hover): keep the
+		## panel's BOTTOM edge pinned at the world anchor and let it build
+		## upward as content grows (icon row + multi-line label). Centered
+		## panels grow symmetrically, which would push the pot's panel down
+		## into the stove when ingredients are added.
+		var pos: Vector2 = screen_pos - p.size / 2.0
+		if bool(entry.get("anchor_bottom", false)):
+			pos = Vector2(screen_pos.x - p.size.x * 0.5, screen_pos.y - p.size.y)
 		layouts.append({
-			"pos":      screen_pos - p.size / 2.0,
+			"pos":      pos,
 			"size":     p.size,
 			"alpha":    alpha,
 			"priority": int(entry.get("display_priority",
@@ -770,6 +784,11 @@ func _collect_world_job_entries() -> Array:
 ## haven't opted into Focus Mode filtering yet — a missing key defaults
 ## to shown) }. Pass [] to hide all panels.
 func set_prompts(new_entries: Array) -> void:
+	if _suppressed_for_build:
+		## Build owns the screen. Do not retain publisher updates as latent
+		## state that can flash back when the workspace closes.
+		_active.clear()
+		return
 	_active = new_entries
 
 func show_prompt(text: String, world_position: Vector3) -> void:
@@ -777,6 +796,36 @@ func show_prompt(text: String, world_position: Vector3) -> void:
 
 func hide_prompt() -> void:
 	set_prompts([])
+
+func dismiss_for_build_mode() -> void:
+	if _suppressed_for_build:
+		return
+	_suppressed_for_build = true
+	## Drop publisher state immediately so it cannot reappear for one frame
+	## when Build hands ownership back. The visible pooled cards retain their
+	## current pixels long enough to complete the standard short exit fade.
+	_active.clear()
+	for index: int in _pool.size():
+		var panel: PanelContainer = _pool[index] as PanelContainer
+		if panel.visible:
+			UIFade.fade_out(panel, UIMotion.EXIT, _finish_build_dismiss.bind(panel))
+		_panel_was_visible[index] = false
+
+
+func _finish_build_dismiss(panel: PanelContainer) -> void:
+	if not is_instance_valid(panel) or not _suppressed_for_build:
+		return
+	panel.hide()
+	panel.modulate.a = 1.0
+
+func resume_after_build_mode() -> void:
+	_suppressed_for_build = false
+	for index: int in _pool.size():
+		var panel: PanelContainer = _pool[index] as PanelContainer
+		UIFade.cancel(panel)
+		panel.visible = false
+		panel.modulate.a = 1.0
+		_panel_was_visible[index] = false
 
 
 ## External world-job API used by NPC's preserved show/update/hide banner

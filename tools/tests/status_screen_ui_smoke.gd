@@ -3,12 +3,8 @@ extends SceneTree
 ## Run with:
 ## godot --headless --path . --script res://tools/tests/status_screen_ui_smoke.gd
 
-const UI_SCRIPT: GDScript = preload("res://scripts/ui/medical/StatusScreenUI.gd")
-const MEDICAL_SCRIPT: GDScript = preload("res://scripts/player/medical/PlayerMedical.gd")
-const STATS_SCRIPT: GDScript = preload("res://scripts/player/PlayerStats.gd")
-const INVENTORY_SCRIPT: GDScript = preload("res://scripts/ui/inventory/InventoryManager.gd")
-
 var _failures: int = 0
+const LEFT_ARM: int = 2
 
 
 func _initialize() -> void:
@@ -16,26 +12,33 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	var medical: PlayerMedical = MEDICAL_SCRIPT.new() as PlayerMedical
-	var stats: PlayerStats = STATS_SCRIPT.new() as PlayerStats
-	var inventory: Node = INVENTORY_SCRIPT.new() as Node
+	root.size = Vector2i(1920, 1080)
+	await process_frame
+	var medical_script: GDScript = load("res://scripts/player/medical/PlayerMedical.gd") as GDScript
+	var stats_script: GDScript = load("res://scripts/player/PlayerStats.gd") as GDScript
+	var inventory_script: GDScript = load("res://scripts/ui/inventory/InventoryManager.gd") as GDScript
+	var ui_script: GDScript = load("res://scripts/ui/medical/StatusScreenUI.gd") as GDScript
+	var medical: Node = medical_script.new() as Node
+	var stats: Node = stats_script.new() as Node
+	var inventory: Node = inventory_script.new() as Node
 	root.add_child(stats)
 	root.add_child(medical)
 	root.add_child(inventory)
 
-	var wound: MedicalCondition = MedicalCondition.new()
+	var condition_script: GDScript = load("res://scripts/player/medical/MedicalCondition.gd") as GDScript
+	var wound: Resource = condition_script.new() as Resource
 	wound.id = "open_wound"
-	wound.body_part = MedicalCondition.BodyPart.LEFT_ARM
+	wound.body_part = LEFT_ARM
 	wound.severity = 100.0
 	wound.has_heal_ring = true
 	medical.add_condition(wound)
-	var bleed: MedicalCondition = MedicalCondition.new()
+	var bleed: Resource = condition_script.new() as Resource
 	bleed.id = "bleeding"
-	bleed.body_part = MedicalCondition.BodyPart.LEFT_ARM
+	bleed.body_part = LEFT_ARM
 	bleed.severity = 42.0
 	medical.add_condition(bleed)
 
-	var ui: StatusScreenUI = UI_SCRIPT.new() as StatusScreenUI
+	var ui: CanvasLayer = ui_script.new() as CanvasLayer
 	ui.player_medical = medical
 	ui.player_stats = stats
 	ui.inventory = inventory
@@ -52,7 +55,9 @@ func _run() -> void:
 	var tabs: Array = ui.get("_tab_buttons") as Array
 	var pages: Array = ui.get("_pages") as Array
 	_check(tabs.size() == 4 and pages.size() == 4,
-		"overview, health, needs, and inventory sections exist")
+		"overview, health, NPC, and inventory sections exist")
+	_check((pages[2] as Control).name == "NPCPage",
+		"NPC workspace replaces the redundant needs page")
 	var summaries: Dictionary = ui.get("_summary_metrics") as Dictionary
 	_check(summaries.size() == 5,
 		"persistent health, food, water, stamina, and sleep summary exists")
@@ -69,10 +74,17 @@ func _run() -> void:
 	ui.open()
 	_check(ui.is_open() and ui.visible, "Tab workspace opens non-modally")
 	ui.call("_set_tab", 1)
-	ui.call("_select_body_part", MedicalCondition.BodyPart.LEFT_ARM)
+	ui.call("_select_body_part", LEFT_ARM)
 	var condition_cards: Dictionary = ui.get("_condition_cards") as Dictionary
 	_check(condition_cards.size() == 2,
 		"health section presents each active condition on the selected body region")
+	for refs_value: Variant in condition_cards.values():
+		var refs: Dictionary = refs_value as Dictionary
+		_check((refs["button"] as Button).custom_minimum_size.y <= 74.0,
+			"medical condition rows use compact information-first sizing")
+	var gutters: Array[Node] = ui.find_children("ScrollContentGutter", "MarginContainer", true, false)
+	_check(gutters.size() >= 3,
+		"health and NPC scroll surfaces reserve the shared scrollbar gutter")
 	_check(String(ui.call("_treatment_kind", bleed)) == "bandage",
 		"bleeding retains Bandage treatment mapping")
 	_check(String(ui.call("_treatment_kind", wound)) == "antibiotics",
@@ -82,7 +94,10 @@ func _run() -> void:
 	_check(inventory_cards.size() == 4 and viewports.size() == 4,
 		"all quick slots have persistent prebuilt preview viewports")
 	ui.close()
-	_check(not ui.is_open() and not ui.visible, "close hides the reusable workspace")
+	_check(not ui.is_open() and ui.visible,
+		"close ends interaction immediately while the short exit remains visible")
+	await create_timer(UIMotion.EXIT + 0.04).timeout
+	_check(not ui.visible, "short exit hides the reusable workspace")
 
 	ui.free()
 	inventory.free()

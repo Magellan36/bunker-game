@@ -380,6 +380,46 @@ func update_graph_node_position() -> void:
 func _delete_and_refund_edge(edge_id: String, wm: WaterManager) -> void:
 	wm.delete_and_refund_edge(edge_id)
 
+# ─── Save/Load (Save/Load overhaul pass 2) ───────────────────────────────────
+## Serializes the hookup's upgrade state (tier drives TIER_DAILY_ML output,
+## set by the WaterOutput2x research upgrade) + current water_quality + its
+## (possibly Move-tool-relocated) position. Backs the SaveManager
+## "water_hookup" field (phase 2 — before water_pipes/phase 3, so the
+## hookup's endpoint node sits at the saved position before pipe edges try
+## to reconnect to it).
+func get_save_data() -> Dictionary:
+	return {
+		"tier":         tier,
+		"water_quality": water_quality,
+		"pos":          SaveManager.vec3_to_dict(global_position),
+		"angle_deg":    rotation_degrees.y,
+	}
+
+## Rebuilds hookup state from get_save_data()'s output. Restores tier +
+## water_quality directly (the established setter is a plain var assignment,
+## same as WaterOutput2xUpgrade.apply_effect) and relocates to the saved
+## position by re-keying the graph node WITHOUT the delete+refund that
+## update_graph_node_position() performs — old-session pipes are torn down
+## by phase 3's clear_water_pipes() anyway, and refunding them here would be
+## a mid-session-Load money exploit.
+func restore_save_data(data: Dictionary) -> void:
+	tier = clampi(int(data.get("tier", tier)), 0, TIER_DAILY_ML.size() - 1)
+	water_quality = clampf(float(data.get("water_quality", 100.0)), 0.0, 100.0)
+
+	var saved_pos: Vector3 = SaveManager.dict_to_vec3(data.get("pos", {}))
+	if saved_pos == Vector3.ZERO or global_position.distance_to(saved_pos) < 0.01:
+		return   ## unmoved — nothing to relocate
+	var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
+	if wm == null:
+		## Can't re-key yet; still restore the upgrade values (they don't need
+		## the graph), and leave position for the next relocation pass.
+		return
+	rotation_degrees = Vector3(0.0, float(data.get("angle_deg", rotation_degrees.y)), 0.0)
+	global_position = _grid_snap_along_wall(saved_pos, get_facing_dir())
+	if not _node_key.is_empty():
+		wm.unregister_node(_node_key)   ## removes node + touching edges, no refund
+	_node_key = wm.register_node(global_position, "hookup")
+
 
 # ─── Visual build ─────────────────────────────────────────────────────────────
 ## Placeholder mesh — a short rusted-metal pipe stub (same texture/shine as the

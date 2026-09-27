@@ -12,9 +12,13 @@ var _fit_queued: bool = false
 
 func _ready() -> void:
 	theme = theme.duplicate(true) as Theme
+	BunkerControlTheme.install(theme)
 	resized.connect(_apply_metrics)
 	$Panel.resized.connect(_position_panel)
 	$Panel.minimum_size_changed.connect(_queue_panel_fit)
+	var scroll := get_node("%DetailsScroll") as ScrollContainer
+	scroll.get_v_scroll_bar().visibility_changed.connect(_sync_scroll_lane.call_deferred)
+	scroll.get_v_scroll_bar().resized.connect(_sync_scroll_lane.call_deferred)
 	_apply_metrics()
 
 func _apply_metrics() -> void:
@@ -23,6 +27,8 @@ func _apply_metrics() -> void:
 	var factor: float = _scale_factor()
 	for node: Node in find_children("*", "Control", true, false):
 		var control: Control = node as Control
+		if control is BaseButton:
+			UIButtonMotion.attach(control as BaseButton)
 		if control.has_meta("ui_font_size"):
 			control.add_theme_font_size_override("font_size", roundi(float(control.get_meta("ui_font_size")) * factor))
 		if control.has_meta("ui_min_height"):
@@ -32,6 +38,9 @@ func _apply_metrics() -> void:
 		if control.has_meta("ui_padding"):
 			for edge: String in ["left", "top", "right", "bottom"]:
 				control.add_theme_constant_override("margin_" + edge, roundi(float(control.get_meta("ui_padding")) * factor))
+		if control.has_meta("ui_scroll_gutter"):
+			control.add_theme_constant_override("margin_right",
+				roundi(float(control.get_meta("ui_scroll_gutter")) * factor))
 		if control.has_meta("ui_icon_size"):
 			var side: float = roundf(float(control.get_meta("ui_icon_size")) * factor)
 			control.custom_minimum_size = Vector2(side, side)
@@ -49,12 +58,27 @@ func _apply_metrics() -> void:
 			var style: StyleBox = theme.get_stylebox(state, button_type)
 			style.content_margin_left = 16.0 * factor
 			style.content_margin_right = 16.0 * factor
-			style.content_margin_top = 8.0 * factor
-			style.content_margin_bottom = 8.0 * factor
+			style.content_margin_top = BunkerDesign.CONTROL_VERTICAL_PADDING * factor
+			style.content_margin_bottom = BunkerDesign.CONTROL_VERTICAL_PADDING * factor
 	var panel_style: StyleBox = theme.get_stylebox("panel", "PanelContainer")
 	panel_style.content_margin_top = 0.0
 	panel_style.content_margin_bottom = 0.0
 	_fit_panel()
+	_sync_scroll_lane()
+
+func _sync_scroll_lane() -> void:
+	var scroll := get_node("%DetailsScroll") as ScrollContainer
+	var lane := scroll.get_parent() as Control
+	if lane == null or not lane.has_meta("ui_scroll_lane"):
+		return
+	var gutter: float = float(lane.get_meta("ui_scroll_lane")) * _scale_factor()
+	# Give the scrollbar its own lane in the panel margin. The content keeps
+	# the status row's exact edges whether the scrollbar is visible or hidden.
+	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	scroll.offset_right = gutter
+	var inset := scroll.get_node("FocusInset") as MarginContainer
+	inset.add_theme_constant_override("margin_left", 0)
+	inset.add_theme_constant_override("margin_right", roundi(gutter))
 
 func _queue_panel_fit() -> void:
 	# Wrapped labels can temporarily request a very tall panel before their
@@ -75,7 +99,8 @@ func _fit_panel() -> void:
 		theme.get_constant("panel_width", "GeneratorInspector"),
 		panel_height if panel_height > 0.0 else theme.get_constant("panel_height", "GeneratorInspector")) * factor
 	var margin: float = theme.get_constant("screen_margin", "GeneratorInspector") * factor
-	panel.size = target_size.min((size - Vector2.ONE * margin * 2.0).max(Vector2.ONE))
+	panel.custom_maximum_size = UIPanelLayout.bounded_size(size, target_size, Vector2.ONE * margin)
+	panel.size = panel.custom_maximum_size
 	_position_panel()
 
 func _scale_factor() -> float:

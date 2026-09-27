@@ -22,7 +22,7 @@ extends Node
 ## (runs res://tools/tests/NPCSimHarness.tscn as the main scene so autoloads exist)
 ## Exit code 0 = no invariant violations, 1 = violations (report printed).
 
-const SCENARIOS: Array[String] = ["basic", "farm", "cook", "power", "stress", "scarcity", "all"]
+const SCENARIOS: Array[String] = ["basic", "farm", "cook", "power", "stress", "scarcity", "door", "all"]
 
 var _cfg: Dictionary = {
 	"scenario": "basic",
@@ -95,8 +95,11 @@ func _process(delta: float) -> void:
 	_t += delta
 	if _phase == 0:
 		if _t >= _setup_at:
-			_setup()
+			_phase = -1   ## setup may await a physics frame (door scenario)
+			await _setup()
 			_phase = 1
+		return
+	if _phase < 0:
 		return
 	if _phase == 1:
 		_sample_timer -= delta
@@ -141,7 +144,17 @@ func _setup() -> void:
 
 	## Room is x ∈ [-12, 3], z ∈ [5, 12] (1 m cells). Research station sits
 	## around the middle — keep furniture on the edges.
-	if sc in ["basic", "stress", "scarcity", "cook", "farm", "power"] or want_all:
+	if sc == "door":
+		## A full-height wall splits the room at x = -8.5 with a closed bunker
+		## door in it: beds on the west side, everything else east. Residents
+		## must ask the door to open, queue, and cross to eat, drink and sleep.
+		var wall: Dictionary = _obj(1, Vector3(DOOR_WALL_X, 0.5, 8.5), DOOR_WALL_ANGLE)
+		wall["run_length"] = 7.2
+		objs.append(wall)
+		var door: Dictionary = _obj(39, Vector3(DOOR_WALL_X, 0.5, 8.5), DOOR_WALL_ANGLE)
+		door["extra"] = {"is_open": false}   ## non-empty extra → restore attaches it to the wall
+		objs.append(door)
+	if sc in ["basic", "stress", "scarcity", "cook", "farm", "power", "door"] or want_all:
 		objs.append(_obj(4, Vector3(-11.0, 0.5, 11.2), 0.0))        ## bed
 		objs.append(_obj(4, Vector3(-11.0, 0.5, 9.0), 0.0))         ## bed
 		objs.append(_obj(29, Vector3(1.5, 0.5, 11.5), 0.0))         ## chair
@@ -160,6 +173,11 @@ func _setup() -> void:
 		gen_fuel = 20.0
 
 	_bc.restore_placed_objects(objs)
+	if sc == "door":
+		await get_tree().physics_frame
+		for d: Node in get_tree().get_nodes_in_group("npc_bottleneck"):
+			print("[harness] door at %s host=%s open=%s" % [(d as Node3D).global_position,
+				is_instance_valid(d.get("_host_wall")), d.is_open()])
 
 	var food_count: int = 6
 	var water_count: int = 6
@@ -231,6 +249,12 @@ func _setup() -> void:
 	for g in ["chair", "bed", "shelving", "trash_receptacle", "generator", "farming_tray", "stove", "pickup"]:
 		print("[harness]   group %s = %d" % [g, get_tree().get_nodes_in_group(g).size()])
 
+const DOOR_WALL_X: float = -8.5
+const DOOR_WALL_ANGLE: float = 0.0   ## wall run (and door) along world Z
+var _door_crossings: int = 0
+var _door_toggles: int = 0
+var _door_last_close: float = 0.0
+
 func _obj(tile: int, pos: Vector3, angle: float) -> Dictionary:
 	return {"tile_id": tile, "price": 0, "pos": {"x": pos.x, "y": pos.y, "z": pos.z}, "angle_deg": angle, "extra": {}}
 
@@ -276,6 +300,24 @@ func _flag(kind: String, npc: Node, msg: String, once_key: String = "") -> void:
 
 func _sample() -> void:
 	var now: float = _t
+	if String(_cfg["scenario"]) == "door":
+		for d: Node in get_tree().get_nodes_in_group("npc_bottleneck"):
+			## Play the player: shut the door every 30 s (when nobody is in
+			## the doorway) so residents keep having to open it and wait.
+			if d.is_open() and _t - _door_last_close > 30.0:
+				var clear: bool = true
+				for n: Node in get_tree().get_nodes_in_group("npc"):
+					if NPCItemUser.flat_distance((n as Node3D).global_position, (d as Node3D).global_position) < 2.0:
+						clear = false
+				if clear:
+					d.on_interact()
+					_door_last_close = _t
+			var open_now: bool = d.is_open()
+			if open_now != bool(d.get_meta("_harness_open", false)):
+				d.set_meta("_harness_open", open_now)
+				_door_toggles += 1
+				if _cfg["timeline"]:
+					print("[tl] %6.1f door %s" % [_t - _setup_at, "OPENS" if open_now else "closes"])
 	if _hour_total.is_empty():
 		_hour_total.resize(24)
 		_hour_asleep.resize(24)
@@ -288,6 +330,11 @@ func _sample() -> void:
 		if not is_instance_valid(raw):
 			continue
 		var npc: Node = raw
+		if String(_cfg["scenario"]) == "door":
+			var side: int = 1 if (npc as Node3D).global_position.x > DOOR_WALL_X else -1
+			if int(tr.get("side", side)) != side:
+				_door_crossings += 1
+			tr["side"] = side
 		var act: String = _act_class(npc)
 		_activity_time[act] = float(_activity_time.get(act, 0.0)) + SAMPLE_DT
 		_hour_total[hr] += 1
@@ -593,5 +640,7 @@ func _report() -> void:
 		print("VIOLATIONS %s: %d" % [k, arr.size()])
 		for i in mini(arr.size(), 12):
 			print("    " + String(arr[i]))
+	if String(_cfg["scenario"]) == "door":
+		print("[harness] door crossings: %d, door open/close changes: %d" % [_door_crossings, _door_toggles])
 	print("RESULT: %s (%d violations)" % ["PASS" if bad == 0 else "FAIL", bad])
 	get_tree().quit(0 if bad == 0 else 1)

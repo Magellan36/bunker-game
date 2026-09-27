@@ -57,6 +57,8 @@ var _checkout: Button
 var _category_buttons: Dictionary = {}
 var _subcategory_buttons: Dictionary = {}
 var _cart_focus_targets: Dictionary = {}
+var _cart_row_nodes: Dictionary = {}
+var _empty_cart: Control = null
 var _last_cash: int = -1
 
 
@@ -184,11 +186,12 @@ func _build_category_rail() -> Control:
 		button.text = ""
 		button.toggle_mode = true
 		BunkerUIComponents.style_segment(button)
-		button.custom_minimum_size.y = 58
+		button.custom_minimum_size.y = 50
 		_add_category_content(button, category,
 			String(CATEGORY_ICONS.get(category, "shop")))
 		button.pressed.connect(_set_category.bind(category))
 		box.add_child(button)
+		button.set_meta(&"ui_tab", true)
 		_category_buttons[category] = button
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -329,7 +332,7 @@ func _build_cart() -> Control:
 	body.add_child(totals)
 	_checkout = Button.new()
 	_checkout.text = "Checkout"
-	_checkout.custom_minimum_size.y = 52
+	_checkout.custom_minimum_size.y = 40
 	BunkerPanelStyle.icon_button(_checkout, "check", true)
 	_checkout.pressed.connect(_checkout_order)
 	body.add_child(_checkout)
@@ -361,10 +364,10 @@ func _build_footer() -> Control:
 	var footer := HBoxContainer.new()
 	footer.alignment = BoxContainer.ALIGNMENT_CENTER
 	footer.add_theme_constant_override("separation", 16)
-	BunkerUIComponents.key_hint(footer, "A", "Select")
-	BunkerUIComponents.key_hint(footer, "D-PAD", "Navigate")
-	BunkerUIComponents.key_hint(footer, "SCROLLBAR", "Scroll")
-	BunkerUIComponents.key_hint(footer, "B", "Close")
+	BunkerUIComponents.key_hint(footer, "ENTER", "Select", "ENTER", "A")
+	BunkerUIComponents.key_hint(footer, "ARROWS", "Navigate", "ARROWS", "D-PAD / R-STICK")
+	BunkerUIComponents.key_hint(footer, "WHEEL", "Scroll", "WHEEL", "SCROLLBAR")
+	BunkerUIComponents.key_hint(footer, "ESC", "Close", "ESC", "B")
 	return footer
 
 
@@ -468,6 +471,7 @@ func _rebuild_products() -> void:
 		shown += 1
 	_catalog_meta.text = "%d ITEM%s AVAILABLE" % [shown, "" if shown == 1 else "S"]
 	_product_scroll.set_deferred("scroll_vertical", 0)
+	UIFade.content(_product_viewport)
 
 
 func _add(item_id: int) -> void:
@@ -483,22 +487,54 @@ func _refresh_cart() -> void:
 		return
 	var focus_key := _focused_cart_key()
 	var prior_scroll := _cart_scroll.scroll_vertical
-	_cart_focus_targets.clear()
-	for child: Node in _cart_rows.get_children():
-		_cart_rows.remove_child(child)
-		child.queue_free()
-	var count: int = 0
+	var active_ids: Array[int] = []
 	for item_id_value: Variant in cart.lines.keys():
-		var item_id := int(item_id_value)
+		active_ids.append(int(item_id_value))
+	for item_id_value: Variant in _cart_row_nodes.keys():
+		var existing_id := int(item_id_value)
+		if existing_id not in active_ids:
+			_remove_cart_row(existing_id)
+	var count: int = 0
+	for row_index: int in range(active_ids.size()):
+		var item_id := active_ids[row_index]
 		var quantity := cart.quantity(item_id)
 		count += quantity
-		_cart_rows.add_child(_make_cart_row(item_id, quantity))
-	if cart.lines.is_empty():
-		_cart_rows.add_child(_build_empty_cart())
+		var record: Dictionary = _cart_row_nodes.get(item_id, {}) as Dictionary
+		if record.is_empty():
+			var row := _make_cart_row(item_id, quantity)
+			_cart_rows.add_child(row)
+			record = _cart_row_nodes[item_id] as Dictionary
+		_update_cart_row(record, item_id, quantity)
+		var row_control: Control = record["row"] as Control
+		row_control.show()
+		_cart_rows.move_child(row_control, row_index)
+	if _empty_cart == null:
+		_empty_cart = _build_empty_cart()
+		_cart_rows.add_child(_empty_cart)
+	_empty_cart.visible = active_ids.is_empty()
+	if _empty_cart.visible:
+		_cart_rows.move_child(_empty_cart, 0)
 	_cart_count.text = "%d ITEM%s" % [count, "" if count == 1 else "S"]
 	_refresh_financials()
-	if not focus_key.is_empty():
-		_restore_cart_focus.call_deferred(focus_key, prior_scroll)
+	_restore_cart_state.call_deferred(focus_key, prior_scroll)
+
+
+func _remove_cart_row(item_id: int) -> void:
+	var record: Dictionary = _cart_row_nodes.get(item_id, {}) as Dictionary
+	if record.is_empty():
+		return
+	var row: Control = record.get("row") as Control
+	if is_instance_valid(row):
+		row.queue_free()
+	for action: String in ["minus", "plus", "remove"]:
+		_cart_focus_targets.erase("%d:%s" % [item_id, action])
+	_cart_row_nodes.erase(item_id)
+
+
+func _update_cart_row(record: Dictionary, item_id: int, quantity: int) -> void:
+	var info: Dictionary = FarmingShopHelper.SHOP_ITEM_INFO[item_id]
+	(record["amount"] as Label).text = str(quantity)
+	(record["line_total"] as Label).text = UIFormat.money(int(info["price"]) * quantity)
 
 
 func _build_empty_cart() -> Control:
@@ -566,11 +602,11 @@ func _make_cart_row(item_id: int, quantity: int) -> Control:
 	name.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
 	copy.add_child(name)
 	var each := Label.new()
-	each.text = "%s each" % _money(int(info["price"]))
+	each.text = "%s each" % UIFormat.money(int(info["price"]))
 	BunkerPanelStyle.muted(each, 11)
 	copy.add_child(each)
 	var line_total := Label.new()
-	line_total.text = _money(int(info["price"]) * quantity)
+	line_total.text = UIFormat.money(int(info["price"]) * quantity)
 	line_total.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	line_total.add_theme_font_size_override("font_size", 14)
 	line_total.add_theme_color_override("font_color", BunkerPanelStyle.BLUE)
@@ -604,6 +640,11 @@ func _make_cart_row(item_id: int, quantity: int) -> Control:
 	_register_cart_focus(remove, "%d:remove" % item_id)
 	remove.pressed.connect(cart.remove.bind(item_id))
 	controls.add_child(remove)
+	_cart_row_nodes[item_id] = {
+		"row": frame,
+		"amount": amount,
+		"line_total": line_total,
+	}
 	return frame
 
 
@@ -629,10 +670,12 @@ func _focused_cart_key() -> String:
 	return ""
 
 
-func _restore_cart_focus(key: String, scroll_position: int) -> void:
+func _restore_cart_state(key: String, scroll_position: int) -> void:
 	if not is_visible_in_tree():
 		return
 	_cart_scroll.scroll_vertical = scroll_position
+	if key.is_empty():
+		return
 	var target: Button = _cart_focus_targets.get(key) as Button
 	if target != null and is_instance_valid(target):
 		target.grab_focus()
@@ -652,9 +695,9 @@ func _refresh_financials() -> void:
 	var total := cart.total(FarmingShopHelper.SHOP_ITEM_INFO)
 	if cash != _last_cash:
 		_last_cash = cash
-		_balance.text = _money(cash)
-	_total_value.text = _money(total)
-	_remaining_value.text = _money(cash - total)
+		_balance.text = UIFormat.money(cash)
+	_total_value.text = UIFormat.money(total)
+	_remaining_value.text = UIFormat.money(cash - total)
 	_remaining_value.add_theme_color_override("font_color",
 		BunkerPanelStyle.RED if total > cash else BunkerPanelStyle.MUTED)
 	_checkout.disabled = cart.lines.is_empty() or cash < total
@@ -694,18 +737,6 @@ func _set_message(text: String, tone: String) -> void:
 	_message_icon.texture = BunkerPanelStyle.icon(symbol)
 	_message_icon.self_modulate = accent
 	_message.add_theme_color_override("font_color", accent)
-
-
-func _money(value: int) -> String:
-	var sign_text := "-" if value < 0 else ""
-	var raw := str(absi(value))
-	var out := ""
-	while raw.length() > 3:
-		out = "," + raw.right(3) + out
-		raw = raw.left(raw.length() - 3)
-	return sign_text + "$" + raw + out
-
-
 func _add_category_content(button: Button, caption: String, symbol: String) -> void:
 	var row := HBoxContainer.new()
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE

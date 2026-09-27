@@ -49,6 +49,10 @@ func _register_wire_deferred() -> void:
 		pm.set_breaker_upgraded(_breaker_id, true)
 		_wdbg("[UpgradedBreakerBox] marked upgraded: breaker_id=%s" % _breaker_id)
 
+func _apply_breaker_variant(pm: PowerManager) -> void:
+	if not _breaker_id.is_empty():
+		pm.set_breaker_upgraded(_breaker_id, true)
+
 
 ## Cosmetic-only accent stripe down the front panel so the smart breaker is
 ## visually distinguishable from a standard BreakerBox at a glance. Added as

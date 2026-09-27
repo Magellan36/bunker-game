@@ -3,7 +3,6 @@ extends SceneTree
 ## Run with:
 ## godot --headless --path . --script res://tools/tests/zone_customize_ui_smoke.gd
 
-const UI_SCRIPT: GDScript = preload("res://scripts/ui/power/ZoneCustomizeModernUI.gd")
 var _failures: int = 0
 
 
@@ -12,7 +11,10 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	var ui: CanvasLayer = UI_SCRIPT.new() as CanvasLayer
+	root.size = Vector2i(1920, 1080)
+	await process_frame
+	var ui_script: GDScript = load("res://scripts/ui/power/ZoneCustomizeModernUI.gd") as GDScript
+	var ui: CanvasLayer = ui_script.new() as CanvasLayer
 	root.add_child(ui)
 	await process_frame
 	_check(ui != null, "zone customization companion instantiates")
@@ -38,7 +40,9 @@ func _run() -> void:
 	ui.call("close")
 
 	ui.call("open_color", "test-zone", DeviceDatabase.ZONE_PLAYER_COLOR_CHOICES[9])
-	await process_frame
+	await create_timer(UIMotion.EXIT + 0.04).timeout
+	_check(ui.visible and bool(ui.get("_is_open")),
+		"reopening cancels the stale close instead of hiding the newest mode")
 	_check((ui.get("_color_content") as Control).visible
 		and not (ui.get("_rename_content") as Control).visible,
 		"color mode owns one focused workflow")

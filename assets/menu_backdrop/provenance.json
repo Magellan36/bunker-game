@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "policy": "Every non-code asset referenced by the main menu or its surface backdrop (models, textures, skies, audio, fonts) must have a human author and a licence recorded here before release. AI-generated content is not permitted. Checked by tools/tests/check_menu_backdrop_slots.py --release.",
+  "assets": [
+    {
+      "path": "res://assets/models/industrial_wall_lamp.glb",
+      "use": "Warm lamp over the bunker entrance (BunkerEntrance slot)",
+      "author": "CONFIRM: Poly Haven artist (see Poly Haven asset page)",
+      "source": "https://polyhaven.com",
+      "license": "CC0",
+      "ai_generated": false
+    }
+  ]
+}

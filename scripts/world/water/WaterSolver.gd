@@ -30,8 +30,8 @@ class_name WaterSolver
 ##
 ## DESIGN — same `_graph` back-reference pattern as PowerGraph/PowerRegistry/
 ## PowerSolver's split. Pure read-only queries against the graph; holds no
-## state of its own between calls (matches this system's existing "compute
-## live, no persistence" convention from Phase 1/Step 2).
+## state of its own between calls. WaterManager may cache the returned values,
+## but the solver itself remains a pure, stateless calculation.
 
 const PRIORITY_MIN: int = 1
 const PRIORITY_MAX: int = 5
@@ -66,8 +66,11 @@ func _read_demand(ref: Node) -> float:
 ## skipped entirely (used by get_dynamic_max_for_device() to look at every
 ## OTHER device while reasoning about one specific device's own ceiling).
 func _group_by_tier(hookup_key: String, exclude_key: String = "") -> Dictionary:
+	return _group_keys_by_tier(_graph.get_reachable_endpoint_keys(hookup_key), exclude_key)
+
+func _group_keys_by_tier(endpoint_keys: Array[String], exclude_key: String = "") -> Dictionary:
 	var by_tier: Dictionary = {}
-	for key: String in _graph.get_reachable_endpoint_keys(hookup_key):
+	for key: String in endpoint_keys:
 		if key == exclude_key:
 			continue
 		var ref: Node = _graph.get_consumer_ref(key)
@@ -86,9 +89,26 @@ func _group_by_tier(hookup_key: String, exclude_key: String = "") -> Dictionary:
 ## the returned dict simply never registered (or has 0 demand); treat a
 ## missing key the same as 0.0 received.
 func solve_for_hookup(hookup_key: String, total_supply_mL_per_day: float) -> Dictionary:
+	return solve_snapshot_for_hookup(hookup_key, total_supply_mL_per_day).get("received", {})
+
+
+## Computes allocation and every consumer's current slider ceiling from one
+## shared tier grouping. WaterManager runs this at a bounded cadence and serves
+## all trays/devices from that immutable snapshot until the next refresh.
+func solve_snapshot_for_hookup(hookup_key: String, total_supply_mL_per_day: float,
+		endpoint_keys: Array[String] = []) -> Dictionary:
 	var received: Dictionary = {}
-	var by_tier: Dictionary = _group_by_tier(hookup_key)
+	var dynamic_max: Dictionary = {}
+	var demand_by_key: Dictionary = {}
+	var by_tier: Dictionary = _group_keys_by_tier(endpoint_keys) if not endpoint_keys.is_empty() else _group_by_tier(hookup_key)
 	var remaining: float = maxf(0.0, total_supply_mL_per_day)
+	for tier: int in range(PRIORITY_MIN, PRIORITY_MAX + 1):
+		if not by_tier.has(tier):
+			continue
+		for entry: Dictionary in by_tier[tier]:
+			var entry_key: String = entry["key"]
+			demand_by_key[entry_key] = entry["demand"]
+			dynamic_max[entry_key] = 0.0
 
 	for tier: int in range(PRIORITY_MIN, PRIORITY_MAX + 1):
 		if not by_tier.has(tier):
@@ -97,6 +117,11 @@ func solve_for_hookup(hookup_key: String, total_supply_mL_per_day: float) -> Dic
 		var tier_requested: float = 0.0
 		for e: Dictionary in entries:
 			tier_requested += e["demand"]
+		## This is algebraically identical to get_dynamic_max_for_device():
+		## supply remaining after higher tiers, less every OTHER request in
+		## this tier. Computing it here avoids regrouping the graph per device.
+		for e: Dictionary in entries:
+			dynamic_max[e["key"]] = maxf(0.0, remaining - (tier_requested - float(e["demand"])))
 
 		if tier_requested <= 0.0:
 			continue   ## Nothing requested this tier -- nothing to hand out, remaining untouched.
@@ -120,7 +145,11 @@ func solve_for_hookup(hookup_key: String, total_supply_mL_per_day: float) -> Dic
 						received[e2["key"]] = 0.0
 			break
 
-	return received
+	return {
+		"received": received,
+		"dynamic_max": dynamic_max,
+		"demand_by_key": demand_by_key,
+	}
 
 
 ## A device's dynamic slider maximum (plan §0): run the waterfall fully

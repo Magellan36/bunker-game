@@ -135,6 +135,19 @@ func _layout(ui: CanvasLayer) -> void:
 		check(ui._close_btn.is_visible_in_tree(), "close remains visible")
 		var scroll: ScrollContainer = view.get_node("%DetailsScroll") as ScrollContainer
 		check(scroll.size.x > 300 and scroll.size.y > 40, "usable details area")
+		var focus_inset: MarginContainer = scroll.get_node("FocusInset") as MarginContainer
+		var details_bounds: Rect2 = (focus_inset.get_node("Details") as Control).get_global_rect()
+		var status_bounds: Rect2 = (view.get_node("Panel/Margin/Content/StatusRow") as Control).get_global_rect()
+		check(absf(details_bounds.position.x - status_bounds.position.x) < 1.1 \
+			and absf(details_bounds.end.x - status_bounds.end.x) < 1.1,
+			"shared content edges: %s %s details=%s status=%s" % [ui.name, resolution, details_bounds, status_bounds])
+		var thumb := scroll.get_v_scroll_bar().get_theme_stylebox("grabber") as StyleBoxFlat
+		check(thumb.bg_color.is_equal_approx(BunkerDesign.IVORY.darkened(0.18)),
+			"shared ivory scrollbar: " + ui.name)
+		if scroll.get_v_scroll_bar().visible:
+			var details: Control = focus_inset.get_node("Details") as Control
+			check(details.get_global_rect().end.x <= scroll.get_v_scroll_bar().get_global_rect().position.x,
+				"scroll content clears bar: " + ui.name)
 		for item: Node in view.find_children("*", "Label", true, false):
 			var label: Label = item as Label
 			if label.is_visible_in_tree():
@@ -149,6 +162,23 @@ func _water() -> void:
 	var ui: CanvasLayer = panel("res://scripts/ui/water/WaterDispenserUI.gd")
 	ui.open(dispenser)
 	await _layout(ui)
+	check((ui._requested.get_node("Caption") as Label).get_theme_font_size("font_size") \
+		> (ui._requested.get_node("Value") as Label).get_theme_font_size("font_size"),
+		"water flow heading is larger than its value")
+	check(ui._storage.get_parent() is MarginContainer \
+		and ui._storage.get_parent().get_parent() is PanelContainer,
+		"stored water readout reuses the boxed inspector-card treatment")
+	check(not (ui._view.get_node("%NavigationHint") as Label).text.contains("Walk away") \
+		and not (ui._view.get_node("%NavigationHint") as Label).text.contains("WASD"),
+		"device footer keeps one concise navigation line")
+	check(not (ui._quality.get_node("Hint") as Label).visible,
+		"water quality removes redundant helper copy")
+	check(ui._toggle_btn.text == "POWER OFF" \
+		and ui._toggle_btn.theme_type_variation == &"BunkerPrimaryButton",
+		"powered dispenser uses blue POWER OFF action")
+	check(ui._priority_control.get_node_or_null("Title") == null \
+		and (ui._priority_control.get_node("PriorityCard/Inset/Controls/Value") as Label).text.ends_with("STANDARD"),
+		"water allocation is one uppercase tier row")
 	check(dispenser.writes == 0, "opening dispenser is read-only")
 	wm.maximum = 500.0
 	ui._refresh_data()
@@ -162,6 +192,9 @@ func _water() -> void:
 	ui._toggle_btn.grab_focus()
 	key(KEY_ENTER)
 	check(not dispenser.is_on, "keyboard toggle")
+	check(ui._toggle_btn.text == "POWER ON" \
+		and ui._toggle_btn.theme_type_variation == &"",
+		"powered-off dispenser uses subdued POWER ON action")
 	ui._on_priority_requested(0)
 	check(dispenser.priority == 1, "priority minimum")
 	ui._on_priority_requested(8)
@@ -234,7 +267,9 @@ func _farming() -> void:
 	var option: OptionButton = ui._seed_lock_dd[1]
 	option.show_popup()
 	await settle()
-	check(not ui._controller_nav.is_processing_input() and ui._controller_nav.is_active(), "popup owns input; world gate remains")
+	check(ui._controller_nav.is_processing_input() and ui._controller_nav.is_active() \
+		and ui._controller_nav._visible_popup() == option.get_popup(),
+		"popup keeps native focus while shared nav owns stick suppression and world gate")
 	option.get_popup().hide()
 	await settle()
 	check(ui._controller_nav.is_processing_input(), "nav restored after popup")
@@ -285,6 +320,13 @@ func _power_owners() -> void:
 	panels.append(gen_ui)
 	await _layout(gen_ui)
 	check(not player.interaction_system.build_mode_active, "generator does not pretend to enter build mode")
+	var watts := gen_ui._view.get_node("%Watts") as Label
+	check(watts.get_theme_color("font_color") == BunkerPanelStyle.BRASS.lightened(0.28) \
+		and watts.has_theme_stylebox_override("normal"),
+		"generator rated output uses boxed amber value treatment")
+	gen_ui.refresh(100.0, 100.0, false, true, false, "ONLINE")
+	check(not (gen_ui._view.get_node("%ActionHint") as Label).visible,
+		"running generator omits redundant shutdown warning")
 	pm.fuel = 19.0
 	generator.set_fuel(19.0)
 	await settle()
@@ -356,6 +398,8 @@ func _lifecycle() -> void:
 	# original position. Returning must NOT reopen it. Close emits once.
 	for ui: CanvasLayer in panels:
 		player.position = Vector3.ZERO
+		UIPanelLifecycle.prepare_open(ui)
+		ui._proximity.bind_position(Vector3.ZERO)
 		ui.visible = true
 		ui._is_open = true
 		ui.set_process(true)
@@ -405,10 +449,13 @@ func _lifecycle() -> void:
 	check(not ui.is_open(), "keyboard E closes")
 	ui.open(host)
 	# Input is polled like Player.gd; the open inspector must not lock it.
+	ui._toggle_btn.grab_focus()
 	var event := InputEventJoypadMotion.new()
 	event.axis = JOY_AXIS_LEFT_X
 	event.axis_value = 1.0
 	Input.parse_input_event(event)
+	await get_tree().process_frame
+	check(ui._toggle_btn.has_focus(), "left stick never changes inspector focus")
 	await get_tree().create_timer(0.2).timeout
 	event.axis_value = 0.0
 	Input.parse_input_event(event)

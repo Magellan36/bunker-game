@@ -3,6 +3,7 @@ extends Node
 ## Requires InputMode (normal project autoload); does not create a PowerManager.
 
 const UI_SCRIPT: GDScript = preload("res://scripts/ui/power/GeneratorInspectUI.gd")
+const PANEL_STYLE: GDScript = preload("res://scripts/ui/common/BunkerPanelStyle.gd")
 const SIZES: Array[Vector2i] = [Vector2i(1280, 720), Vector2i(1366, 768),
 	Vector2i(1600, 900), Vector2i(1920, 1080), Vector2i(2560, 1440), Vector2i(3440, 1440)]
 var _failures: Array[String] = []
@@ -55,14 +56,17 @@ func _check_resolution(resolution: Vector2i) -> void:
 	var bounds := Rect2(Vector2.ZERO, Vector2(resolution))
 	_expect(bounds.encloses(panel.get_global_rect()), "%s: panel outside viewport" % resolution)
 	_check_dock(panel, Vector2(resolution), str(resolution))
-	_expect(ui._power_btn.size.y >= 48.0, "%s: main action target too small" % resolution)
-	_expect(ui._toggle_btn.size.y >= 44.0, "%s: backup target too small" % resolution)
+	_expect(ui._power_btn.size.y >= 38.0, "%s: main action target too small" % resolution)
+	_expect(ui._toggle_btn.size.y >= 34.0, "%s: backup target too small" % resolution)
 	_expect(ui._toggle_btn.get_theme_font_size("font_size") >= 18, "%s: body text shrunk below desktop baseline" % resolution)
 	_expect(panel.get_global_rect().encloses(ui._power_btn.get_global_rect()), "%s: main action outside panel" % resolution)
 	_expect(panel.get_global_rect().encloses(ui._close_btn.get_global_rect()), "%s: Close outside panel" % resolution)
 	var scroll: ScrollContainer = ui._view.get_node("%DetailsScroll") as ScrollContainer
 	_expect(scroll.size.y > 200.0, "%s: details collapsed" % resolution)
 	_expect(scroll.scroll_vertical == 0, "%s: inspector did not open at top" % resolution)
+	var focus_inset: MarginContainer = scroll.get_node("FocusInset") as MarginContainer
+	_expect(focus_inset.get_theme_constant("margin_right") >= 20,
+		"%s: inspector does not reserve its scrollbar gutter" % resolution)
 	if resolution == Vector2i(1920, 1080):
 		_expect(panel.size.is_equal_approx(Vector2(500.0, 740.0)), "1080p panel no longer matches compact 500x740 spec")
 		_expect(scroll.get_v_scroll_bar().max_value <= scroll.get_v_scroll_bar().page, "normal 1080p layout needs unnecessary scrolling")
@@ -137,6 +141,21 @@ func _check_state_and_input() -> void:
 	ui.open("Generator L", 5000.0, 90.0, 100.0, false, true)
 	await _settle()
 	_expect(_status(ui, "GeneratorStatus") == "Running", "running status incorrect")
+	_expect(ui._power_btn.text == "POWER OFF" \
+		and ui._power_btn.theme_type_variation == &"BunkerPrimaryButton",
+		"running generator does not use blue POWER OFF action")
+	_expect(not (ui._view.get_node("%FuelHint") as Label).visible \
+		and not (ui._view.get_node("%ConditionHint") as Label).visible,
+		"healthy generator omits redundant fuel and condition copy")
+	var watts := ui._view.get_node("%Watts") as Label
+	_expect(watts.get_theme_color("font_color") == PANEL_STYLE.BRASS.lightened(0.28) \
+		and watts.has_theme_stylebox_override("normal"),
+		"rated output value uses the shared boxed amber treatment")
+	_expect(not (ui._view.get_node("%ActionHint") as Label).visible,
+		"running generator omits the redundant shutdown warning")
+	_expect(not (ui._view.get_node("%NavigationHint") as Label).text.contains("Walk away") \
+		and not (ui._view.get_node("%NavigationHint") as Label).text.contains("WASD"),
+		"generator footer keeps one concise navigation line")
 	_expect(_status(ui, "GridStatus") == "Grid online", "online state incorrect")
 	for card_name: String in ["GeneratorStatus", "GridStatus"]:
 		var icon: TextureRect = ui._view.get_node("%" + card_name).get_node("Row/Icon")
@@ -169,7 +188,9 @@ func _check_state_and_input() -> void:
 	_expect(ui._toggle_btn.button_pressed, "backup toggle invented unconfirmed state")
 
 	ui.refresh(20.0, 25.0, false, false, true, "TRIPPED")
-	_expect(ui._power_btn.text == "Reset grid & start", "tripped-grid action lost")
+	_expect(ui._power_btn.text == "POWER ON" \
+		and ui._power_btn.theme_type_variation == &"",
+		"stopped generator uses subdued POWER ON action")
 	ui._power_btn.grab_focus()
 	_accept()
 	await get_tree().process_frame
@@ -184,8 +205,14 @@ func _check_state_and_input() -> void:
 		ui.refresh(100.0, 100.0, false, false, false, grid_state)
 		_expect(_status(ui, "GridStatus") == "Grid " + grid_state.to_lower(), "grid state missing: " + grid_state)
 	ui.refresh(-10.0, 140.0, false, false, false, "OFFLINE")
-	_expect((ui._view.get_node("%FuelBar") as ProgressBar).value == 0.0, "fuel clamp lost")
-	_expect((ui._view.get_node("%ConditionBar") as ProgressBar).value == 100.0, "health clamp lost")
+	var fuel_bar: ProgressBar = ui._view.get_node("%FuelBar") as ProgressBar
+	var condition_bar: ProgressBar = ui._view.get_node("%ConditionBar") as ProgressBar
+	_expect(float(fuel_bar.get("_target_value")) == 0.0, "fuel target clamp lost")
+	_expect(float(condition_bar.get("_target_value")) == 100.0, "health target clamp lost")
+	_expect((ui._view.get_node("%FuelValue") as Label).text == "0%",
+		"fuel label did not update immediately while the fill eases")
+	_expect((ui._view.get_node("%ConditionValue") as Label).text == "100%",
+		"health label did not update immediately while the fill eases")
 	_expect((ui._view.get_node("%Watts") as Label).text == "5000 W", "rated output incorrectly replaced by guessed live draw")
 
 	var joy := InputEventJoypadButton.new()

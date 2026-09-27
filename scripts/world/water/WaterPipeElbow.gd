@@ -79,6 +79,15 @@ func rebuild_visual(leg_dirs: Array[Vector3]) -> void:
 	instance.transform = Transform3D(picked["basis"], Vector3.ZERO)
 	_fitting_instance = instance
 
+	## Dynamic shadow gate (Sep 2026) — a freshly built elbow fitting must
+	## never flash a shadow when Layer 2 is off. The scene-instance meshes
+	## default to cast ON; gate them immediately via BuildModeController's
+	## shared capture-consistent helper.
+	var _mw: Node = get_tree().get_first_node_in_group("main_world")
+	var _bc: Node = _mw.get("_build_controller") if _mw != null else null
+	if _bc != null and _bc.has_method("_apply_dynamic_shadow_to_node"):
+		_bc.call("_apply_dynamic_shadow_to_node", self)
+
 # ─── Pure math helpers (static, no state) — see plan §3 for full reasoning ──
 
 static func snap_to_axis(dir: Vector3) -> Vector3:

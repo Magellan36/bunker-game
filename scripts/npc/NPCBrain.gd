@@ -149,6 +149,12 @@ func tick(delta: float) -> void:
 	if _npc.is_passed_out() and not (_current is PassedOutActivity):
 		_switch_to(PassedOutActivity.new(), "passed out")
 
+	## Blocked doorway (flagged by NPC.nav_steer): abandon here, between
+	## activity ticks — never re-entrantly from inside the activity's tick.
+	if _npc.door_blocked:
+		_npc.door_blocked = false
+		if _current != null:
+			abandon_current("door won't open", 20.0)
 	if _current != null:
 		_current.tick(_npc, delta)
 		## Part 30 — explicit hand-off to a specific successor (Snatch →

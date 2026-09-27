@@ -25,8 +25,8 @@ uniform float tank_height : hint_range(0.05, 5.0) = 0.55;   // BOX_SIZE.y — bo
 uniform vec4 water_color : source_color = vec4(0.35, 0.85, 1.00, 1.0);   // matches WaterInfoUI.OK_COLOR
 uniform vec4 empty_color : source_color = vec4(0.26, 0.42, 0.48, 1.0);   // matches WaterDispenser.COLOR_BODY
 
-const float WATERLINE_BAND: float = 0.02;   // fraction of tank_height either side of the cutoff
-const vec4  WATERLINE_COLOR: vec4 = vec4(0.75, 0.97, 1.00, 1.0);   // bright highlight at the fill line
+const float WATERLINE_BAND = 0.02;   // fraction of tank_height either side of the cutoff
+const vec4  WATERLINE_COLOR = vec4(0.75, 0.97, 1.00, 1.0);   // bright highlight at the fill line
 
 varying float v_local_frac;
 

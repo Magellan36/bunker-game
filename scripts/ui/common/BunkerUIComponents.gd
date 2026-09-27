@@ -6,19 +6,25 @@ extends RefCounted
 ## hierarchy only; feature UIs keep their own data and gameplay contracts.
 
 const REDESIGN_THEME_PATH := "res://assets/ui/themes/BunkerRedesignTheme.tres"
+## ScrollContainer bars overlay their viewport in Godot. Content placed flush
+## to the right edge therefore sits beneath a visible vertical bar. Every
+## scrollable bunker surface reserves this presentation-only gutter.
+const SCROLLBAR_CONTENT_GUTTER: int = 20
 
 
 static func apply_theme(root: Control) -> void:
 	var resource: Resource = load(REDESIGN_THEME_PATH)
 	if resource is Theme:
 		root.theme = (resource as Theme).duplicate(true) as Theme
+		root.theme.default_font = UIKit.font()
+		BunkerControlTheme.install(root.theme)
 	else:
 		BunkerPanelStyle.apply(root)
 
 
 static func shell(panel: PanelContainer, radius: int = 12) -> void:
 	panel.add_theme_stylebox_override("panel", panel_box(
-		Color("111615f7"), BunkerPanelStyle.BRASS.darkened(0.08), radius, 1))
+		BunkerDesign.SHELL, BunkerPanelStyle.BRASS.darkened(0.08), radius, 1))
 
 
 static func panel_box(bg: Color, border: Color, radius: int = 8,
@@ -37,13 +43,28 @@ static func inset(child: Control, left: int = 18, top: int = 16,
 	return BunkerPanelStyle.margin(child, left, top, right, bottom)
 
 
+static func scroll_content(scroll: ScrollContainer, child: Control,
+		left: int = 2, top: int = 2, bottom: int = 2,
+		right: int = SCROLLBAR_CONTENT_GUTTER) -> MarginContainer:
+	var gutter := MarginContainer.new()
+	gutter.name = "ScrollContentGutter"
+	gutter.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	gutter.add_theme_constant_override("margin_left", left)
+	gutter.add_theme_constant_override("margin_top", top)
+	gutter.add_theme_constant_override("margin_right", right)
+	gutter.add_theme_constant_override("margin_bottom", bottom)
+	scroll.add_child(gutter)
+	gutter.add_child(child)
+	return gutter
+
+
 static func icon_well(symbol: String, side: float = 48.0,
 		tint: Color = BunkerPanelStyle.BLUE) -> PanelContainer:
 	var well := PanelContainer.new()
 	well.custom_minimum_size = Vector2(side, side)
 	well.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	well.add_theme_stylebox_override("panel", panel_box(
-		Color("202625"), BunkerPanelStyle.BRASS.darkened(0.35), 8, 1, 8))
+		BunkerDesign.SURFACE, BunkerPanelStyle.BRASS.darkened(0.35), 8, 1, 8))
 	var texture := TextureRect.new()
 	texture.name = "Icon"
 	texture.texture = BunkerPanelStyle.icon(symbol)
@@ -119,10 +140,13 @@ static func divider(parent: Container) -> HSeparator:
 	return separator
 
 
-static func style_segment(button: Button, compact: bool = false) -> void:
+static func style_segment(button: Button, compact: bool = false,
+		borderless: bool = false) -> void:
+	UIButtonMotion.attach(button)
 	button.focus_mode = Control.FOCUS_ALL
 	button.toggle_mode = true
-	button.custom_minimum_size.y = 38.0 if compact else 44.0
+	button.custom_minimum_size.y = (BunkerDesign.COMPACT_CONTROL_HEIGHT if compact
+		else BunkerDesign.CONTROL_HEIGHT)
 	button.add_theme_font_size_override("font_size", 12 if compact else 14)
 	button.add_theme_color_override("font_color", BunkerPanelStyle.MUTED)
 	button.add_theme_color_override("font_hover_color", BunkerPanelStyle.IVORY)
@@ -131,16 +155,20 @@ static func style_segment(button: Button, compact: bool = false) -> void:
 	button.add_theme_color_override("icon_hover_color", BunkerPanelStyle.BLUE)
 	button.add_theme_color_override("icon_pressed_color", BunkerPanelStyle.BLUE)
 	button.add_theme_constant_override("icon_max_width", 20 if compact else 24)
-	button.add_theme_stylebox_override("normal", panel_box(
-		Color("1a201f"), BunkerPanelStyle.BRASS.darkened(0.42), 7, 1, 7))
-	button.add_theme_stylebox_override("hover", panel_box(
-		Color("202b2e"), BunkerPanelStyle.BLUE.darkened(0.2), 7, 1, 7))
-	button.add_theme_stylebox_override("pressed", panel_box(
-		BunkerPanelStyle.BLUE_DARK, BunkerPanelStyle.BLUE, 7, 2, 6))
-	button.add_theme_stylebox_override("hover_pressed", panel_box(
-		BunkerPanelStyle.BLUE_DARK.lightened(0.07), BunkerPanelStyle.BLUE, 7, 2, 6))
+	var border_width: int = 0 if borderless else 1
+	button.add_theme_stylebox_override("normal", BunkerPanelStyle.button_box(
+		Color("1a201f"), BunkerPanelStyle.BRASS.darkened(0.42), 7, border_width))
+	button.add_theme_stylebox_override("hover", BunkerPanelStyle.button_box(
+		Color("202b2e"), BunkerPanelStyle.BLUE.darkened(0.2), 7, border_width))
+	button.add_theme_stylebox_override("pressed", BunkerPanelStyle.button_box(
+		BunkerPanelStyle.BLUE_DARK, BunkerPanelStyle.BLUE, 7,
+		0 if borderless else 2, 9, 3))
+	button.add_theme_stylebox_override("hover_pressed", BunkerPanelStyle.button_box(
+		BunkerPanelStyle.BLUE_DARK.lightened(0.07), BunkerPanelStyle.BLUE, 7,
+		0 if borderless else 2, 9, 3))
 	button.add_theme_stylebox_override("focus", panel_box(
-		Color.TRANSPARENT, BunkerPanelStyle.IVORY, 9, 2))
+		BunkerPanelStyle.BLUE_DARK if borderless else Color.TRANSPARENT,
+		BunkerPanelStyle.IVORY, 9, 0 if borderless else 2))
 
 
 static func style_tool(button: Button) -> void:
@@ -154,29 +182,36 @@ static func status_style(active: bool) -> StyleBoxFlat:
 	return panel_box(Color("1b2221"), BunkerPanelStyle.BRASS.darkened(0.34), 8, 1, 10)
 
 
-static func key_hint(parent: Container, key_text: String, action_text: String) -> void:
-	var group := HBoxContainer.new()
+static func key_hint(parent: Container, key_text: String, action_text: String,
+		keyboard_key: String = "", controller_key: String = "",
+		compact: bool = false) -> void:
+	var group := BunkerInputHint.new()
+	group.keyboard_key = keyboard_key if not keyboard_key.is_empty() else key_text
+	group.controller_key = controller_key if not controller_key.is_empty() else key_text
 	group.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	group.add_theme_constant_override("separation", 7)
+	group.add_theme_constant_override("separation", 5 if compact else 7)
 	parent.add_child(group)
 	var keycap := PanelContainer.new()
 	keycap.custom_minimum_size = Vector2(
-		maxf(34.0, float(key_text.length()) * 8.0 + 14.0), 24)
+		maxf(34.0, float(key_text.length()) * 8.0 + 14.0), 20 if compact else 24)
 	keycap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	keycap.add_theme_stylebox_override("panel", panel_box(
-		Color("252c2b"), BunkerPanelStyle.BRASS.darkened(0.1), 5, 1, 3))
+		BunkerDesign.SURFACE_ALT, BunkerPanelStyle.BRASS.darkened(0.1), 5, 1,
+		1 if compact else 3))
 	group.add_child(keycap)
 	var key := Label.new()
 	key.text = key_text
 	key.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	key.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	key.add_theme_font_size_override("font_size", 11)
+	key.add_theme_font_size_override("font_size", 10 if compact else 11)
 	key.add_theme_color_override("font_color", BunkerPanelStyle.IVORY)
 	key.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	keycap.add_child(key)
+	group.key_label = key
+	group.keycap = keycap
 	var action := Label.new()
 	action.text = action_text
 	action.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	action.add_theme_font_size_override("font_size", 12)
+	action.add_theme_font_size_override("font_size", 11 if compact else 12)
 	action.add_theme_color_override("font_color", BunkerPanelStyle.MUTED)
 	group.add_child(action)

@@ -3,8 +3,6 @@ extends SceneTree
 ## Run with:
 ## godot --headless --path . --script res://tools/tests/hud_time_cash_smoke.gd
 
-const HUD_SCENE: PackedScene = preload("res://scenes/ui/HUD.tscn")
-
 var _failures: int = 0
 
 
@@ -13,7 +11,10 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	var hud: CanvasLayer = HUD_SCENE.instantiate() as CanvasLayer
+	root.size = Vector2i(1920, 1080)
+	await process_frame
+	var hud_scene: PackedScene = load("res://scenes/ui/HUD.tscn") as PackedScene
+	var hud: CanvasLayer = hud_scene.instantiate() as CanvasLayer
 	root.add_child(hud)
 	await process_frame
 

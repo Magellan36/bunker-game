@@ -19,13 +19,15 @@ const TARGETS := [
 	"res://scripts/ui/build/ShopPanel.gd",
 	"res://scripts/ui/build/BuildWorkspace.gd",
 	"res://scripts/ui/build/BuildModeHUD.gd",
+	"res://scripts/world/build/BuildMaterials.gd",
+	"res://scripts/world/build/GhostModelBuilder.gd",
+	"res://scripts/world/build/MoveDuplicateTool.gd",
+	"res://scripts/world/build/BuildUndoStack.gd",
 	"res://scripts/world/build/FarmingShopHelper.gd",
 	"res://scripts/world/build/BuildModeController.gd",
 	"res://scripts/player/Player.gd",
 	"res://scripts/ui/character_creation/CharacterPreviewViewport.gd",
 ]
-const STORAGE_UI_SCRIPT: GDScript = preload("res://scripts/ui/inventory/StorageUI.gd")
-
 var failures := 0
 
 class FakeItem:
@@ -82,6 +84,8 @@ func _initialize() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
+	root.size = Vector2i(1920, 1080)
+	await process_frame
 	for path in TARGETS:
 		var resource := ResourceLoader.load(path)
 		_check(
@@ -90,6 +94,7 @@ func _run() -> void:
 			"loads %s" % path)
 	_test_cart()
 	_test_checkout_guards()
+	_test_build_tool_highlight_contracts()
 	_test_panel_geometry()
 	_test_item_details()
 	await _test_runtime_ui()
@@ -98,24 +103,83 @@ func _run() -> void:
 		print("UI_REHAUL_SMOKE_OK: %d scripts + cart/geometry contracts" % TARGETS.size())
 	quit(failures)
 
+func _test_build_tool_highlight_contracts() -> void:
+	var controller := BuildModeController.new()
+	controller._materials = BuildMaterials.new(controller)
+	controller._build_ghost_materials()
+
+	## Root meshes and ShaderMaterial overrides both occur in imported object
+	## trees. A complete hover cycle must cover the root and restore its exact
+	## material type rather than narrowing it to StandardMaterial3D.
+	var visual := MeshInstance3D.new()
+	visual.mesh = BoxMesh.new()
+	var original := ShaderMaterial.new()
+	visual.set_surface_override_material(0, original)
+	controller._set_hover_highlight(visual, controller._mat_hover)
+	_check(visual.get_surface_override_material(0) == controller._mat_hover,
+		"build tool highlight covers a MeshInstance3D root")
+	controller._clear_hover_glow()
+	_check(visual.get_surface_override_material(0) == original,
+		"build tool highlight restores ShaderMaterial overrides exactly")
+
+	var ordinary := {"player_placed": true, "tile_id": controller.TILE_CHAIR}
+	var level := {"player_placed": false, "tile_id": controller.TILE_WALL}
+	var station := {"player_placed": true, "tile_id": controller.TILE_BUILD_STATION}
+	var purifier := {"player_placed": true, "tile_id": controller.TILE_WATER_PURIFIER}
+	_check(controller._entry_supports_tool(ordinary, 1)
+		and controller._entry_supports_tool(ordinary, 2)
+		and controller._entry_supports_tool(ordinary, 3),
+		"ordinary build objects share delete/duplicate/move targeting")
+	_check(not controller._entry_supports_tool(level, 1),
+		"level geometry stays outside player modification tools")
+	_check(not controller._entry_supports_tool(station, 1)
+		and not controller._entry_supports_tool(station, 2)
+		and controller._entry_supports_tool(station, 3),
+		"singleton stations are move-only")
+	_check(not controller._entry_supports_tool(purifier, 3),
+		"pipe-graph purifier cannot be visually moved away from its graph node")
+
+	## Move cancel only restores the source root. Child visibility is object
+	## state and must not be overwritten by the build tool.
+	var source := Node3D.new()
+	var hidden_state_mesh := MeshInstance3D.new()
+	hidden_state_mesh.visible = false
+	source.add_child(hidden_state_mesh)
+	source.visible = false
+	controller._move_source_body = source
+	var move_tool := MoveDuplicateTool.new(controller)
+	move_tool._cancel_move_confirm()
+	_check(source.visible and not hidden_state_mesh.visible,
+		"move cancellation preserves intentional child visibility")
+
+	visual.free()
+	source.free()
+	controller.free()
+
 func _test_runtime_ui() -> void:
 	var hud_script := load("res://scripts/ui/build/BuildModeHUD.gd") as GDScript
 	var hud: CanvasLayer = hud_script.new()
 	root.add_child(hud)
 	await process_frame
 	hud.show_hud()
+	await process_frame
 	var workspace: Control = hud.get("_workspace")
 	_check(workspace != null, "build workspace instantiates")
-	_check(workspace.catalog.size.x <= 500.0 and workspace.catalog.size.y <= 620.0,
-		"build catalog keeps compact desktop proportions")
+	_check(workspace.catalog.size.x <= 440.0 and workspace.catalog.size.y <= 760.0,
+		"build catalog matches the approved Storage-sized target bounds")
 	var viewport_size := root.get_viewport().get_visible_rect().size
 	_check(workspace.catalog.position.y + workspace.catalog.size.y <= viewport_size.y,
-		"build catalog remains inside the viewport after minimum-size calculation")
+		"build catalog remains inside the viewport after minimum-size calculation (%s + %s <= %s)" % [workspace.catalog.position.y, workspace.catalog.size.y, viewport_size.y])
 	_check(workspace.catalog.custom_maximum_size == workspace.catalog.size,
 		"build catalog has an authoritative maximum bound")
 	var object_grid: GridContainer = workspace.catalog.get("_items") as GridContainer
 	_check(object_grid != null and object_grid.columns == 2,
 		"build catalog presents large previews in a two-column object grid")
+	var object_scroll: ScrollContainer = workspace.catalog.get("_scroll") as ScrollContainer
+	var object_gutter: MarginContainer = object_grid.get_parent() as MarginContainer
+	_check(object_scroll != null and object_gutter.name == "ScrollContentGutter" \
+		and object_gutter.get_theme_constant("margin_right") >= 20,
+		"build cards reserve room for the visible scrollbar")
 	var first_card: Control = workspace.catalog.get("_first_item") as Control
 	_check(first_card != null and first_card.custom_minimum_size.y >= 160.0,
 		"build cards reserve enough height for previews and information bands")
@@ -126,11 +190,38 @@ func _test_runtime_ui() -> void:
 	var category_grid: GridContainer = workspace.catalog.get("_category_grid") as GridContainer
 	_check(category_grid != null and category_grid.columns == 4,
 		"build categories are immediate labeled controls instead of a dropdown")
-	_check(workspace.catalog.get("_mode_card") != null,
-		"build catalog has an explicit browse/placement state block")
+	var category_icons_consistent := true
+	for node: Node in category_grid.get_children():
+		var category_button := node as Button
+		category_icons_consistent = category_icons_consistent \
+			and not category_button.expand_icon \
+			and category_button.get_theme_constant("icon_max_width") == 16
+		_check(category_button.get_global_rect().end.x <= workspace.catalog.get_global_rect().end.x - 10,
+			"category button stays inside the rail: " + category_button.text)
+		_check(category_button.size.x >= category_button.get_minimum_size().x,
+			"category label and icon fit their button: " + category_button.text)
+	_check(category_icons_consistent,
+		"build categories retain one fixed icon canvas regardless of label width")
+	_check(workspace.catalog.find_child("PlacementState", true, false) == null,
+		"build catalog omits the redundant placement state block")
+	for resolution in [Vector2i(1280, 720), Vector2i(1366, 768), Vector2i(1920, 1080), Vector2i(2560, 1440), Vector2i(3440, 1440), Vector2i(3840, 2160)]:
+		root.size = resolution
+		await process_frame
+		await process_frame
+		for category_button: Button in category_grid.get_children():
+			_check(category_button.get_global_rect().end.x <= workspace.catalog.get_global_rect().end.x - 10,
+				"category fits at %s: %s" % [resolution, category_button.text])
+	root.size = Vector2i(1920, 1080)
+	await process_frame
+	await process_frame
+	var object_viewport := workspace.catalog.get("_scroll_viewport") as Control
+	_check(not _contains_label_text(workspace.catalog,
+		"Placement is charged only when the object is built") \
+		and object_viewport.get_global_rect().end.y >= workspace.catalog.get_global_rect().end.y - 30.0,
+		"build object selection extends through the removed footer space")
 	_check(workspace.shop.size.x >= 900.0 and workspace.shop.size.x <= 1380.0 \
 		and workspace.shop.size.y <= 780.0,
-		"shop uses a bounded desktop workspace")
+		"shop uses a bounded desktop workspace (%s)" % workspace.shop.size)
 	var products: GridContainer = workspace.shop.get("_products") as GridContainer
 	_check(products != null and products.columns == 3,
 		"shop uses a three-column premium product catalog")
@@ -154,6 +245,23 @@ func _test_runtime_ui() -> void:
 		"catalog remains open while an object is being placed")
 	_check(int(workspace.catalog.get("_selected_tile_id")) == int(first_item.tile_id),
 		"active placement remains visibly selected in the open catalog")
+	hud.set_ghost_active(true)
+	await process_frame
+	var build_cursor: Control = hud.get("_cursor") as Control
+	_check(build_cursor.visible,
+		"active placement keeps the custom Build cursor while the catalog remains open")
+	var build_plate: PanelContainer = workspace.get("_banner_panel") as PanelContainer
+	var helper: PanelContainer = workspace.get("_helper_panel") as PanelContainer
+	_check(build_plate.position.y >= 60.0,
+		"Build Mode plate clears the persistent clock HUD")
+	_check(workspace.shop_button.position.y >= 56.0 \
+		and workspace.shop_button.size.is_equal_approx(Vector2(162, 40)) \
+		and workspace.shop_button.text.is_empty() \
+		and _contains_label_text(workspace.shop_button, "SHOP"),
+		"SHOP shortcut matches the compact Cash HUD footprint below it")
+	_check(helper.size.y <= 28.0,
+		"placement helper keeps the notification lane clear")
+	hud.set_ghost_active(false)
 	hud.open_shop_menu()
 	await process_frame
 	_check(workspace.shop.visible and not workspace.catalog.visible, "shop opens its own overlay")
@@ -166,13 +274,18 @@ func _test_runtime_ui() -> void:
 	var plus_button: Button = cart_targets.get("2:plus") as Button
 	if plus_button != null:
 		plus_button.grab_focus()
+	var cart_scroll: ScrollContainer = workspace.shop.get("_cart_scroll") as ScrollContainer
+	var prior_scroll: int = cart_scroll.scroll_vertical
 	shop_cart.change(2, 1)
 	await process_frame
 	await process_frame
 	cart_targets = workspace.shop.get("_cart_focus_targets") as Dictionary
 	var restored_plus: Button = cart_targets.get("2:plus") as Button
-	_check(plus_button != null and root.get_viewport().gui_get_focus_owner() == restored_plus,
-		"cart quantity refresh restores the exact controller focus target")
+	_check(plus_button != null and restored_plus == plus_button \
+		and root.get_viewport().gui_get_focus_owner() == restored_plus,
+		"cart quantity refresh retains the exact controller focus target")
+	_check(cart_scroll.scroll_vertical == prior_scroll,
+		"cart quantity refresh preserves its exact scroll position")
 	## Reproduce the reported lifecycle: leave Build Mode while Shop owns the
 	## workspace, then enter again. The catalog and shared dock must be restored
 	## without relying on any remembered child visibility.
@@ -195,17 +308,51 @@ func _test_runtime_ui() -> void:
 	_check(ControllerUINavigation.owns_directional_input(self), "build workspace owns d-pad focus")
 	_check(not ControllerUINavigation.blocks_world_cursor_input(self),
 		"build workspace leaves its right-stick pointer active")
+	var build_nav: ControllerUINavigation = workspace.get("_controller_nav") as ControllerUINavigation
+	_check(build_nav.mouse_cursor_required,
+		"open build catalog requests the mouse cursor in keyboard mode")
+	workspace.catalog.call("_category_changed", "Structure")
+	build_nav.call("_cycle_tabs", 1)
+	_check(String(workspace.catalog.get("_category")) == "Furniture",
+		"RB cycles Construct categories while the catalog is open")
+	build_nav.call("_cycle_tabs", -1)
+	_check(String(workspace.catalog.get("_category")) == "Structure",
+		"LB returns to the previous Construct category")
 	hud.close_workspace_menu()
+	await process_frame
+	build_nav.call("_cycle_tabs", 1)
+	_check(int(hud.get("active_tool")) == 3,
+		"RB cycles tools when the Construct catalog is closed")
 	await process_frame
 	_check(ControllerUINavigation.owns_directional_input(self),
 		"toolbar remains controller-navigable when catalogs are closed")
+	_check(not build_nav.mouse_cursor_required,
+		"build placement returns cursor ownership to the in-world tool")
 	await _test_focusable_scrollbar()
-	var storage: CanvasLayer = STORAGE_UI_SCRIPT.new()
+	var storage_script: GDScript = load("res://scripts/ui/inventory/StorageUI.gd") as GDScript
+	var storage: CanvasLayer = storage_script.new()
 	root.add_child(storage)
 	await process_frame
 	var storage_panel: PanelContainer = storage.get("_panel")
 	_check(storage_panel != null and storage_panel.size.x <= 460.0,
 		"storage inspector is a compact in-world rail")
+	var storage_grid: GridContainer = storage.get("_grid") as GridContainer
+	var storage_gutter: MarginContainer = storage_grid.get_parent() as MarginContainer
+	_check(storage_gutter.name == "ScrollContentGutter" \
+		and storage_gutter.get_theme_constant("margin_right") >= 20,
+		"storage slots reserve room for the visible scrollbar")
+	var storage_card_script := load("res://scripts/ui/common/BunkerItemCard.gd") as GDScript
+	var empty_card: Button = storage_card_script.new() as Button
+	root.add_child(empty_card)
+	await process_frame
+	_check(empty_card.custom_minimum_size.y <= 126.0 \
+		and not _contains_label_text(empty_card, "AVAILABLE"),
+		"empty storage slots omit the redundant Available line and stay compact")
+	_check(storage.get("_capacity_bar") == null,
+		"storage capacity no longer spends vertical space on a fill bar")
+	_check(not _contains_label_text(storage, "STORAGE CAPACITY"),
+		"storage removes the entire capacity card")
+	empty_card.free()
 	storage.free()
 
 func _test_focusable_scrollbar() -> void:
@@ -225,10 +372,41 @@ func _test_focusable_scrollbar() -> void:
 	nav.call("_prepare_scrollbars", ui)
 	var bar := scroll.get_v_scroll_bar()
 	_check(bar.focus_mode == Control.FOCUS_ALL, "visible scrollbar becomes a controller focus target")
+	var entry := Button.new()
+	entry.text = "Item"
+	entry.position = Vector2(10, 10)
+	content.add_child(entry)
+	await process_frame
+	await process_frame
+	entry.grab_focus()
+	nav.set("_move_cooldown", 0.0)
+	nav.call("_move_focus", Vector2.RIGHT)
+	_check(bar.has_focus(), "right from content reaches its scrollbar")
+	nav.set("_move_cooldown", 0.0)
+	nav.call("_move_focus", Vector2.LEFT)
+	_check(entry.has_focus(), "left from scrollbar returns to content")
 	bar.grab_focus()
 	var before := bar.value
 	var handled: bool = nav.call("_adjust_focused_range", Vector2.DOWN, 1.0)
-	_check(handled and bar.value > before, "focused scrollbar scrolls with directional input")
+	_check(handled and float(bar.get_meta(UIScrollMotion.TARGET, before)) > before,
+		"focused scrollbar accepts directional input immediately")
+	await create_timer(UIMotion.SCROLL + 0.02).timeout
+	_check(bar.value > before, "focused scrollbar completes its smooth step")
+	var upper := Button.new()
+	upper.text = "Upper"
+	upper.position = Vector2(300, 0)
+	ui.add_child(upper)
+	var lower := Button.new()
+	lower.text = "Lower"
+	lower.position = Vector2(300, 60)
+	ui.add_child(lower)
+	upper.grab_focus()
+	var left_stick := InputEventJoypadMotion.new()
+	left_stick.axis = JOY_AXIS_LEFT_Y
+	left_stick.axis_value = 1.0
+	root.get_viewport().push_input(left_stick)
+	await process_frame
+	_check(upper.has_focus(), "left stick is hard-blocked from UI focus navigation")
 	ui.free()
 
 func _test_storage_contract() -> void:
@@ -237,7 +415,8 @@ func _test_storage_contract() -> void:
 	root.add_child(player)
 	var target := FakeStorage.new()
 	root.add_child(target)
-	var storage := STORAGE_UI_SCRIPT.new() as CanvasLayer
+	var storage_script: GDScript = load("res://scripts/ui/inventory/StorageUI.gd") as GDScript
+	var storage := storage_script.new() as CanvasLayer
 	storage.inventory = FakeInventory.new()
 	storage.add_child(storage.inventory)
 	root.add_child(storage)
@@ -263,6 +442,13 @@ func _test_storage_contract() -> void:
 	var shown_ids: Array = storage.get("_shown_ids")
 	_check(shown_ids[0] == (target.slots[2] as Node).get_instance_id(),
 		"storage preserves physical display_order mapping")
+	var storage_cards: Array = storage.get("_cards") as Array
+	(storage_cards[1] as Button).grab_focus()
+	var storage_nav: ControllerUINavigation = storage.get("_controller_nav") as ControllerUINavigation
+	storage_nav.set("_move_cooldown", 0.0)
+	storage_nav.call("_move_focus", Vector2.LEFT)
+	_check((storage_cards[0] as Button).has_focus(),
+		"storage D-pad left follows the visible row instead of moving down")
 	storage.call("_select", 0)
 	storage.call("_take_for_inventory")
 	_check(storage.is_open, "inventory transfer keeps storage open")
@@ -330,6 +516,13 @@ func _test_item_details() -> void:
 func _contains_button_text(root_node: Node, expected: String) -> bool:
 	for candidate: Node in root_node.find_children("*", "Button", true, false):
 		if candidate is Button and (candidate as Button).text == expected:
+			return true
+	return false
+
+
+func _contains_label_text(root_node: Node, expected: String) -> bool:
+	for node: Node in root_node.find_children("*", "Label", true, false):
+		if (node as Label).text == expected:
 			return true
 	return false
 

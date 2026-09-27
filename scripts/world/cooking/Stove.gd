@@ -26,6 +26,19 @@ const MODEL_PATH:  String  = "res://assets/models/stove.glb"
 const MODEL_SCALE: Vector3 = Vector3(0.7257, 0.7257, 0.7257)
 const FOOTPRINT_X: float = 0.85
 const FOOTPRINT_Z: float = 0.7768
+const NPC_WORK_STANDOFF: float = 0.75
+
+func get_npc_interaction_slots(_action: StringName) -> Array[Dictionary]:
+	## The controls and cooking surface face local +Z. One authored slot keeps
+	## residents out of the stove collider and gives work a stable facing.
+	var basis: Basis = global_transform.basis.orthonormalized()
+	var position: Vector3 = global_transform * Vector3(
+		0.0, 0.0, FOOTPRINT_Z * 0.5 + NPC_WORK_STANDOFF)
+	return [{
+		"slot_id": &"front",
+		"claim_group": &"front",
+		"transform": Transform3D(basis, position),
+	}]
 const MODEL_HEIGHT: float = 1.1558
 
 const COLOR_LIGHT_ON:  Color = Color(0.30, 1.00, 0.40, 1.0)   ## green, matches HeavyConsumerTest's COLOR_ON
@@ -115,66 +128,6 @@ func _register_deferred() -> void:
 		"stove",
 		1,        ## priority — appliance-tier, not life-support
 		false)    ## NOT active from the start
-
-	_auto_connect_to_nearby_wires(pm)
-
-
-## Copied (pattern) from GrowLight._auto_connect_to_nearby_wires() — confirmed
-## Aug 2026 that the Stove should auto-connect like every other consumer.
-func _auto_connect_to_nearby_wires(pm: PowerManager) -> void:
-	if _pm_node_key == "":
-		return
-	const AUTO_CONNECT_RADIUS: float = 0.75
-	var my_pos: Vector3 = global_position
-
-	var edge_endpoint_keys: Dictionary = {}
-	var edges: Array[Dictionary] = pm.get_wire_edges()
-	for ed: Dictionary in edges:
-		var na: String = ed.get("node_a", "")
-		var nb: String = ed.get("node_b", "")
-		if not na.is_empty(): edge_endpoint_keys[na] = true
-		if not nb.is_empty(): edge_endpoint_keys[nb] = true
-
-	var best_key:  String = ""
-	var best_dist: float  = AUTO_CONNECT_RADIUS + 0.001
-
-	for pass_idx: int in range(2):
-		for wn: Dictionary in pm.get_wire_nodes():
-			var wn_key: String = wn.get("key", "")
-			if wn_key == _pm_node_key:
-				continue
-			if wn.get("role", "joint") != "joint":
-				continue
-			if pass_idx == 0 and not edge_endpoint_keys.has(wn_key):
-				continue
-			var wn_pos: Vector3 = wn.get("pos", Vector3.ZERO)
-			var dx: float = wn_pos.x - my_pos.x
-			var dz: float = wn_pos.z - my_pos.z
-			var dist: float = sqrt(dx * dx + dz * dz)
-			if dist < best_dist:
-				best_dist = dist
-				best_key  = wn_key
-		if best_key != "":
-			break
-
-	if best_key != "":
-		var ac_eid: String = pm.register_wire_edge(_pm_node_key, best_key, null, true)
-		pm.set_wire_edge_no_visual(ac_eid)
-
-
-## Called by BuildModeController after a new wire node is placed nearby.
-func notify_wire_placed(wn_key: String, wn_pos: Vector3) -> void:
-	if _pm_node_key == "":
-		return
-	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
-	if pm == null:
-		return
-	const AUTO_CONNECT_RADIUS: float = 0.75
-	var dx: float = wn_pos.x - global_position.x
-	var dz: float = wn_pos.z - global_position.z
-	if sqrt(dx * dx + dz * dz) <= AUTO_CONNECT_RADIUS:
-		var nw_eid: String = pm.register_wire_edge(_pm_node_key, wn_key, null, true)
-		pm.set_wire_edge_no_visual(nw_eid)
 
 
 # ─── PowerManager callbacks (required interface) ──────────────────────────────
@@ -266,6 +219,15 @@ func get_interact_prompt() -> String:
 	if not powered_on and not _is_grid_connected():
 		return "Stove Not Connected"
 	return "[E] Turn Stove %s" % ("Off" if powered_on else "On")
+
+## Lower world anchor for the stove's hover panel (Sep 2026). The stove is a
+## tall StaticBody3D (MODEL_HEIGHT 1.156) and the generic CASE-2 anchor (its
+## origin + InteractPrompt's flat 1.2m offset) parks the "Turn Stove On/Off"
+## panel high against the appliance. Return a point 0.30m below our origin so
+## the panel reads clearly lower, tucked low against the stove body rather
+## than floating above it (dropped further per feedback).
+func get_prompt_world_pos() -> Vector3:
+	return global_position + Vector3(0.0, -0.30, 0.0)
 
 
 # ─── Pot slot management (called by InteractionSystem, Part D) ──────────────
@@ -419,6 +381,11 @@ func npc_set_powered(on: bool) -> bool:
 	_refresh_cooking_state()
 	_refresh_indicator()
 	return true
+
+## Side-effect-free availability query for autonomous NPC scoring. Commands
+## still call npc_set_powered(), which remains the authoritative mutation.
+func npc_can_power_on() -> bool:
+	return powered_on or _is_grid_connected()
 
 
 # ─── Cooking-active / power-draw logic ────────────────────────────────────────

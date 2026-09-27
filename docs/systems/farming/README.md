@@ -64,21 +64,45 @@ The water/power systems have managers because they solve a *shared graph*
 - **Grow lights** (`GrowLight.gd`, `scripts/world/power/` — NOT
   `scripts/world/farming/`, since structurally it's a `PowerManager`
   consumer device like `WallLight`) — `tier` export ("normal"/"pro"),
-  75W/100W, both default priority 3. Auto-connects to the nearest wire node
-  within 0.75m exactly like `WallLight._auto_connect_to_nearby_wires()`.
+  75W/100W, both default priority 3. As a free-standing consumer it requires
+  an explicit player-drawn wire connection; proximity alone does not connect it.
   Growth contract read by `FarmPlant` via a **nearest-light-within-radius
   match** (no parent/child relationship, no registration handshake):
   `get_active_growth_speed() -> float` (0.0 unpowered/shed, 0.5 normal,
   1.0 pro). Not wall-snapped, not required to sit above a tray — placeable
-  anywhere in the bunker, fixed height `GROW_LIGHT_PLACEMENT_Y = 2.625`
-  (Polish Plan Group 0 item 20: derived as `WALL_HEIGHT_M * 7.0/8.0`, now
-  sitting slightly *below* the 3.2m pipe layer — was `2.75` pre-revision,
-  visual-only change). 4 thin unlit dark-grey `CylinderMesh` corner support
-  wires run from the fixture up to the 3.0m ceiling
-  (`WIRE_LENGTH = WALL_HEIGHT_M * 1.0/8.0 = 0.375m`, both constants live in
-  `GrowLight.gd`/`BuildModeController.gd` mirroring each other, same
-  "two independent constants, same value" pattern `WaterPipeDrawMode.
-  WATER_CEILING_Y` already documents).
+  anywhere in the bunker, fixed height `GROW_LIGHT_PLACEMENT_Y = 3.28125`
+  (was `WALL_HEIGHT_M * 7.0/8.0 = 2.625`; raised **1.25x** in Sep 2026 after
+  the hand-made OBJ swap so the fixture's baked-in ceiling-mount panels —
+  which run UP from the node — keep the lit tubes reading as ceiling-mounted).
+  Derivation is `WALL_HEIGHT_M * 7.0/8.0 * 1.25` in `BuildModeController.gd`
+  (Polish Plan Group 0 item 20's named constant, not a separate literal).
+  **Visual (Sep 2026 — hand-made OBJ swap):** the procedural fixture
+  (3 `CylinderMesh` tubes + box cover + 4 thin corner support wires) was
+  replaced by hand-made Tinkercad models in `assets/models/grow_light/`.
+  Per tier there are two OBJs loaded in `_load_fixture_models()`:
+  - **`*_unpowered/tinker.obj`** — the full physical fixture (dark cover
+    plate + translucent white tubes + two tall ceiling-mount support panels
+    baked into the mesh). Always shown, mood-overridden to match the bunker
+    theme (`_apply_mood_override_to_base()` skips the translucent tube
+    surfaces). Replaces both the old cover/tubes AND the 4 procedural
+    `_build_support_wires()` corner wires.
+  - **`*_powered/tinker.obj`** — only the 3 glowing tubes, authored at
+    byte-identical coordinates to the tubes inside the unpowered fixture so
+    the glow overlays them exactly. Shown only when lit/shed via
+    `_refresh_glow()`; its material is a fresh emission-driven
+    `StandardMaterial3D` (regular tier glows warm white, pro glows cool
+    cyan — matching each Powered MTL albedo) instead of the old per-tube
+    `_tube_mats`.
+  `MODEL_SCALE = 0.035` maps the 20-unit plate to the 0.70m footprint used
+  by the collision/ghost boxes (tube thickness 2u → 0.07m = old
+  `TUBE_RADIUS 0.035` exactly). Support panels rise 0.537m above the fixture
+  (slightly past the 3.0m wall line at standard placement — accepted).
+  **Normals (Sep 2026):** both OBJs are run through
+  `BuildMaterials.build_auto_smooth_mesh()` (45° auto-smooth) at load —
+  the Tinkercad OBJs ship with no vertex normals, and Godot's importer
+  smooth-averages them, which smeared the flat plate top into the visible
+  "needles to center" shading pattern. The rebuild splits hard box edges
+  flat while keeping the rounded tubes smooth; cached per resource path.
 - **Items** (`scripts/world/items/`) — `BagOfSoilItem.gd` (on_use() fills
   the nearest tray's first open soil cell, drops an `EmptyBagItem.gd` near
   it), `SeedItem.gd` (one script, `seed_type` export; on_use() plants into
@@ -180,9 +204,9 @@ light. Fixed by moving the `_is_preview_only` return before the
   `NotificationManager` (the project's current central toast/history
   system) existed. `NotificationManager` is used instead — `NEUTRAL` domain
   since farming has no domain of its own, `WARNING` severity since this is
-  a localized per-plant problem, not a total-system failure. Note:
-  `WaterPurifier.gd`'s existing low-filter warning still uses the older
-  `TransientNotice.gd` directly — left untouched, out of scope here.
+  a localized per-plant problem, not a total-system failure. The purifier's
+  matching low-filter warning now uses the same official notification system;
+  the superseded standalone `TransientNotice.gd` has been retired.
 - **Item 3 — `FARM_DEBUG` on-screen readout**: `FarmPlant.gd` follows the
   same per-file debug-const convention as `GrowLight.WIRE_DEBUG`/
   `WaterPipeDrawMode.PIPE_DEBUG` (no shared debug-flag file). When
@@ -202,13 +226,13 @@ light. Fixed by moving the `_is_preview_only` return before the
   fit the extra line.
 
 ## Grow light illumination & placement guidance (Polish Plan Group 2, items 5–6)
-- **Item 5 — real `OmniLight3D` illumination**: `GrowLight._build_fixture()`
-  now calls `_build_omni_light()`, adding a real `OmniLight3D` child (same
-  pattern `WallLight.gd` already uses), mirrored by `_refresh_tubes()`
-  exactly following the 3 emissive tubes' powered/shed/off state. Values
-  are deliberately budget-capped from day one, **not** copied from
-  WallLight's own tuned figures (`OMNI_LIGHT_ENERGY = 1.1`,
-  `OMNI_LIGHT_RANGE = 3.0` vs. WallLight's 2.0/10.0) — a dense farm room
+- **Item 5 — real `SpotLight3D` illumination**: `GrowLight._build_fixture()`
+  calls `_build_spot_light()`, adding a real downward-facing `SpotLight3D`
+  child (converted from the original `OmniLight3D` in Aug 2026), mirrored by
+  `_refresh_glow()` exactly following the glow tubes' powered/shed/off state.
+  Values are deliberately budget-capped from day one, **not** copied from
+  WallLight's own tuned figures (`SPOT_LIGHT_ENERGY = 1.1`,
+  `SPOT_LIGHT_RANGE = 3.0` vs. WallLight's 2.0/10.0) — a dense farm room
   can plausibly hold far more grow lights than a base has wall lights.
   Also sets `distance_fade_enabled` (native Godot light culling, begin=18m/
   length=4m) proactively as a cheap perf guard for large farm layouts,
@@ -420,12 +444,13 @@ audited this pass:
   shared empty look for both tiers (Normal/Pro).
 
 ## Known gaps (explicitly out of scope for this pass)
-- **Persistence**: trays/grow lights themselves save/restore fine as
-  ordinary `BuildModeController._placed_objects` entries, but per-cell
-  `soil_filled`/`planted_type`/plant `progress`/`health` state is NOT wired
-  into the save `extra` dict — a reload shows trays present but empty/
-  unsoiled. Same category of gap this project already carries for Purifier
-  filter state; add to the future save/load overhaul list.
+- **Persistence (Save/Load overhaul, Sep 2026 — now saved):** trays/grow
+  lights save/restore as ordinary `BuildModeController._placed_objects`
+  entries, and per-cell `soil_filled`/`planted_type`/`last_planted_type`/
+  `cell_prepped_fertilizer`/`cell_seed_lock` + each live `FarmPlant`'s
+  `progress`/`health`/fertilizer now round-trip via the tray's `"tray"` extra
+  (`FarmingTray.get_tray_save_data()`/`restore_tray_save_data()`). Grow light
+  on/off remains grid-derived (no manual state to save).
 - **Group 7 items** (double-stack grow-light guard, save schema pre-shape,
   tray deconstruct/refund rule, `get_trays_needing_attention()`) — the last
   remaining group, not yet started.

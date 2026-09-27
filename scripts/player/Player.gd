@@ -29,6 +29,17 @@ extends CharacterBody3D
 @onready var interaction_area: Area3D = $InteractionArea
 @onready var interaction_system: Node = $InteractionSystem
 
+## Local-avoidance presence consumed by every NPC NavigationAgent3D. Keep a
+## field reference so its velocity can be refreshed every physics frame;
+## moving a radius obstacle without publishing velocity makes avoidance react
+## late because it can only infer the player's new position after the move.
+var _navigation_obstacle: NavigationObstacle3D = null
+
+## Per-item shove cooldowns for PickupableItem.shove_small_items_near()
+## (Sep 2026) — one dict per character so the player and each NPC shove
+## independently. See PickupableItem.gd for the one-sided walk-through logic.
+var _shove_cooldown_by_item: Dictionary = {}
+
 ## Resolved lazily via group lookup (same pattern PlayerStats/PowerManager
 ## use elsewhere) rather than a direct $-path, since PlayerMedical is a
 ## sibling node rather than a child of Player — see
@@ -113,6 +124,22 @@ var _movement_locked: bool = false
 ## Set/cleared by MainWorld's chair seat/stand wiring (_wire_chair).
 var seated_chair: Node3D = null
 
+## Sep 2026 — permanent death (game over). Set when PlayerStats health hits 0;
+## the model controller plays the one-shot dying clip and freezes. A dead
+## player is locked out of movement/input and the game-over overlay takes over.
+var dead: bool = false
+
+func is_dead() -> bool:
+	return dead
+
+func die() -> void:
+	if dead:
+		return
+	dead = true
+	set_movement_locked(true)
+	## Let the shared AdventurerModelController play the dying clip (reads
+	## is_dead()); the game-over overlay is opened by MainWorld on health 0.
+
 ## Aug 2026 — the bed the player is currently sitting ON (the animated sit-down
 ## sleep sequence), or null. Set/cleared by MainWorld's bed sleep/stand wiring
 ## (_wire_bed), mirroring seated_chair so the shared AdventurerModelController
@@ -178,13 +205,16 @@ func _ready() -> void:
 	## NavigationObstacle3D (not a full NavigationAgent3D — the player isn't
 	## nav-driven) sized to the real collision capsule, added once and left
 	## on permanently (no held/dropped lifecycle to manage, unlike an item).
-	var player_obstacle: NavigationObstacle3D = NavigationObstacle3D.new()
-	player_obstacle.name = "PlayerNavObstacle"
-	player_obstacle.radius = 0.4
+	_navigation_obstacle = NavigationObstacle3D.new()
+	_navigation_obstacle.name = "PlayerNavObstacle"
+	_navigation_obstacle.radius = 0.4
+	_navigation_obstacle.height = 1.8
 	if collision != null and collision.shape is CapsuleShape3D:
-		player_obstacle.radius = (collision.shape as CapsuleShape3D).radius
-	player_obstacle.avoidance_enabled = true
-	add_child(player_obstacle)
+		var capsule: CapsuleShape3D = collision.shape as CapsuleShape3D
+		_navigation_obstacle.radius = capsule.radius
+		_navigation_obstacle.height = capsule.height
+	_navigation_obstacle.avoidance_enabled = true
+	add_child(_navigation_obstacle)
 
 	_player_medical = get_tree().get_first_node_in_group("player_medical") as PlayerMedical
 
@@ -204,15 +234,10 @@ func _ready() -> void:
 	## since the real character model can have more than one
 	## MeshInstance3D. See docs/systems/player-model/README.md.
 	##
-	## Aug 2026 — the capsule-based CharacterShadowStandIn system (still
-	## used by NPC.gd, unaffected by this change) has been replaced for
-	## the Player specifically by a second, scaled-down PlayerModel
-	## instance ("PlayerModelShadow" in Player.tscn) that casts a real
-	## shadow reflecting the actual animated silhouette instead of a
-	## pill shape — see docs/systems/graphics/README.md "Player
-	## model-based shadow". Nothing to call here: the shadow instance is
-	## wired declaratively in the scene file and drives its own animation
-	## state by reading this same Player node, same as the real model.
+	## Sep 2026 — the real visible Adventurer model casts its own full-height
+	## shadow when Dynamic Shadows is enabled. The former second, squashed
+	## PlayerModelShadow instance was removed to avoid duplicate animation and
+	## skinning work and to restore physically correct shadow proportions.
 
 func _physics_process(delta: float) -> void:
 	if _movement_locked or _job_locked:
@@ -223,7 +248,9 @@ func _physics_process(delta: float) -> void:
 			velocity.y -= ProjectSettings.get_setting("physics/3d/default_gravity") * delta
 		velocity.x = 0.0
 		velocity.z = 0.0
+		_sync_navigation_obstacle_velocity()
 		move_and_slide()
+		PickupableItem.shove_small_items_near(self, _shove_cooldown_by_item)
 		return
 	_handle_movement(delta)
 	_handle_interaction_input()
@@ -375,7 +402,17 @@ func _handle_movement(delta: float) -> void:
 		target_angle = atan2(-direction.x, -direction.z)
 	rotation.y = lerp_angle(rotation.y, target_angle, 1.0 - exp(-TURN_SMOOTH_SPEED * delta))
 
+	_sync_navigation_obstacle_velocity()
 	move_and_slide()
+	PickupableItem.shove_small_items_near(self, _shove_cooldown_by_item)
+
+## Radius-based NavigationObstacle3D motion is predictive only when its
+## velocity is supplied regularly. Publish both movement and true stationary
+## frames so NPC avoidance always sees the player's current intent.
+func _sync_navigation_obstacle_velocity() -> void:
+	if _navigation_obstacle == null or not is_instance_valid(_navigation_obstacle):
+		return
+	_navigation_obstacle.velocity = Vector3(velocity.x, 0.0, velocity.z)
 
 ## True while Build Mode is active (InteractionSystem.build_mode_active, set
 ## by MainWorld on enter/exit). Build mode reserves the right stick for the

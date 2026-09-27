@@ -25,7 +25,7 @@ class_name FarmPlant
 ## Growth formula (plan §6.1):
 ##   light_speed     = 0 / 0.5 / 1.0, read live from the nearest powered
 ##                      GrowLight directly above this cell (pure XZ match,
-##                      recomputed once per hour tick — not every frame).
+##                      refreshed at a bounded live-status cadence).
 ##   water_fraction   = tray.get_water_fraction() — tray's demand actually met.
 ##   growth_per_hour  = light_speed * water_fraction * (1 + fertilizer_bonus)
 ##                      / (grow_days * 24.0)
@@ -71,10 +71,20 @@ const NO_LIGHT_GRACE_HOURS: int = 24
 ## stops in darkness. Value is a growth-speed multiplier (0.1 = 10% of normal).
 const LIGHT_FLOOR_SPEED: float = 0.1
 
-const SPIKE_BASE_RADIUS: float = 0.05
-const SPIKE_TIP_RADIUS:  float = 0.015
-const SPIKE_COLOR:        Color = Color(0.22, 0.62, 0.20, 1.0)   ## healthy green
-const SPIKE_WILTED_COLOR: Color = Color(0.42, 0.32, 0.16, 1.0)   ## fully wilted brown, health == 0
+const SPIKE_WILTED_COLOR: Color = Color(0.42, 0.32, 0.16, 1.0)   ## fully wilted brown, health == 0 (wilt tint target for the bush)
+
+## Human-built rooibos bush growth models (Sep 2026) — replaces the old green
+## spike. Five bush variants used in ascending growth order E→D→C→B→A
+## (E = smallest sprout → A = biggest fully-grown), mapped to 5 progress bands.
+## Each GLB is pre-scaled at export to natural scale, base at y=0, centered.
+const BUSH_MODEL_PATHS: Array[String] = [
+	"res://assets/models/plants/bush_e.glb",
+	"res://assets/models/plants/bush_d.glb",
+	"res://assets/models/plants/bush_c.glb",
+	"res://assets/models/plants/bush_b.glb",
+	"res://assets/models/plants/bush_a.glb",
+]
+const BUSH_STAGE_COUNT: int = 5
 
 ## Polish Plan Group 1 item 3 — gates the on-screen debug readout. Same
 ## per-file const convention as GrowLight.WIRE_DEBUG / WaterPipeDrawMode's
@@ -121,19 +131,38 @@ var water_fraction: float = 0.0
 
 var _hour_accum: float = 0.0
 var _player_stats: Node = null
+## Live UI/status inputs do not need render-frame cadence. Five updates per
+## second remain responsive while scaling independently of FPS.
+const LIVE_STATUS_INTERVAL: float = 0.2
+var _live_status_left: float = 0.0
 
 ## Polish Plan Group 1 item 2 — edge-trigger latch for the low-health toast.
 var _warned_low_health: bool = false
 
 var _mesh_instance: MeshInstance3D = null
-var _spike_mat: StandardMaterial3D = null
 var _debug_label: Label3D = null
+
+## Per-instance wilt-tint materials (one per bush surface, duplicated from the
+## stage's base material so albedo_color can lerp toward brown without mutating
+## the shared ArrayMesh materials across plants).
+var _tint_mats: Array[StandardMaterial3D] = []
+var _tint_base_colors: Array[Color] = []
+var _cur_stage: int = -1
+
+## Shared bush resources — loaded once, reused by every plant instance.
+static var _bush_meshes: Array = []
+static var _bush_heights: Array = []
+static var _bush_load_warned: bool = false
 
 func _ready() -> void:
 	_build_mesh()
 	if FARM_DEBUG:
 		_build_debug_label()
 	_refresh_visual()
+	## Spread a large farm across the interval. A negative initial phase forces
+	## one refresh on the first process frame, then leaves a randomized offset.
+	if _tray == null:
+		_live_status_left = -randf() * LIVE_STATUS_INTERVAL
 
 ## Called once by FarmingTray right after instancing, before add_child().
 func setup(tray: FarmingTray, cell_index: int, type: String) -> void:
@@ -142,13 +171,22 @@ func setup(tray: FarmingTray, cell_index: int, type: String) -> void:
 	plant_type = type
 	progress = 0.0
 	health   = 100.0
+	## Force one correct refresh on the first process frame (after the caller
+	## assigns the cell position), then retain a randomized phase offset.
+	_live_status_left = -randf() * LIVE_STATUS_INTERVAL
+
+func _refresh_live_status() -> void:
+	_light_speed_cached = _compute_light_speed()
+	water_fraction = _tray.get_water_fraction() if _tray != null and is_instance_valid(_tray) else 0.0
+	var grow_days_live: float = PlantDatabase.get_grow_days(plant_type)
+	growth_per_hour_current = _light_speed_cached * water_fraction * (1.0 + fertilizer_bonus) / (grow_days_live * 24.0)
 
 func _process(delta: float) -> void:
 	if _tray == null or not is_instance_valid(_tray):
 		queue_free()
 		return
 
-	## Live display refresh (instant-update fix) — recomputed every frame,
+	## Live display refresh — recomputed at a bounded 5 Hz cadence,
 	## independent of the once-per-game-hour simulation tick below, so the
 	## tray UI's Dormant/Stalled/Growing status and growth-rate readout react
 	## immediately to anything that changes light/water/fertilizer state
@@ -156,10 +194,10 @@ func _process(delta: float) -> void:
 	## waiting up to a full game hour to catch up. Only these three
 	## READ-ONLY cached fields move here — actual progress/health simulation
 	## still advances strictly once per game hour in _tick_one_game_hour().
-	_light_speed_cached = _compute_light_speed()
-	water_fraction = _tray.get_water_fraction() if _tray != null and is_instance_valid(_tray) else 0.0
-	var grow_days_live: float = PlantDatabase.get_grow_days(plant_type)
-	growth_per_hour_current = _light_speed_cached * water_fraction * (1.0 + fertilizer_bonus) / (grow_days_live * 24.0)
+	_live_status_left -= delta
+	if _live_status_left <= 0.0:
+		_live_status_left += LIVE_STATUS_INTERVAL
+		_refresh_live_status()
 
 	if _player_stats == null:
 		_player_stats = get_tree().get_first_node_in_group("player_stats")
@@ -178,7 +216,7 @@ func _process(delta: float) -> void:
 
 func _tick_one_game_hour() -> void:
 	## _light_speed_cached / water_fraction / growth_per_hour_current are now
-	## kept fresh every frame by _process() above (instant-update fix) — just
+	## kept fresh by _process() above — just
 	## apply this hour's growth/health using the current values, no
 	## recompute here.
 	progress = clampf(progress + growth_per_hour_current, 0.0, 1.0)
@@ -220,7 +258,7 @@ func _compute_light_speed() -> float:
 	return maxf(speed, LIGHT_FLOOR_SPEED)
 
 func is_ready() -> bool:
-	return progress >= 1.0
+	return progress >= 1.0 and not _harvested
 
 func is_fertilized() -> bool:
 	return fertilizer_bonus > 0.0
@@ -230,45 +268,111 @@ func is_fertilized() -> bool:
 func apply_fertilizer(tier: String) -> void:
 	fertilizer_tier  = tier
 	fertilizer_bonus = 0.25 if tier == "pro" else 0.125
+	_refresh_live_status()
 
 # ─── Visual ───────────────────────────────────────────────────────────────────
 func _build_mesh() -> void:
+	_load_bush_meshes()
 	_mesh_instance = MeshInstance3D.new()
-	_spike_mat = StandardMaterial3D.new()
-	_spike_mat.albedo_color = SPIKE_COLOR
-	_spike_mat.roughness    = 0.85
-	_mesh_instance.set_surface_override_material(0, _spike_mat)
 	add_child(_mesh_instance)
+
+## Loads the five bush ArrayMeshes once (shared across all plant instances).
+## Each .glb is a single-mesh scene; the shared ArrayMesh (with its embedded
+## surface materials) is grabbed off the instantiated wrapper then freed.
+static func _load_bush_meshes() -> void:
+	if not _bush_meshes.is_empty():
+		return
+	for path: String in BUSH_MODEL_PATHS:
+		var packed: PackedScene = load(path) if ResourceLoader.exists(path) else null
+		var mesh: ArrayMesh = null
+		if packed != null:
+			var inst: Node3D = packed.instantiate() as Node3D
+			if inst != null:
+				var mi: MeshInstance3D = inst as MeshInstance3D
+				if mi == null:
+					var kids := inst.find_children("*", "MeshInstance3D", true, false)
+					if kids.size() > 0:
+						mi = kids[0] as MeshInstance3D
+				if mi != null:
+					mesh = mi.mesh as ArrayMesh
+				inst.free()
+		_bush_meshes.append(mesh)
+		if mesh != null:
+			_bush_heights.append(mesh.get_aabb().size.y)
+		else:
+			_bush_heights.append(0.0)
 
 func _refresh_visual() -> void:
 	if _mesh_instance == null:
 		return
-	var height: float = progress * PLANT_FULL_HEIGHT
-	if height <= 0.001:
+	_load_bush_meshes()
+	if progress <= 0.001:
 		_mesh_instance.visible = false
-	else:
-		_mesh_instance.visible = true
-		var cyl: CylinderMesh = _mesh_instance.mesh as CylinderMesh
-		if cyl == null:
-			cyl = CylinderMesh.new()
-			cyl.radial_segments = 8
-			_mesh_instance.mesh = cyl
-		cyl.height       = height
-		cyl.bottom_radius = SPIKE_BASE_RADIUS
-		cyl.top_radius    = SPIKE_TIP_RADIUS
-		## Root fixed at the top of the tray's soil layer (local Y=0); cylinder
-		## is centred by default, so offset up by half its live height.
-		_mesh_instance.position = Vector3(0.0, height * 0.5, 0.0)
+		return
+	_mesh_instance.visible = true
 
-	## Polish Plan Group 1 item 1 — wilting visual: lerp albedo from healthy
-	## green toward wilted brown as health drops below the wilt threshold,
-	## fully wilted at health == 0.
-	if _spike_mat != null:
-		if health >= FarmingConstants.HEALTH_WILT_THRESHOLD:
-			_spike_mat.albedo_color = SPIKE_COLOR
+	var stage: int = clampi(int(progress * BUSH_STAGE_COUNT), 0, BUSH_STAGE_COUNT - 1)
+	var mesh: ArrayMesh = _bush_meshes[stage] as ArrayMesh
+	if mesh == null:
+		_mesh_instance.visible = false
+		if not _bush_load_warned:
+			_bush_load_warned = true
+			push_warning("FarmPlant: one or more bush models failed to load (%s)" % str(BUSH_MODEL_PATHS))
+		return
+
+	_mesh_instance.mesh = mesh
+	_ensure_tint_mats(stage, mesh)
+
+	## Seamless growth — within each stage band, scale the current bush from
+	## its natural size up to the NEXT stage's height, so switching models at
+	## the band boundary is height-continuous (no pop). The first stage grows
+	## from nothing (sprout emerging from the soil).
+	var band: float = 1.0 / float(BUSH_STAGE_COUNT)
+	var band_t: float = clampf((progress - float(stage) * band) / band, 0.0, 1.0)
+	var start_scale: float
+	var end_scale: float
+	if stage == 0:
+		start_scale = 0.0
+		end_scale = (_bush_heights[1] / _bush_heights[0]) if _bush_heights[0] > 0.0 else 1.0
+	elif stage < BUSH_STAGE_COUNT - 1:
+		start_scale = 1.0
+		end_scale = (_bush_heights[stage + 1] / _bush_heights[stage]) if _bush_heights[stage] > 0.0 else 1.0
+	else:
+		start_scale = 1.0
+		end_scale = 1.0
+	_mesh_instance.scale = Vector3.ONE * lerpf(start_scale, end_scale, band_t)
+	_mesh_instance.position = Vector3.ZERO   ## bush base sits on the soil layer (local Y=0)
+
+	## Polish Plan Group 1 item 1 — wilting visual (preserved from the spike):
+	## lerp each surface's base color toward wilted brown as health drops below
+	## the wilt threshold, fully wilted at health == 0.
+	var wilt_t: float = 0.0
+	if health < FarmingConstants.HEALTH_WILT_THRESHOLD:
+		wilt_t = 1.0 - (health / FarmingConstants.HEALTH_WILT_THRESHOLD)
+	wilt_t = clampf(wilt_t, 0.0, 1.0)
+	for i: int in _tint_mats.size():
+		_tint_mats[i].albedo_color = _tint_base_colors[i].lerp(SPIKE_WILTED_COLOR, wilt_t)
+
+## Builds one duplicated StandardMaterial3D per bush surface (on stage change
+## only) so the wilt tint can be applied per-instance without mutating the
+## shared ArrayMesh materials.
+func _ensure_tint_mats(stage: int, mesh: ArrayMesh) -> void:
+	if stage == _cur_stage:
+		return
+	_cur_stage = stage
+	_tint_mats.clear()
+	_tint_base_colors.clear()
+	for s: int in mesh.get_surface_count():
+		var base: Material = mesh.surface_get_material(s)
+		var dup: StandardMaterial3D
+		if base is StandardMaterial3D:
+			dup = (base as StandardMaterial3D).duplicate() as StandardMaterial3D
 		else:
-			var wilt_t: float = 1.0 - (health / FarmingConstants.HEALTH_WILT_THRESHOLD)
-			_spike_mat.albedo_color = SPIKE_COLOR.lerp(SPIKE_WILTED_COLOR, clampf(wilt_t, 0.0, 1.0))
+			dup = StandardMaterial3D.new()
+			dup.roughness = 0.8
+		_tint_mats.append(dup)
+		_tint_base_colors.append(dup.albedo_color)
+		_mesh_instance.set_surface_override_material(s, dup)
 
 ## Polish Plan Group 1 item 3 — FARM_DEBUG-gated on-screen readout, built
 ## once in _ready() when FARM_DEBUG is true.

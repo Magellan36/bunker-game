@@ -1,6 +1,6 @@
 class_name NotificationHistoryUI
 extends Control
-## Filterable Bunker Log embedded in the pause menu. It is a view over the
+## Filterable Log embedded in the pause menu. It is a view over the
 ## manager's bounded run history; it never owns or mutates gameplay state.
 
 const FILTERS: Array[String] = ["All", "Critical", "Inventory", "Power", "Water", "Farming"]
@@ -33,17 +33,15 @@ func _build() -> void:
 	accent.custom_minimum_size = Vector2(68, 4)
 	body.add_child(accent)
 	var title_row := HBoxContainer.new()
+	title_row.custom_minimum_size.y = 50
 	var titles := VBoxContainer.new()
 	titles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	titles.alignment = BoxContainer.ALIGNMENT_CENTER
 	titles.add_theme_constant_override("separation", 1)
 	var title := Label.new()
-	title.text = "Bunker Log"
-	BunkerPanelStyle.title(title, 29)
+	title.text = "Log"
+	BunkerPanelStyle.title(title, 34)
 	titles.add_child(title)
-	var subtitle := Label.new()
-	subtitle.text = "Recent shelter activity"
-	BunkerPanelStyle.muted(subtitle, 14)
-	titles.add_child(subtitle)
 	title_row.add_child(titles)
 	_event_count = Label.new()
 	_event_count.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -60,8 +58,8 @@ func _build() -> void:
 		button.toggle_mode = true
 		button.button_pressed = filter_name == _filter
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.custom_minimum_size.y = 38
-		BunkerPanelStyle.button(button, filter_name == _filter)
+		button.custom_minimum_size.y = BunkerDesign.COMPACT_CONTROL_HEIGHT
+		BunkerPanelStyle.button(button, filter_name == _filter, false, true, true)
 		button.pressed.connect(_set_filter.bind(filter_name))
 		filters.add_child(button)
 		_filter_buttons[filter_name] = button
@@ -95,7 +93,7 @@ func _set_filter(filter_name: String) -> void:
 		var button := _filter_buttons[key] as Button
 		button.button_pressed = key == filter_name
 		## Reapply normal/accent styles so selection is more than a thin focus ring.
-		BunkerPanelStyle.button(button, key == filter_name)
+		BunkerPanelStyle.button(button, key == filter_name, false, true, true)
 	_rebuild_rows()
 
 func _rebuild_rows() -> void:

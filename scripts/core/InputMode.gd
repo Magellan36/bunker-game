@@ -11,12 +11,6 @@ var _controller_mode: bool = false
 ## flap the mode between controller and mouse every frame (and flicker every
 ## UI prompt). A real mouse BUTTON (or key press) still flips to mouse mode.
 var _suppress_mouse_motion: bool = false
-## Last mouse mode before controller-mode cursor-hiding kicked in — restored
-## (once) when the player switches back to mouse/keyboard so the cursor
-## reappears where a UI left it.
-var _stashed_mouse_mode: int = Input.MOUSE_MODE_CAPTURED
-var _was_controller: bool = false
-
 ## Mouse-motion deadzone (Aug 2026): while using the controller, a tiny
 ## accidental mouse nudge must NOT flip to mouse/keyboard mode — it was
 ## flapping the mode (and flashing every prompt + the cursor) on the
@@ -31,6 +25,12 @@ const MOUSE_MOTION_WINDOW_SEC: float   = 0.25
 
 var _mouse_move_accum: float = 0.0
 var _mouse_move_timer: float = 0.0
+
+func _ready() -> void:
+	## Run after ordinary scene nodes so open/close calls made during their
+	## frame settle before the shared cursor policy is reconciled.
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	process_priority = 1000
 
 func is_controller() -> bool:
 	return _controller_mode
@@ -49,18 +49,29 @@ func _process(delta: float) -> void:
 		_mouse_move_timer -= delta
 		if _mouse_move_timer <= 0.0:
 			_mouse_move_accum = 0.0
-	## Hide the OS cursor while a controller is the active device. UIs set
-	## MOUSE_MODE_VISIBLE on open, which would otherwise draw the system
-	## cursor over every menu in controller mode (build mode already hides
-	## it and draws its own crosshair). On the switch back to mouse/keyboard
-	## the stashed mode is restored once.
+	_sync_cursor()
+
+## One owner reconciles the OS cursor after every UI has had a chance to open
+## or close. This prevents one closing panel from capturing the cursor while a
+## second panel is still open, and prevents stale VISIBLE state in gameplay.
+func _sync_cursor() -> void:
+	var has_active_ui := false
+	var needs_mouse_cursor := false
+	for candidate: Node in get_tree().get_nodes_in_group("controller_ui_nav"):
+		if candidate.has_method("is_active") and bool(candidate.call("is_active")):
+			has_active_ui = true
+			if "mouse_cursor_required" in candidate and bool(candidate.get("mouse_cursor_required")):
+				needs_mouse_cursor = true
 	if _controller_mode:
-		if Input.mouse_mode != Input.MOUSE_MODE_HIDDEN:
-			_stashed_mouse_mode = Input.mouse_mode
-			Input.mouse_mode = Input.MOUSE_MODE_HIDDEN
-	elif _was_controller:
-		Input.mouse_mode = _stashed_mouse_mode
-	_was_controller = _controller_mode
+		Input.mouse_mode = Input.MOUSE_MODE_HIDDEN
+	elif needs_mouse_cursor:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	elif has_active_ui:
+		## Build's world-placement surface is the only active UI that opts out:
+		## its own restrained tool cursor remains visible instead.
+		Input.mouse_mode = Input.MOUSE_MODE_HIDDEN
+	else:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventJoypadButton or event is InputEventJoypadMotion:

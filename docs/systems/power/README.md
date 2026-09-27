@@ -20,6 +20,60 @@ wires, and every powered device (lights, appliances, terminals). Decides who
 has power, who gets shed under overload, and drives the visual/UX state of
 every electrical device in the game.
 
+## Wiring polish — September 2026
+
+This pass changes connection geometry, placement and build-mode wire presentation.
+Generator output, fuel, battery behavior, load priorities, breaker policy, device
+models/materials/FX and the approved UIs retain their existing behavior.
+
+- **Manual devices:** ceiling grow lights and stoves no longer scan for nearby
+  wires. The player draws their connections. Existing generator/battery and
+  ordinary device registration conventions remain in place.
+- **Wall devices:** wall lights and power terminals use `WallWireAttachment`.
+  A visible horizontal wire at or below the device, within 0.75m in XZ, can feed
+  it through one `no_visual` edge. The helper selects a real sample along the
+  run, coalesces topology events, and removes/reselects its feed when wires
+  change. It does not connect through another invisible device feed. Breakers
+  use the same physical-wire lookup, but register at that sampled wire position
+  as a true graph cut point instead of adding a feed edge. This keeps their
+  wall-mounted visual flush while still splitting the run beneath into zones.
+- **Height:** `register_wire_node(pos, role, device_id, preserve_height=false)`
+  retains the existing Y=1m default. Raised devices and manual route joints
+  opt into actual Y. Keys include height; a raised run cannot split a lower
+  run merely because their XZ projections overlap.
+- **Routing:** `WireRoute.points()` travels horizontally at the higher end's
+  height, then vertically at the lower end's XZ. Reversing the clicks produces
+  the same route. Preview and payment use this path; payment remains $8/m,
+  rounded up once for the full run. Equal-height and vertically aligned routes
+  omit redundant pieces.
+- **Placement:** screen-space targeting includes elevated connectors. The first
+  click is a draft only. Cancel, duplicate/overlapping routes, and insufficient
+  cash do not leave draft joints or spend cash. Wall feeds have no manual socket.
+- **Presentation:** shared tube geometry, small matching-radius end/join caps,
+  brief placement fade, eased color changes and a restrained selection pulse.
+  Endpoints remain exact; animation never delays or moves electrical connections.
+  Existing Reduced Motion preference removes the transition/pulse. Real wires
+  keep their build-mode visibility and zone-color behavior; no device FX added.
+- **Lifecycle:** a bent run is one undo action; split descendants keep run and
+  player ownership. Deconstruction uses whole-segment ray math and reduces any
+  later undo refund by money already returned. Saves use surviving owned
+  segments, not stale placement handles. The endpoint-pair save format and old
+  horizontal-wire saves remain compatible.
+
+`WireRoute.gd` is a pure geometry helper; `WallWireAttachment.gd` owns only the
+local wall-feed lifecycle. Graph state stays in PowerManager/PowerGraph.
+`MainWorld.gd` changes are confined to its existing player-wire save/restore
+block; no startup, scene, floor, lighting or pregen behavior is involved.
+
+Validation: Godot 4.7.2 `power_wiring_smoke.gd` covers deterministic raised
+routing, separate height planes, atomic cancel/payment, wall-before-wire and
+wire-before-wall feeds, breaker-before-wire attachment and two-zone splitting,
+split ownership, one-action undo/refunds, overlap
+rejection, save/load height preservation, reusable preview geometry, vertical
+deconstruction targeting and Reduced Motion. `power_terminal_ui_smoke.gd` also
+passes. A full fresh-clone boot remains blocked only by pre-existing missing
+character-creation placeholder SVG resources and optional local C# autoloads.
+
 ## Responsibilities
 - Own the wire graph (nodes/edges), zones (breaker-bounded regions), and their
   adjacency/connectivity.
@@ -44,9 +98,8 @@ every electrical device in the game.
 - **Does not own wire *placement* interaction** (player drawing a wire with the
   wire tool) — that's `WireDrawMode.gd`. This system only registers/stores the
   resulting nodes/edges once told to.
-- **Does not own save/load** — `SaveManager` (see `docs/systems/world-core/`)
-  does not currently persist any power-system state at all (tracked gap, not
-  a bug — see Known tradeoffs).
+- **Does not own save/load** — MainWorld and BuildModeController provide the
+  phase-ordered fields registered with `SaveManager`; see Persistence below.
 
 ## Files
 | File | Lines | Role | Doc |
@@ -59,9 +112,11 @@ every electrical device in the game.
 | `UpgradedBreakerBox.gd` | ~80 | Extends `BreakerBox` — "smart" breaker, self-trips to isolate zones instead of shared brownout | inline below |
 | `GeneratorObject.gd` | ~460 | Generator device — registers with PowerManager, fuel/health sim, exhaust smoke VFX | inline below |
 | `BatteryBank.gd` | ~625 | Battery device + its own hand-drawn panel, low-charge flicker VFX | inline below |
-| `PowerTerminal.gd` | ~250 | Wall terminal world-object (draws 0W, priority 1 critical, cosmetic-only screen glow) | inline below |
+| `PowerTerminal.gd` | ~250 | Wall terminal world-object (draws 0W, priority 1 critical; hand-made OBJ panel — dark screen when unpowered, lit cyan screen when connected; normals rebuilt via `BuildMaterials.build_auto_smooth_mesh()` to fix the smooth-normal "diagonal seam" on the flat screen) | inline below |
 | `PowerPriorityInteractable.gd` | ~55 | Priority-adjustment device trigger (opens `PowerPriorityUI`) | inline below |
-| `WireSegment.gd` | ~215 | Wire visual mesh/tube segment | inline below |
+| `WireSegment.gd` | ~160 | Pooled wire tubes, caps and restrained motion | Wiring polish above |
+| `WireRoute.gd` | ~40 | Pure height-aware route, length and overlap math | Wiring polish above |
+| `WallWireAttachment.gd` | ~80 | Event-driven invisible local wall feeds | Wiring polish above |
 | `WireDrawMode.gd` | ~670 | Player wire-drawing tool (build mode only) | inline below |
 | `WallLight.gd` | ~430 | Consumer device — sets `power_zone`/`power_priority` before `_ready()` registers; default priority **1** (critical) | inline below |
 | `WireGraphBuilder.gd` | ~1510 | Auto-wire perimeter rebuild engine (incremental node/edge diff on chunk dig/expand). Owned/instantiated by `MainWorld`, not part of the PowerManager cluster — see `docs/systems/world-core/README.md` | inline below |
@@ -186,18 +241,19 @@ Extension points). Every device (`BreakerBox`, `GeneratorObject`,
 in its own `_ready()`.
 
 ## Persistence
-**Jul 2026 — now saved.** Generators/batteries/breakers/consumers are
-persisted via `BuildModeController.get_placed_objects_for_save()`'s embedded
-per-device `extra` dict (phase 1), and player-placed wires via
+**Jul 2026 — now saved; zone customization added in the Save/Load overhaul
+(Sep 2026).** Generators/batteries/breakers/consumers are persisted via
+`BuildModeController.get_placed_objects_for_save()`'s embedded per-device
+`extra` dict (phase 1), and player-placed wires via
 `MainWorld.get_player_wires_for_save()`/`restore_player_wires()` (phase 2,
 endpoint positions only — auto-perimeter wiring regenerates from restored
-dug chunks, not persisted separately). See
-`docs/systems/world-core/README.md` Persistence for the full phase order and
-per-device `extra` field list. **Known gap:** zone name/color overrides
-(`ZoneCustomization.gd`) are best-effort only — not explicitly re-verified
-across a save/load round trip this pass (they were already designed to
-survive wire topology changes/expansion within a session; save/load is a
-different code path and hasn't been separately confirmed).
+dug chunks, not persisted separately). Zone display-name + color overrides
+(`ZoneCustomization.gd`) now round-trip via the `zone_customization` field
+(`PowerManager.get_zone_customization_for_save()`/
+`restore_zone_customization_from_save()`, phase 4 — keyed by the stable
+zone min-node-key identity, so they restore onto the same zones and wires
+repaint immediately). See `docs/systems/world-core/README.md` Persistence for
+the full phase order and per-device `extra` field list.
 
 ## Call graph (brief)
 ```

@@ -1,4 +1,8 @@
-# BunkerGame — Godot 4.6.3 Project Setup Guide
+# BunkerGame — Project Setup Guide
+
+For current Godot 4.7.2 Linux Mint setup, launch commands, optional MCP tooling,
+save migration, and export instructions, start with [LINUX_SETUP.md](LINUX_SETUP.md).
+The older project-structure notes below are retained for reference.
 
 ## Folder Structure
 ```

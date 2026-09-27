@@ -8,7 +8,9 @@ promoted to `main`.
 - In-world inspectors are compact desktop panels over the live game. Storage
   is a 440 px, vertically centered right rail at 1920×1080; it has no
   full-screen dim layer.
-- Build catalog is a compact left rail capped at 488×610 at 1920×1080.
+- Build catalog is a compact left rail targeting 440×760 at 1920×1080,
+  matching Storage's approved outer dimensions while retaining its distinct
+  construction layout and left placement.
   Selecting an item immediately
   starts placement and keeps the catalog open with the active item visibly
   marked, so changing objects remains immediate. The icon-led build toolbar

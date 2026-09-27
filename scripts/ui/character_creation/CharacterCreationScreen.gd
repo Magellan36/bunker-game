@@ -60,6 +60,8 @@ const PREVIEW_SCENE_PATH: String = "res://scenes/player/AdventurerModel.tscn"
 ## world, so the bunker build-up happens behind a branded screen.
 const NEXT_SCENE_PATH: String = "res://scenes/ui/LoadingScreen.tscn"
 const THUMBNAIL_PIXEL_SIZE: int = 72
+## Sep 2026 — Esc / controller B returns to the main menu.
+const MAIN_MENU_SCENE_PATH: String = "res://scenes/ui/main_menu/MainMenu.tscn"
 
 @export var category_body_button: Button = null
 @export var category_hair_button: Button = null
@@ -132,14 +134,14 @@ func _ready() -> void:
 	_show_category("body")
 	_rebuild_preview()
 
-	## Controller UI navigation (Aug 2026) — d-pad + left stick drive button
+	## Controller UI navigation — d-pad + right stick drive button
 	## focus; A activates the focused button (Godot default). See
 	## scripts/ui/common/ControllerUINavigation.gd. Loaded by path (not the
 	## class_name global) so a stale global-class cache never breaks it.
 	var nav: Node = (load("res://scripts/ui/common/ControllerUINavigation.gd") as GDScript).new()
 	nav.ui_root = self
 	nav.close_on_cancel = false   ## B must not exit character creation
-	nav.stick_navigation = true   ## left and right sticks navigate this full-screen menu
+	nav.stick_navigation = false
 	add_child(nav)
 	category_body_button.grab_focus()
 
@@ -309,3 +311,8 @@ func _on_randomise_pressed() -> void:
 
 func _on_complete_pressed() -> void:
 	get_tree().change_scene_to_file(NEXT_SCENE_PATH)
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_cancel"):
+		get_viewport().set_input_as_handled()
+		get_tree().change_scene_to_file(MAIN_MENU_SCENE_PATH)

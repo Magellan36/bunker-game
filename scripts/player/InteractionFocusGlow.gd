@@ -275,6 +275,9 @@ func _spawn_stand_ins() -> void:
 		stand_in.mesh = mi.mesh
 		stand_in.material_override = _stand_in_material
 		stand_in.layers = HIGHLIGHT_LAYER_BIT
+		## Mask-pass only: never a shadow caster (it would duplicate the real
+		## object's shadow and dirty nearby lights while it follows it).
+		stand_in.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		stand_in.global_transform = mi.global_transform
 		add_child(stand_in)
 		_stand_ins.append(stand_in)

@@ -58,8 +58,16 @@ const PROCEDURAL_PREVIEW_SOURCES: Dictionary = {
 	34: { "path": "res://scripts/world/furniture/SmallShelf.gd", "is_script": true },
 	35: { "path": "res://scripts/world/furniture/LargeShelf.gd", "is_script": true },
 	36: { "path": "res://scripts/world/furniture/TrashCan.gd", "is_script": true },
+	40: { "path": "res://scripts/world/furniture/Carpet.gd",  "is_script": true, "tier_prop": "variant", "tier": 1 },
+	41: { "path": "res://scripts/world/furniture/Carpet.gd",  "is_script": true, "tier_prop": "variant", "tier": 2 },
+	42: { "path": "res://scripts/world/furniture/Carpet.gd",  "is_script": true, "tier_prop": "variant", "tier": 3 },
+	43: { "path": "res://scripts/world/furniture/Drawers.gd", "is_script": true, "tier_prop": "variant", "tier": 1 },
+	44: { "path": "res://scripts/world/furniture/Drawers.gd", "is_script": true, "tier_prop": "variant", "tier": 2 },
+	45: { "path": "res://scripts/world/furniture/Drawers.gd", "is_script": true, "tier_prop": "variant", "tier": 3 },
+	46: { "path": "res://scripts/world/furniture/Sink.gd",    "is_script": true },
 	37: { "path": "res://scripts/world/furniture/BuildStation.gd", "is_script": true },
 	38: { "path": "res://scripts/world/furniture/ResearchStation.gd", "is_script": true },
+	39: { "path": "res://scripts/world/structure/BunkerDoor.gd", "is_script": true },
 	## NOT YET REGISTERED — flagged, not silently skipped (see testing
 	## checklist item 5): TILE_LIGHT (5, WallLight.gd — wall-mounted,
 	## no entry existed even before this plan), TILE_STOVE (30,
@@ -198,14 +206,24 @@ static func apply_ghost_tint(root: Node3D, valid: bool) -> void:
 	mat.albedo_color  = color
 	mat.transparency  = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.shading_mode  = BaseMaterial3D.SHADING_MODE_UNSHADED
+	apply_tint_material(root, mat)
+
+## Apply a caller-owned material to the complete visual tree. Move previews
+## use this with BuildModeController's cached blue material, avoiding a new
+## material allocation on every cursor-update frame.
+static func apply_tint_material(root: Node3D, mat: Material) -> void:
+	if root == null or mat == null:
+		return
 	_tint_recursive(root, mat)
 
-static func _tint_recursive(node: Node, mat: StandardMaterial3D) -> void:
+static func _tint_recursive(node: Node, mat: Material) -> void:
 	if node is MeshInstance3D:
 		var mi: MeshInstance3D = node as MeshInstance3D
 		if mi.mesh != null:
 			for s: int in mi.mesh.get_surface_count():
 				mi.set_surface_override_material(s, mat)
+	elif node is MultiMeshInstance3D:
+		(node as MultiMeshInstance3D).material_override = mat
 	for child: Node in node.get_children():
 		_tint_recursive(child, mat)
 

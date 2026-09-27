@@ -3,7 +3,6 @@ extends SceneTree
 ## Run with:
 ## godot --headless --path . --script res://tools/tests/graphics_settings_ui_smoke.gd
 
-const PANEL_SCRIPT: GDScript = preload("res://scripts/ui/menus/GraphicsSettingsPanel.gd")
 var _failures: int = 0
 
 
@@ -12,7 +11,11 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	var panel: CanvasLayer = PANEL_SCRIPT.new() as CanvasLayer
+	# Load after project autoloads are registered. Preloading from a command-line
+	# SceneTree script asks Godot to compile this dependency too early to resolve
+	# the GraphicsSettings singleton in a clean cache.
+	var panel_script: GDScript = load("res://scripts/ui/menus/GraphicsSettingsPanel.gd") as GDScript
+	var panel: CanvasLayer = panel_script.new() as CanvasLayer
 	root.add_child(panel)
 	await process_frame
 	await process_frame
@@ -23,29 +26,76 @@ func _run() -> void:
 	if shell != null:
 		_check(shell.size.x <= 1240.0 and shell.size.y <= 760.0,
 			"shell keeps approved desktop bounds")
+		_check(shell.theme != null and shell.theme.default_font == UIKit.font(),
+			"settings shell uses the shared bunker font")
 
 	var navigation: Dictionary = panel.get("_section_buttons") as Dictionary
 	_check(navigation.size() == 4, "display/rendering/effects/camera navigation exists")
 	for section_key: String in ["display", "rendering", "effects", "camera"]:
 		_check(navigation.has(section_key), "navigation includes %s" % section_key)
+		var section_button: Button = navigation.get(section_key) as Button
+		_check(section_button.custom_minimum_size.y <= 30.0,
+			"%s navigation uses compact desktop-density height" % section_key)
+		_check(_button_is_borderless(section_button),
+			"%s navigation has no persistent border" % section_key)
 
 	var scroll: ScrollContainer = panel.get("_content_scroll") as ScrollContainer
 	_check(scroll != null and scroll.vertical_scroll_mode != ScrollContainer.SCROLL_MODE_DISABLED,
 		"settings content uses a bounded vertical scroll region")
-	var preset: OptionButton = panel.get("_preset_option") as OptionButton
-	_check(preset != null and preset.item_count == 5 and preset.is_item_disabled(4),
+	var scroll_gutter: MarginContainer = scroll.get_node_or_null("ScrollContentGutter") as MarginContainer
+	var settings_content: Control = scroll_gutter.get_node_or_null("SettingsContent") as Control \
+		if scroll_gutter != null else null
+	_check(scroll_gutter != null and scroll_gutter.get_theme_constant("margin_right") >= 20,
+		"settings content reserves the shared vertical-scrollbar gutter")
+	if settings_content != null and scroll.get_v_scroll_bar().visible:
+		_check(settings_content.get_global_rect().end.x \
+			<= scroll.get_v_scroll_bar().get_global_rect().position.x,
+			"graphics controls end before the visible scrollbar")
+	# Sep 2026 quiet pass: the preset is a segmented control; Custom stays read-only.
+	var presets: Array = panel.get("_preset_buttons") as Array
+	_check(presets.size() == 5 and (presets[4] as Button).disabled,
 		"preset control represents read-only Custom state")
+	_check(int(panel.call("get_displayed_preset")) == root.get_node("GraphicsSettings").get("current_preset"),
+		"preset segments show the active preset")
+	for segment: Button in presets:
+		_check(segment.custom_minimum_size.y <= 30.0, "preset segments keep compact height")
+		_check(_button_is_borderless(segment), "preset segments have no persistent border")
+	var window_mode: OptionButton = panel.get("_window_mode_option") as OptionButton
+	_check(window_mode.custom_minimum_size.y <= 30.0,
+		"graphics options keep compact vertical padding")
+	_check(_button_is_borderless(window_mode),
+		"graphics options have no persistent border")
+	_check(window_mode.has_meta(&"ui_cycle"), "options cycle with left/right")
+	var hint: Label = panel.get("_help_label") as Label
+	_check(hint != null and hint.clip_text, "contextual hint is a single clipped line")
 
 	var switches: Array[CheckButton] = []
 	for property_name: String in [
 		"_vsync_check", "_sdfgi_check", "_ssao_check", "_ssil_check",
 		"_vol_fog_check", "_glow_check", "_dof_check", "_shadow_check",
-		"_dr_check", "_vol_check",
+		"_dr_check", "_vol_check", "_reduced_motion_check",
 	]:
 		var toggle: CheckButton = panel.get(property_name) as CheckButton
 		if toggle != null:
 			switches.append(toggle)
-	_check(switches.size() == 10, "all live boolean settings remain connected")
+	_check(switches.size() == 11, "all live boolean and UI motion settings remain connected")
+	_check(switches.all(func(toggle: CheckButton) -> bool:
+		return toggle.custom_minimum_size.y <= 30.0),
+		"graphics toggles use information-first desktop density")
+	_check(switches.all(func(toggle: CheckButton) -> bool:
+		return _button_is_borderless(toggle)),
+		"graphics toggles have no persistent border")
+	_check(not _tree_contains_text(panel, "LIVE SETTINGS")
+		and not _tree_contains_text(panel, "Changes apply immediately"),
+		"live-settings information card is removed")
+	_check(not _tree_contains_text(panel, "Tune image quality, performance, effects, and camera comfort.")
+		and not _tree_contains_text(panel, "Window and frame delivery")
+		and not _tree_contains_text(panel, "Core image quality")
+		and not _tree_contains_text(panel, "View comfort"),
+		"settings descriptions are removed")
+	var reduced_motion: CheckButton = panel.get("_reduced_motion_check") as CheckButton
+	_check(reduced_motion != null and reduced_motion.button_pressed == UIMotion.reduced(),
+		"reduced UI motion control reflects the shared preference")
 
 	var render_scale: HSlider = panel.get("_render_scale_slider") as HSlider
 	var field_of_view: HSlider = panel.get("_fov_slider") as HSlider
@@ -65,3 +115,19 @@ func _check(condition: bool, message: String) -> void:
 		return
 	_failures += 1
 	push_error("GRAPHICS_SETTINGS_UI_SMOKE_FAIL: %s" % message)
+
+
+func _button_is_borderless(button: Button) -> bool:
+	var style: StyleBoxFlat = button.get_theme_stylebox("normal") as StyleBoxFlat
+	return style != null and style.border_width_left == 0 \
+		and style.border_width_top == 0 and style.border_width_right == 0 \
+		and style.border_width_bottom == 0
+
+
+func _tree_contains_text(root_node: Node, expected: String) -> bool:
+	if root_node is Label and (root_node as Label).text == expected:
+		return true
+	for child: Node in root_node.get_children():
+		if _tree_contains_text(child, expected):
+			return true
+	return false

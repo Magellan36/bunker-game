@@ -88,6 +88,11 @@ var _section_headers:  Array[Button] = []
 var _section_bodies:   Array[VBoxContainer] = []
 var _section_expanded: Array[bool] = []
 
+## Toggle rows (the "Toggle ..." buttons) that show live (ON)/(OFF) state.
+## One entry per such row: { "btn": Button, "label": String, "get": Callable }.
+## Refreshed on open() and after every toggle callback (_refresh_toggle_labels).
+var _toggle_buttons: Array[Dictionary] = []
+
 # ─── Injected by MainWorld._toggle_admin_cheat_menu() ─────────────────────────
 ## MainWorld — used by the ECONOMY row (add_cash()). Injected via set() at
 ## menu-creation time; the injection call already exists in MainWorld.gd, this
@@ -122,12 +127,11 @@ func _ready() -> void:
 	layer   = 128   ## On top of everything (PauseMenuUI sits above at 200)
 	visible = false
 	set_process(false)
-	## Controller navigation (Aug 2026) — d-pad + left stick drive focus
-	## (movement is locked while this is open), B closes this UI. See
+	## Controller navigation — d-pad + right stick drive focus; B closes.
 	## scripts/ui/common/ControllerUINavigation.gd.
 	var controller_nav: Node = (load("res://scripts/ui/common/ControllerUINavigation.gd") as GDScript).new()
 	controller_nav.ui_root = self
-	controller_nav.stick_navigation = true
+	controller_nav.stick_navigation = false
 	add_child(controller_nav)
 
 	_font = load("res://assets/fonts/IosevkaCharon-Regular.ttf")
@@ -135,6 +139,13 @@ func _ready() -> void:
 		_font = ThemeDB.fallback_font
 
 	_sections = [
+		{ "name": "DEBUG", "rows": [
+			["Toggle All Debug Outputs", _on_toggle_all_debug_pressed,
+				func() -> bool: return DebugOutput.enabled],
+		]},
+		{ "name": "PLAYER", "rows": [
+			["Kill Player (Health → 0)", _on_kill_player_pressed],
+		]},
 		{ "name": "POWER", "rows": [
 			["+ %d w Power" % int(ADMIN_POWER_STEP_WATTS), _on_add_power_pressed],
 			["- %d w Power" % int(ADMIN_POWER_STEP_WATTS), _on_remove_power_pressed],
@@ -148,7 +159,7 @@ func _ready() -> void:
 			["Hookup Output x2 (Tier +1)", _on_hookup_output_double_pressed],
 		]},
 		{ "name": "ECONOMY", "rows": [
-			["+ $%s Cash" % _format_thousands(ADMIN_CASH_STEP), _on_add_cash_pressed],
+			["+ %s Cash" % UIFormat.money(ADMIN_CASH_STEP), _on_add_cash_pressed],
 		]},
 		{ "name": "RESEARCH", "rows": [
 			["+10 Each Material Type", _on_add_research_materials_pressed],
@@ -220,7 +231,8 @@ func _ready() -> void:
 			["Randomize NPC Skills", _on_npc_randomize_skills_pressed],
 			["Despawn All NPCs", _on_npc_despawn_all_pressed],
 			["Force Rebake Navmesh", _on_npc_force_rebake_pressed],
-			["Toggle NPC Debug Logging", _on_npc_toggle_debug_pressed],
+			["Toggle NPC Debug Logging", _on_npc_toggle_debug_pressed,
+				func() -> bool: return NPCDebug.enabled],
 			["Print NPC Debug State", _on_npc_print_debug_pressed],
 			["Print NPC Cleaning Debug State", _on_npc_print_cleaning_debug_pressed],
 			["Print NPC Job Debug State", _on_npc_print_job_debug_pressed],
@@ -263,10 +275,10 @@ func _build_scroll_area() -> void:
 	## theme.
 	var scroll_theme: Theme = Theme.new()
 	var grabber: StyleBoxFlat = StyleBoxFlat.new()
-	grabber.bg_color = Color(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.65)
+	grabber.bg_color = BunkerDesign.IVORY.darkened(0.18)
 	grabber.set_corner_radius_all(4)
 	var grabber_hi: StyleBoxFlat = grabber.duplicate() as StyleBoxFlat
-	grabber_hi.bg_color = Color(HEADER_COLOR.r, HEADER_COLOR.g, HEADER_COLOR.b, 0.85)
+	grabber_hi.bg_color = BunkerDesign.IVORY
 	var track: StyleBoxFlat = StyleBoxFlat.new()
 	track.bg_color = Color(0.0, 0.0, 0.0, 0.25)
 	track.set_corner_radius_all(4)
@@ -311,6 +323,15 @@ func _build_scroll_area() -> void:
 			btn.pressed.connect(row[1])
 			_style_row_btn(btn)
 			body.add_child(btn)
+			## Toggle rows carry a third element: a Callable state getter, so
+			## the label can show its live (ON)/(OFF) state (see
+			## _refresh_toggle_labels).
+			if row.size() >= 3 and row[2] is Callable:
+				_toggle_buttons.append({
+					"btn": btn,
+					"label": String(row[0]),
+					"get": row[2] as Callable,
+				})
 
 ## Toggles one section's expanded/collapsed state and swaps its arrow.
 func _on_section_header_pressed(index: int) -> void:
@@ -346,12 +367,20 @@ func _style_row_btn(btn: Button) -> void:
 	normal.set_corner_radius_all(4)
 	var hover: StyleBoxFlat = normal.duplicate() as StyleBoxFlat
 	hover.bg_color     = ROW_BG_HOVER
-	hover.border_color = Color(HEADER_COLOR.r, HEADER_COLOR.g, HEADER_COLOR.b, 0.85)
+	hover.border_color = BunkerDesign.IVORY
 	btn.add_theme_stylebox_override("normal", normal)
 	btn.add_theme_stylebox_override("hover",  hover)
 	btn.add_theme_stylebox_override("pressed", hover)
 	btn.add_theme_color_override("font_color", TEXT_COLOR)
 	btn.add_theme_color_override("font_hover_color", HEADER_COLOR)
+
+## Re-stamps every toggle row's label with its live (ON)/(OFF) state — called
+## on open() and after each toggle callback flips the underlying flag.
+func _refresh_toggle_labels() -> void:
+	for entry: Dictionary in _toggle_buttons:
+		var btn: Button = entry["btn"]
+		var on: bool = bool(entry["get"].call())
+		btn.text = "%s  (%s)" % [entry["label"], "ON" if on else "OFF"]
 
 func _reposition_controls() -> void:
 	var vp: Vector2 = get_viewport().get_visible_rect().size
@@ -382,6 +411,7 @@ func open() -> void:
 	_reposition_controls()
 	_close_btn.visible = true
 	_scroll.visible = true
+	_refresh_toggle_labels()
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	## Standing convention (July 2026) — see UIFade.gd.
 	UIFade.fade_in(_canvas)
@@ -466,17 +496,6 @@ func _draw_str(text: String, pos: Vector2, color: Color, size: int) -> void:
 
 ## 100000 → "100,000". Local to this menu — no shared number-format helper
 ## exists in the project yet, and this is the only caller.
-func _format_thousands(value: int) -> String:
-	var s: String = str(absi(value))
-	var out: String = ""
-	var count: int = 0
-	for i: int in range(s.length() - 1, -1, -1):
-		out = s[i] + out
-		count += 1
-		if count % 3 == 0 and i > 0:
-			out = "," + out
-	return ("-" if value < 0 else "") + out
-
 # ─── Button callbacks ──────────────────────────────────────────────────────────
 func _get_power_manager() -> PowerManager:
 	return get_tree().get_first_node_in_group("power_manager") as PowerManager
@@ -934,9 +953,37 @@ func _on_npc_force_rebake_pressed() -> void:
 func _on_npc_toggle_debug_pressed() -> void:
 	NPCDebug.enabled = not NPCDebug.enabled
 	print("[AdminMenu] NPC debug logging: %s" % ("ON" if NPCDebug.enabled else "OFF"))
+	_refresh_toggle_labels()
+
+## Sep 2026 — kills the player (health → 0) to test the permanent-death /
+## game-over flow. Emits health_changed so MainWorld's handler fires
+## player.die() + opens GameOverUI (a plain assignment wouldn't signal).
+func _on_kill_player_pressed() -> void:
+	var stats: PlayerStats = _get_player_stats()
+	if stats == null:
+		push_warning("[AdminMenu] PlayerStats not found")
+		return
+	stats.health = 0.0
+	stats.health_changed.emit(stats.health)
+	## Close the F7 menu so the death screen fade-in is unobstructed.
+	close()
+
+## Sep 2026 — global kill-switch for every accumulated dev debug print
+## (wire/pipe/NPC registration, [GEN], [ORACLE PASS], diagnostics, etc.).
+## Flipping this off silences all of them at once so they can't saturate
+## the console/debugger bridge and be mistaken for in-game lag. See
+## DebugOutput.gd — every debug helper (_wdbg/_pdbg/NPCDebug log_*)
+## routes through it. On-demand "Print ... Debug State" dumps stay
+## available (deliberate requests, not automatic floods).
+func _on_toggle_all_debug_pressed() -> void:
+	DebugOutput.enabled = not DebugOutput.enabled
+	print("[AdminMenu] All debug output: %s" % ("ON" if DebugOutput.enabled else "OFF"))
+	_refresh_toggle_labels()
 
 func _on_npc_print_debug_pressed() -> void:
 	NPCDebug.dump_all(get_tree())
+
+
 
 func _on_npc_print_cleaning_debug_pressed() -> void:
 	NPCDebug.dump_cleaning_state(get_tree())

@@ -6,20 +6,23 @@ class_name TrashCan
 ## LightStorage — always opens the shared StorageUI, fully retrievable via
 ## Carry/⊕ at any fill level (per design: never disable retrieval).
 ##
-## F is overridden with the full trash-handling surface:
-##   - Holding a Trash Bag          → merge its contents back into the can
-##   - Empty-handed + has contents  → collect everything into a new Trash
-##                                     Bag handed directly to the player
-##                                     (partial fill fine — "at any point
-##                                     of its fullness")
-##   - Empty-handed + no contents   → no-op (falls through to pickup logic)
-##   - Holding an eligible item     → store it; if full, show a "too full"
-##                                     toast and drop the item (the same
-##                                     never-strand-the-held-item fallback
-##                                     LightStorage._try_store_held() uses)
-## This is a clean split because LightStorage's own F-prompt/store path
-## already goes silent once is_full() is true — there's no real overlap to
-## resolve, just a new use for the F slot that store leaves vacant at 10/10.
+## Sep 2026 — visual model swapped to `Trashcan_Cylindric` from the Ultimate
+## House Interior Pack (Blends/Trashcan_Cylindric.blend, exported to GLB).
+## The previous procedural tapered cylinder + rim was removed. Collision is
+## now a single invisible cylinder matching the scaled model footprint,
+## decoupled from the visual (model's own imported collision is stripped).
+
+## The model is a cylinder (0.755 diameter × 1.074 tall native) with no
+## directional front. Uniform scale 0.7417 maps its diameter to the existing
+## 0.56 footprint (matches the _tile_half_extents fallback of 0.28) — no
+## scrunching, so the height follows the model's natural proportion (scaled
+## 0.797).
+const MODEL_PATH: String = "res://assets/models/trashcan.glb"
+const MODEL_SCALE: float  = 0.7417
+
+## Scaled model dims — used for the collision cylinder and ghost.
+const SCALED_R: float = 0.28
+const SCALED_H: float = 0.797
 
 func _init() -> void:
 	capacity      = 10
@@ -39,53 +42,45 @@ func _ready() -> void:
 	add_to_group("trash_receptacle")
 
 func _build_mesh() -> void:
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_color = Color(0.28, 0.32, 0.26, 1.0)   ## drab olive-grey
-	mat.metallic = 0.15
-	mat.roughness = 0.75
+	## Hand-made OBJ/GLB swap convention (Sep 2026) — load the real model,
+	## scale + rotate it into place, strip its own collision, and add a single
+	## invisible collider matching the footprint. Same shape as the
+	## Chair / EndTable / Dresser swaps.
+	var packed: PackedScene = load(MODEL_PATH) if ResourceLoader.exists(MODEL_PATH) else null
+	if packed != null:
+		var model: Node3D = packed.instantiate() as Node3D
+		if model != null:
+			model.position = Vector3.ZERO
+			model.scale    = Vector3.ONE * MODEL_SCALE
+			_strip_model_collision(model)
+			add_child(model)
+	else:
+		push_warning("TrashCan.gd: trashcan.glb missing at %s — falling back to no visual mesh" % MODEL_PATH)
 
-	## Simple tapered cylinder body (basic model, per design direction —
-	## refine visually later)
-	var body_mi: MeshInstance3D = MeshInstance3D.new()
-	var body_mesh: CylinderMesh = CylinderMesh.new()
-	body_mesh.top_radius    = 0.24
-	body_mesh.bottom_radius = 0.19
-	body_mesh.height        = 0.62
-	body_mesh.radial_segments = 16
-	body_mi.mesh = body_mesh
-	body_mi.position = Vector3(0.0, 0.31, 0.0)
-	body_mi.set_surface_override_material(0, mat)
-	add_child(body_mi)
-
-	## Collision (procedural, not scene-authored — this object has no .tscn)
+	## Invisible cylinder collider matching the scaled model footprint.
 	var col: CollisionShape3D = CollisionShape3D.new()
 	var shape: CylinderShape3D = CylinderShape3D.new()
-	## CylinderShape3D has no top/bottom taper (unlike the CylinderMesh above)
-	## — use a single uniform radius. Use the WIDER of the two (0.24, the
-	## top) rather than an average, so collision fully encloses the tapered
-	## visual mesh instead of letting items clip through the narrower base.
-	shape.radius = 0.24
-	shape.height = 0.62
+	shape.radius = SCALED_R
+	shape.height = SCALED_H
 	col.shape = shape
-	col.position = Vector3(0.0, 0.31, 0.0)
+	col.position = Vector3(0.0, SCALED_H * 0.5, 0.0)
 	add_child(col)
 
-	## Rim lip, thin torus-substitute (flattened cylinder) at the open top
-	var rim_mi: MeshInstance3D = MeshInstance3D.new()
-	var rim_mesh: CylinderMesh = CylinderMesh.new()
-	rim_mesh.top_radius = 0.26
-	rim_mesh.bottom_radius = 0.26
-	rim_mesh.height = 0.03
-	rim_mi.mesh = rim_mesh
-	rim_mi.position = Vector3(0.0, 0.615, 0.0)
-	rim_mi.set_surface_override_material(0, mat)
-	add_child(rim_mi)
+## Recursively disables collision on every CollisionObject3D descendant of an
+## instanced model — same convention as Chair.gd/Table.gd/BuildStation.gd.
+func _strip_model_collision(node: Node) -> void:
+	if node is CollisionObject3D:
+		var co: CollisionObject3D = node as CollisionObject3D
+		co.collision_layer = 0
+		co.collision_mask  = 0
+	for child: Node in node.get_children():
+		_strip_model_collision(child)
 
 static func build_ghost_mesh() -> Mesh:
 	var cyl: CylinderMesh = CylinderMesh.new()
-	cyl.top_radius = 0.26
-	cyl.bottom_radius = 0.19
-	cyl.height = 0.65
+	cyl.top_radius = SCALED_R
+	cyl.bottom_radius = SCALED_R
+	cyl.height = SCALED_H
 	return cyl
 
 ## Presence check — every stored item is a REAL live node now (merged-back

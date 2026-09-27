@@ -16,9 +16,9 @@ var _priority_control: VBoxContainer
 func _build_content() -> void:
 	_running = W.status(_statuses, "Running")
 	_connection = W.status(_statuses, "Connection")
-	_storage = W.meter(_details, "Storage", "Stored water", "water")
+	_storage = W.meter(_details, "Storage", "Stored water", "water", true)
 	_quality = W.meter(_details, "Quality", "Water quality", "condition")
-	_requested = W.stat(_details, "Requested", "Requested flow")
+	_requested = W.stat(_details, "Requested", "Requested flow", 18, 14)
 	_rate_slider = HSlider.new()
 	_rate_slider.name = "RateSlider"
 	_rate_slider.step = 1.0
@@ -40,11 +40,9 @@ func _build_content() -> void:
 	_rate_slider.add_theme_stylebox_override("focus", _view.theme.get_stylebox("focus", "Button"))
 	_rate_slider.value_changed.connect(_on_rate_changed)
 	_network_hint = W.label(_details, "NetworkHint", "", 14, "secondary")
-	_received = W.stat(_details, "Received", "Receiving now")
+	_received = W.stat(_details, "Received", "Receiving flow", 18, 14)
 	_priority_control = _add_priority(_details, _on_priority_requested)
-	_priority_control.set_hint("1 is served first · 5 is served last")
-	W.label(_footer, "ActionHint", "Controls refilling from the network; stored water stays in the tank.", 14, "secondary")
-	_toggle_btn = W.button(_footer, "Toggle", "Turn dispenser on", _on_toggle_pressed, "running", true)
+	_toggle_btn = W.button(_footer, "Toggle", "POWER ON", _on_toggle_pressed, "running", true)
 
 func open(dispenser: WaterDispenser) -> void:
 	if not is_instance_valid(dispenser):
@@ -66,10 +64,10 @@ func _refresh_data() -> void:
 	W.set_status(_running, "On" if _dispenser.is_on else "Off", "success" if _dispenser.is_on else "inactive", "running" if _dispenser.is_on else "stopped")
 	W.set_status(_connection, "Water connected" if connected else "Disconnected", "success" if connected else "warning", "grid")
 	W.set_meter(_storage, _dispenser.current_fill_mL / WaterDispenser.MAX_STORAGE_ML * 100.0,
-		"%d%%" % roundi(_dispenser.current_fill_mL / WaterDispenser.MAX_STORAGE_ML * 100.0),
+		UIFormat.percent(_dispenser.current_fill_mL / WaterDispenser.MAX_STORAGE_ML * 100.0),
 		"%.0f / %.0f mL stored" % [_dispenser.current_fill_mL, WaterDispenser.MAX_STORAGE_ML])
 	var quality: float = _dispenser.stored_water_quality
-	W.set_meter(_quality, quality, "%.0f%%" % quality, "Quality of water currently in the tank.", W.quality_token(quality))
+	W.set_meter(_quality, quality, UIFormat.percent(quality), "", W.quality_token(quality))
 	W.set_stat(_requested, "%.0f mL/day · %.2f mL/min" % [requested, requested / 1440.0])
 	# Range.max_value can emit value_changed while clamping. Block the entire
 	# update, not only the final value assignment: refreshing must NEVER write.
@@ -84,9 +82,7 @@ func _refresh_data() -> void:
 	W.set_stat(_received, "%.0f mL/day · %.2f mL/min" % [received, received / 1440.0],
 		"inactive" if not _dispenser.is_on else ("warning" if received < requested - 1.0 else "blue"))
 	_priority_control.set_value(_dispenser.priority)
-	_toggle_btn.text = "Turn dispenser off" if _dispenser.is_on else "Turn dispenser on"
-	_toggle_btn.tooltip_text = _toggle_btn.text
-	_toggle_btn.icon = W.icon("stopped" if _dispenser.is_on else "running")
+	W.set_power_button(_toggle_btn, _dispenser.is_on)
 
 func _on_rate_changed(value: float) -> void:
 	if _is_open and is_instance_valid(_dispenser):
@@ -101,4 +97,7 @@ func _on_toggle_pressed() -> void:
 func _on_priority_requested(value: int) -> void:
 	if _is_open and is_instance_valid(_dispenser):
 		_dispenser.priority = clampi(value, 1, 5)
+		var wm: WaterManager = get_tree().get_first_node_in_group("water_manager") as WaterManager
+		if wm != null:
+			wm.request_flow_refresh()
 		_refresh_data()

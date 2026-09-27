@@ -167,11 +167,10 @@ const SNAP_GRID: float = 0.25
 ## When true, prints a one-line summary whenever tubes are corrected or freed.
 const RECONCILE_DEBUG: bool = false
 
-## Wire/zone debug toggle — mirrors MainWorld.WIRE_DEBUG.
-## All [PM:*] prints are buffered into _pm_wire_log and NEVER printed live.
-## MainWorld's F9 handler calls dump_wire_log() to retrieve and print them.
-## Zero cost when false.
-const WIRE_DEBUG: bool = true
+## Wire/zone debug logging is gated by DebugOutput.enabled (the F7 "Toggle
+## All Debug Outputs" switch). All [PM:*] prints are buffered into
+## _pm_wire_log and NEVER printed live; MainWorld's F9 handler retrieves
+## and prints them.
 
 ## Seconds of grace between BROWNOUT and a full grid trip.
 ## Near-instant: flicker sequence is short, this just guards against edge cases.
@@ -276,6 +275,13 @@ var _needs_resolve:      bool  = false
 ## Behavior is identical to the old per-call solve — same final state, far fewer
 ## redundant intermediate solves per frame.
 var _bulk_depth:         int   = 0
+
+## Fuel and battery energy are continuous quantities, but neither needs a
+## full graph-aware update every rendered frame. Accumulate exact elapsed time
+## and advance them at 10 Hz; topology/state changes still solve immediately
+## through the existing event paths below.
+const POWER_SIM_INTERVAL: float = 0.1
+var _power_sim_accum: float = 0.0
 
 ## ── Sustained-brownout latch (cross-zone exhaustion) ──────────────────────────
 ## When a CROSS-ZONE component runs out of generators + battery, it does NOT go
@@ -448,9 +454,9 @@ var _component_cache_valid: bool        = false
 ## Flushed and returned by dump_wire_log() which MainWorld's F9 handler calls.
 var _pm_wire_log: Array[String] = []
 
-## Internal helper — appends msg only when WIRE_DEBUG is true.
+## Internal helper — appends msg only while DebugOutput.enabled (F7 switch).
 func _pmdbg(msg: String) -> void:
-	if WIRE_DEBUG:
+	if DebugOutput.enabled:
 		_pm_wire_log.append(msg)
 
 ## Returns all buffered PM wire-debug lines as an Array[String] and clears
@@ -543,8 +549,12 @@ func _ready() -> void:
 	pass   ## No default zone — graph starts empty.
 
 func _process(delta: float) -> void:
-	_tick_generators(delta)
-	_tick_batteries(delta)
+	_power_sim_accum += delta
+	if _power_sim_accum >= POWER_SIM_INTERVAL:
+		var sim_delta: float = _power_sim_accum
+		_power_sim_accum = 0.0
+		_tick_generators(sim_delta)
+		_tick_batteries(sim_delta)
 
 	## If _tick_batteries flagged a resolve (all batteries died), run it now —
 	## once per frame rather than every frame inside the tick loop.
@@ -602,8 +612,8 @@ func _process(delta: float) -> void:
 ## BuildModeController, MainWorld, etc.) needs zero changes.
 ## ─────────────────────────────────────────────────────────────────────────────
 
-func register_wire_node(pos: Vector3, role: String, device_id: String = "") -> String:
-	return _graph.register_wire_node(pos, role, device_id)
+func register_wire_node(pos: Vector3, role: String, device_id: String = "", preserve_height: bool = false) -> String:
+	return _graph.register_wire_node(pos, role, device_id, preserve_height)
 
 func get_wire_node_role(node_key: String) -> String:
 	return _graph.get_wire_node_role(node_key)
@@ -1426,6 +1436,40 @@ func zone_display_color(zone_key: String, color_index: int, alpha: float = 0.60)
 		return c
 	return zone_color_at(color_index, alpha)
 
+# ─── Save/Load — zone customization (Save/Load overhaul pass 2) ─────────────
+## Serializes the player's zone display-name + color overrides into a
+## JSON-safe Dictionary (Colors → {r,g,b,a}). Backs the SaveManager
+## "zone_customization" field (phase 4). Zone keys are the stable
+## min-node-key identities (see ZoneCustomization.gd's header) that survive
+## wire/perimeter rebuilds, so overrides restore onto the same zones.
+func get_zone_customization_for_save() -> Dictionary:
+	if _zone_custom == null:
+		return {}
+	var snap: Dictionary = _zone_custom.snapshot()
+	var colors_json: Dictionary = {}
+	for k: Variant in snap.get("colors", {}):
+		var c: Color = snap["colors"][k]
+		colors_json[k] = {"r": c.r, "g": c.g, "b": c.b, "a": c.a}
+	return {
+		"names":  snap.get("names", {}),
+		"colors": colors_json,
+	}
+
+## Rebuilds zone overrides from get_zone_customization_for_save()'s output and
+## repaints wires so the new colors/names take effect immediately.
+func restore_zone_customization_from_save(data: Dictionary) -> void:
+	var colors_back: Dictionary = {}
+	for k: Variant in data.get("colors", {}):
+		var cd: Dictionary = data["colors"][k]
+		colors_back[k] = Color(
+			float(cd.get("r", 0.0)), float(cd.get("g", 0.0)),
+			float(cd.get("b", 0.0)), float(cd.get("a", 1.0)))
+	_zone_custom.restore({
+		"names":  data.get("names", {}),
+		"colors": colors_back,
+	})
+	reconcile_wire_visuals()
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PUBLIC API — CONSUMERS
@@ -2235,7 +2279,7 @@ func get_wire_zones() -> Array[Dictionary]:
 
 	## Build a node→edge adjacency that skips breaker nodes as pass-through:
 	## an edge is included if AT LEAST ONE endpoint is NOT a breaker.
-	## Edges where both endpoints are breakers are excluded from all zones.
+	## Edges where both endpoints are breakers form their own bounded zones.
 	## The adjacency maps non-breaker snap keys to their neighbouring non-breaker
 	## snap keys via edges that don't cross two breakers.
 	##
@@ -2254,7 +2298,7 @@ func get_wire_zones() -> Array[Dictionary]:
 		var a_is_brk: bool = breaker_keys.has(na)
 		var b_is_brk: bool = breaker_keys.has(nb)
 		if a_is_brk and b_is_brk:
-			continue   ## Edge between two breakers — skip
+			continue   ## No pass-through adjacency; BFS still seeds this edge.
 		## Add to each non-breaker endpoint's list.
 		if not a_is_brk:
 			if not node_edges.has(na):
@@ -2274,12 +2318,8 @@ func get_wire_zones() -> Array[Dictionary]:
 	for start_eid: String in _wire_edges:
 		if visited_edges.has(start_eid):
 			continue
-		var edge: Dictionary = _wire_edges[start_eid]
-		var na: String = edge.get("node_a", "")
-		var nb: String = edge.get("node_b", "")
-		## Skip edges between two breakers.
-		if breaker_keys.has(na) and breaker_keys.has(nb):
-			continue
+		## A direct breaker-to-breaker span is a valid middle zone. Seed it
+		## normally; expansion below stops at both breaker endpoints.
 
 		## BFS flood-fill.
 		var zone_edges: Array[String] = []
@@ -2432,6 +2472,10 @@ func reconcile_wire_visuals() -> int:
 	var orphan_tubes: Array       = []   ## tubes whose edge_id isn't in graph
 	for ws: Node in get_tree().get_nodes_in_group("wire_segment"):
 		if not is_instance_valid(ws):
+			continue
+		## Wall leads use an edge for color, but their device owns the geometry
+		## and lifetime. They are not duplicate or logical-edge graph tubes.
+		if ws.has_meta("_wall_feed_visual"):
 			continue
 		## Never touch drag-preview / ghost tubes — they're transient.
 		if "is_ghost" in ws and bool(ws.get("is_ghost")):

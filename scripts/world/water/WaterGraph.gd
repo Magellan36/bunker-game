@@ -141,6 +141,13 @@ func get_nodes() -> Dictionary:
 func register_edge(key_a: String, key_b: String) -> String:
 	if not _water_nodes.has(key_a) or not _water_nodes.has(key_b):
 		return ""
+	## Guard against degenerate zero-length edges (Sep 2026 crash fix): two
+	## path points closer than the snap grid can collapse to the SAME node
+	## key (e.g. 0.125m apart at SNAP_GRID 0.25). A self-loop edge poisons the
+	## flow-direction graph — reverse_of[down].up ends up pointing at itself
+	## and the purity-flip reverse walk in WaterManager never terminates.
+	if key_a == key_b:
+		return ""
 	var edge_id: String = make_edge_id(key_a, key_b)
 	if _water_edges.has(edge_id):
 		return edge_id   ## Already exists — idempotent, same as PowerGraph's convention
@@ -251,6 +258,32 @@ func get_reachable_endpoint_keys(hookup_key: String) -> Array[String]:
 				out.append(neighbor)
 			queue.append(neighbor)
 	return out
+
+## One BFS that records the purifier chain on the same shortest-path tree used
+## by get_purifiers_on_path(). The manager uses this once per flow snapshot
+## instead of repeating that path search for every consumer and purifier.
+func get_purifier_paths_from_hookup(hookup_key: String) -> Dictionary:
+	var paths: Dictionary = {}
+	if not _water_nodes.has(hookup_key):
+		return paths
+	var visited: Dictionary = {hookup_key: true}
+	paths[hookup_key] = [] as Array[String]
+	var queue: Array[String] = [hookup_key]
+	var head: int = 0
+	while head < queue.size():
+		var current: String = queue[head]
+		head += 1
+		var current_path: Array[String] = (paths.get(current, []) as Array[String]).duplicate()
+		if _water_nodes.get(current, {}).get("role", "") == "purifier" and not current_path.has(current):
+			current_path.append(current)
+		paths[current] = current_path
+		for neighbor: String in _adjacency.get(current, []):
+			if visited.has(neighbor):
+				continue
+			visited[neighbor] = true
+			paths[neighbor] = current_path.duplicate()
+			queue.append(neighbor)
+	return paths
 
 ## Returns the node_key of every registered hookup (role == "hookup").
 func get_hookup_keys() -> Array[String]:

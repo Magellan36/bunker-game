@@ -1,5 +1,7 @@
 extends Node3D
 class_name BunkerNavMesh
+
+signal navigation_revision_changed(revision: int)
 ## BunkerNavMesh.gd  (rewritten in NPC Pass 2, Part 9 — parsed-collider bake)
 ## Owns the game's single runtime-baked NavigationMesh covering the dug-out
 ## bunker. Instantiated by MainWorld._ready().
@@ -19,9 +21,9 @@ class_name BunkerNavMesh
 ##      floor tops, so it merges harmlessly when redundant; it guarantees
 ##      walkable coverage even if a floor tile ever lacks collision.
 ##
-## Rebake triggers (unchanged from Part 1): RockSurround dig/restore
-## signals, placed-object fingerprint poll, initial startup bake — all
-## debounced, all baked async off-thread.
+## Rebake triggers: RockSurround dig/restore signals, explicit build topology
+## notifications, and the initial startup bake — all debounced, all baked
+## async off-thread. A slow revision/fingerprint audit remains as a safety net.
 ##
 ## HISTORY (do not "restore" any of these):
 ##   - Part 1 baked hand-built floor quads at FLOOR_Y = 0.0 — half a meter
@@ -40,16 +42,19 @@ class_name BunkerNavMesh
 const FLOOR_Y: float = 0.5            ## REAL floor surface (GridMap y=1.0,
                                       ## 0.1 cells, row -6 → tile top 0.5)
 const REBAKE_DEBOUNCE: float = 0.5
-const POLL_INTERVAL: float = 1.0
+const POLL_INTERVAL: float = 10.0
 
 var _region: NavigationRegion3D = null
 var _navmesh: NavigationMesh = null
 var _dirty: bool = true
 var _debounce: float = 0.0
 var _poll_timer: float = 0.0
+var _last_build_revision: int = -1
 var _last_fingerprint: int = -1
 var _baking: bool = false
 var _bake_queued_again: bool = false
+var _requested_revision: int = 0
+var _published_revision: int = 0
 
 func _ready() -> void:
 	add_to_group("bunker_navmesh")
@@ -59,23 +64,14 @@ func _ready() -> void:
 	NavigationServer3D.map_set_cell_size(nav_map, 0.1)
 	NavigationServer3D.map_set_cell_height(nav_map, 0.15)
 
-	_navmesh = NavigationMesh.new()
-	## Parse real static colliders on physics bit 1 (walls/floors/furniture
-	## all use collision_layer 5 = bits 1+3; mask 1 matches them all).
-	_navmesh.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS
-	_navmesh.geometry_collision_mask = 1
-	## Agent shape — matches the NPC capsule exactly (radius 0.4, Part 7/8).
-	_navmesh.agent_radius = 0.4
-	_navmesh.agent_height = 1.8
-	_navmesh.agent_max_climb = 0.3
-	_navmesh.agent_max_slope = 30.0
-	_navmesh.cell_size = 0.1
-	_navmesh.cell_height = 0.15
+	_navmesh = _new_navigation_mesh()
 
 	_region = NavigationRegion3D.new()
 	_region.name = "BunkerNavRegion"
 	_region.navigation_mesh = _navmesh
 	add_child(_region)
+
+	_connect_topology_sources()
 
 	var world: Node = get_tree().get_first_node_in_group("main_world")
 	if world != null and "rock_surround" in world and world.rock_surround != null:
@@ -85,9 +81,41 @@ func _ready() -> void:
 		if rs.has_signal("chunk_restored"):
 			rs.chunk_restored.connect(func(_a = null, _b = null, _c = null) -> void: mark_dirty())
 
+
+func _new_navigation_mesh() -> NavigationMesh:
+	var mesh := NavigationMesh.new()
+	## Parse real static colliders on physics bit 1 (walls/floors/furniture
+	## all use collision_layer 5 = bits 1+3; mask 1 matches them all).
+	mesh.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS
+	mesh.geometry_collision_mask = 1
+	## Bake a small clearance beyond the 0.4m physical capsule. Exact-radius
+	## paths scrape walls at polygon corners once physics tolerances are added.
+	mesh.agent_radius = 0.5
+	mesh.agent_height = 1.8
+	mesh.agent_max_climb = 0.3
+	mesh.agent_max_slope = 30.0
+	mesh.cell_size = 0.1
+	mesh.cell_height = 0.15
+	return mesh
+
+
+func _connect_topology_sources() -> void:
+	for node: Node in get_tree().get_nodes_in_group("navigation_topology_source"):
+		if node.has_signal("navigation_topology_changed") \
+				and not node.is_connected("navigation_topology_changed", mark_dirty):
+			node.connect("navigation_topology_changed", mark_dirty)
+
 func mark_dirty() -> void:
+	## A build notification arrives after the new scene subtree has entered the
+	## tree, so connect any newly-added door/topology source now. This closes
+	## the gap where a just-built door could open before the slow safety audit.
+	_connect_topology_sources()
 	_dirty = true
 	_debounce = REBAKE_DEBOUNCE
+
+
+func get_navigation_revision() -> int:
+	return _published_revision
 
 func _process(delta: float) -> void:
 	_poll_timer -= delta
@@ -101,14 +129,27 @@ func _process(delta: float) -> void:
 			_dirty = false
 			_rebake()
 
-## Placed-object fingerprint — used ONLY as a "something changed, rebake"
-## signal. The snapshot's footprint data is NOT used for geometry anymore.
+## Slow safety audit. Normal build changes arrive immediately through
+## navigation_topology_changed; the revision check catches missed connections
+## without rebuilding/sorting the complete obstacle snapshot every second.
 func _poll_placed_objects() -> void:
+	## Doors and other procedural topology sources can appear at runtime.
+	_connect_topology_sources()
 	var world: Node = get_tree().get_first_node_in_group("main_world")
 	if world == null or not ("_build_controller" in world):
 		return
 	var bc: Node = world._build_controller
-	if bc == null or not bc.has_method("get_nav_obstacle_snapshot"):
+	if bc == null:
+		return
+	if bc.has_method("get_navigation_topology_revision"):
+		var revision: int = int(bc.call("get_navigation_topology_revision"))
+		if revision != _last_build_revision:
+			_last_build_revision = revision
+			mark_dirty()
+		return
+	## Compatibility fallback for an older or alternate build controller.
+	## Its footprint data is still never used for bake geometry.
+	if not bc.has_method("get_nav_obstacle_snapshot"):
 		return
 	var snap: Dictionary = bc.get_nav_obstacle_snapshot()
 	var fp: int = snap.get("fingerprint", 0)
@@ -125,10 +166,11 @@ func _rebake() -> void:
 	if world == null or not world.has_method("get_cleared_cell_keys"):
 		return
 
+	var staging_mesh: NavigationMesh = _new_navigation_mesh()
 	var src: NavigationMeshSourceGeometryData3D = NavigationMeshSourceGeometryData3D.new()
 
 	## ── Source 1: the real physics world (floors, walls, furniture, rocks) ─
-	NavigationServer3D.parse_source_geometry_data(_navmesh, src, world)
+	NavigationServer3D.parse_source_geometry_data(staging_mesh, src, world)
 
 	## ── Source 2: safety-net floor quads at the REAL floor height ──────────
 	## Coplanar with parsed floor-tile tops; harmless duplicate when tiles
@@ -148,14 +190,39 @@ func _rebake() -> void:
 		src.add_faces(PackedVector3Array([a, c, b,  a, d, c]), Transform3D.IDENTITY)
 
 	_baking = true
-	NavigationServer3D.bake_from_source_geometry_data(_navmesh, src, _on_bake_done)
+	_requested_revision += 1
+	var request_revision := _requested_revision
+	## Bake into an unpublished resource. Agents continue using the last known
+	## good topology until this complete mesh is atomically swapped in.
+	NavigationServer3D.bake_from_source_geometry_data_async(staging_mesh, src,
+		Callable(self, "_on_bake_done").bind(staging_mesh, request_revision))
 
-func _on_bake_done() -> void:
+func _on_bake_done(staging_mesh: NavigationMesh, request_revision: int) -> void:
 	_baking = false
-	_region.navigation_mesh = _navmesh
+	if request_revision < _requested_revision:
+		_bake_queued_again = true
+	else:
+		var nav_map: RID = get_world_3d().navigation_map
+		var previous_iteration := NavigationServer3D.map_get_iteration_id(nav_map)
+		_navmesh = staging_mesh
+		_region.navigation_mesh = _navmesh
+		_published_revision = request_revision
+		_publish_revision_when_synced(_published_revision, previous_iteration)
 	if NPCDebug.enabled:
 		print("[BunkerNavMesh] bake done: %d polygons, %d vertices" % [
-			_navmesh.get_polygon_count(), _navmesh.get_vertices().size()])
+			staging_mesh.get_polygon_count(), staging_mesh.get_vertices().size()])
 	if _bake_queued_again:
 		_bake_queued_again = false
 		mark_dirty()
+
+
+func _publish_revision_when_synced(revision: int, previous_iteration: int) -> void:
+	## Region assignment is queued inside NavigationServer3D. Do not make every
+	## NPC requery against the old map and cache a false unreachable result.
+	var nav_map: RID = get_world_3d().navigation_map
+	for _frame: int in range(8):
+		await get_tree().physics_frame
+		if NavigationServer3D.map_get_iteration_id(nav_map) != previous_iteration:
+			break
+	if revision == _published_revision:
+		navigation_revision_changed.emit(revision)

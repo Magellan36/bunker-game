@@ -1259,6 +1259,94 @@ func is_passed_out() -> bool:
 # ─── Locomotion ───────────────────────────────────────────────────────────
 var _movement_locked: bool = false
 var _last_steer_delta: float = 0.0
+var _requested_speed: float = 0.0
+
+# ─── Doors ──────────────────────────────────────────────────────────────────
+## BunkerDoor exposes a NavigationLink through the doorway, so routes may
+## cross a closed door. Approaching one, a resident asks it to open and waits;
+## NPCDoorCoordinator keeps opposite-direction residents from meeting inside
+## the doorway. A door that won't open (the player keeps shutting it, a
+## preview door) gives up after DOOR_GIVE_UP_SEC and the activity is dropped.
+const NPC_DOOR_COORDINATOR: GDScript = preload("res://scripts/npc/NPCDoorCoordinator.gd")
+const DOOR_GIVE_UP_SEC: float = 8.0
+var _door_lease: Dictionary = {}
+var _door_wait: float = 0.0
+var door_blocked: bool = false
+
+func is_waiting_at_door() -> bool:
+	return _door_wait > 0.0
+
+func _door_passage_allows(next_path_point: Vector3, delta: float) -> bool:
+	var allowed: bool = _door_passage_check(next_path_point)
+	if allowed:
+		_door_wait = 0.0
+		return true
+	_door_wait += delta
+	if _door_wait >= DOOR_GIVE_UP_SEC:
+		_door_wait = 0.0
+		_release_door_passage()
+		door_blocked = true   ## NPCBrain abandons the activity at its next tick
+		return false
+	return false
+
+func _door_passage_check(next_path_point: Vector3) -> bool:
+	if not _door_lease.is_empty():
+		var door_ref: WeakRef = _door_lease.get("door_ref") as WeakRef
+		var door: Node3D = door_ref.get_ref() as Node3D if door_ref != null else null
+		if Time.get_ticks_msec() >= int(_door_lease.get("expires", 0)) or door == null or not is_instance_valid(door):
+			_release_door_passage()
+		else:
+			var info: Dictionary = door.get_npc_portal_info()
+			var local: Vector3 = door.to_local(global_position)
+			var direction: int = int(_door_lease.get("direction", 0))
+			if local.x * direction >= float(info.get("exit_distance", 0.9)):
+				_release_door_passage()   ## through
+			elif not bool(info.get("open", false)):
+				_release_door_passage()
+				door.request_npc_open(self)
+				return false
+			else:
+				return true
+	var best_door: Node3D = null
+	var best_direction: int = 0
+	var best_plane: float = INF
+	var target: Vector3 = nav_agent.target_position
+	for candidate: Node in get_tree().get_nodes_in_group("npc_bottleneck"):
+		if not (candidate is Node3D) or not candidate.has_method("get_npc_portal_info"):
+			continue
+		var door: Node3D = candidate as Node3D
+		var info: Dictionary = door.get_npc_portal_info()
+		var here: Vector3 = door.to_local(global_position)
+		if absf(here.x) > float(info.get("wait_distance", 1.15)) or absf(here.z) > float(info.get("half_width", 0.9)) + 0.45:
+			continue
+		var target_local: Vector3 = door.to_local(target)
+		var travel_x: float = target_local.x - here.x
+		if absf(travel_x) < 0.2:
+			travel_x = door.to_local(next_path_point).x - here.x
+		var direction: int = 1 if travel_x > 0.0 else -1
+		if here.x * direction >= 0.0 or target_local.x * direction <= 0.0:
+			continue   ## route doesn't cross this door's plane
+		if absf(here.x) < best_plane:
+			best_plane = absf(here.x)
+			best_door = door
+			best_direction = direction
+	if best_door == null:
+		return true
+	if not bool(best_door.get_npc_portal_info().get("open", false)):
+		if best_door.has_method("request_npc_open"):
+			best_door.request_npc_open(self)
+		return false
+	_door_lease = NPC_DOOR_COORDINATOR.request(self, best_door, best_direction)
+	return not _door_lease.is_empty()
+
+func _exit_tree() -> void:
+	_release_door_passage()
+
+func _release_door_passage() -> void:
+	if not _door_lease.is_empty():
+		NPC_DOOR_COORDINATOR.release(_door_lease, self)
+	NPC_DOOR_COORDINATOR.release_owner(self)   ## also drops a queued request
+	_door_lease = {}
 
 ## The chair/bed this NPC occupies, mirroring Player.gd so the shared
 ## AdventurerModelController drives the same sit / lie-down animations.
@@ -1336,17 +1424,31 @@ func nav_steer(delta: float) -> void:
 	_movement_locked = false
 	_last_steer_delta = delta
 	if nav_agent == null or nav_agent.is_navigation_finished():
+		if not _door_lease.is_empty():
+			_release_door_passage()
+		_door_wait = 0.0
 		_decelerate(delta)
 		return
-	var dir: Vector3 = nav_agent.get_next_path_position() - global_position
+	var next: Vector3 = nav_agent.get_next_path_position()
+	if not _door_passage_allows(next, delta):
+		halt_movement(delta)   ## movement lock also pauses stuck detection while queued
+		return
+	var dir: Vector3 = next - global_position
 	dir.y = 0.0
 	if dir.length() < 0.01:
 		return
-	nav_agent.set_velocity(dir.normalized() * move_speed * get_status_speed_multiplier())
+	_requested_speed = move_speed * get_status_speed_multiplier()
+	nav_agent.max_speed = _requested_speed   ## avoidance may never return more than we asked for
+	nav_agent.set_velocity(dir.normalized() * _requested_speed)
 
 func _on_velocity_computed(safe_velocity: Vector3) -> void:
 	if _movement_locked:
 		return   ## a stationary phase began after this request — stale
+	## Cap at the requested pace: with the agent's default max_speed (10 m/s),
+	## a retarget amid other agents could otherwise produce a brief surge.
+	var safe_xz: Vector2 = Vector2(safe_velocity.x, safe_velocity.z).limit_length(_requested_speed)
+	safe_velocity.x = safe_xz.x
+	safe_velocity.z = safe_xz.y
 	var w: float = minf(acceleration * _last_steer_delta, 1.0)
 	velocity.x = lerp(velocity.x, safe_velocity.x, w)
 	velocity.z = lerp(velocity.z, safe_velocity.z, w)
