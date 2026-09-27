@@ -356,10 +356,19 @@ func _stage_bubbles() -> void:
 	b.place_standing_at(Vector3(-2.8, 0.5, 8.6))
 	a.relationships[b.npc_id] = 40.0
 	b.relationships[a.npc_id] = 40.0
-	print("[harness] staged chat: %s" % a.debug_force_talk())
 	var c: NPC = npcs[2]
 	c.energy = 5.0
 	c.brain.stop_current()
+	for attempt: int in 12:
+		for n: NPC in [a, b]:
+			if NPCItemUser.hands_full(n):
+				NPCItemUser.drop_held(n)
+			n._talk_cooldown_until = -1.0 if "_talk_cooldown_until" in n else 0.0
+		if a.debug_force_talk():
+			print("[harness] staged chat started (try %d)" % attempt)
+			return
+		await get_tree().create_timer(1.0).timeout
+	print("[harness] staged chat FAILED: partner=%s avail_b=%s" % [a.find_talk_partner(), b.is_available_to_talk()])
 
 const DOOR_WALL_X: float = -8.5
 const DOOR_WALL_ANGLE: float = 0.0   ## wall run (and door) along world Z
