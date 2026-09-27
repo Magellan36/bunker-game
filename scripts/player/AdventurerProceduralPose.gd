@@ -12,6 +12,9 @@ extends SkeletonModifier3D
 ##   head_support  nods the neck/head up onto a pillow while lying on a bed.
 ##                 The sleep clip was performed flat, so without it the head
 ##                 sinks into the pillow.
+##   look          turns neck + head toward a world point (the thing the
+##                 character is about to use / talking to), clamped to a
+##                 natural range and eased by look_weight.
 ##   lean_roll     banks the spine into a turn (centripetal lean), radians.
 ##   lean_pitch    tips the spine forward on acceleration / back on braking.
 ##
@@ -21,6 +24,10 @@ extends SkeletonModifier3D
 ## Neck + head nod at full head_support, degrees (split across both bones).
 const NECK_SUPPORT_DEG: float = 9.0
 const HEAD_SUPPORT_DEG: float = 9.0
+## Look-at: largest head turn (radians) and the neck/head split.
+const LOOK_MAX_ANGLE: float = 1.05
+const LOOK_GIVE_UP_ANGLE: float = 1.9
+const LOOK_NECK_SHARE: float = 0.4
 ## Share of the lean each spine bone takes (bottom to top).
 const SPINE_SHARE: Dictionary = {"Spine": 0.4, "Chest": 0.35, "UpperChest": 0.25}
 
@@ -39,6 +46,8 @@ const SETTLE_STEP_TIME: float = 0.28
 const SETTLE_LIFT: float = 0.07
 
 var head_support: float = 0.0
+var look_weight: float = 0.0
+var look_at_world: Vector3 = Vector3.ZERO
 var lean_roll: float = 0.0
 var lean_pitch: float = 0.0
 var foot_lock_enabled: bool = false
@@ -109,8 +118,28 @@ func _process_modification_with_delta(delta: float) -> void:
 			var share: float = _spine[i]
 			_rotate_local(sk, i, Vector3.BACK, lean_roll * share)
 			_rotate_local(sk, i, Vector3.RIGHT, lean_pitch * share)
+	if look_weight > 0.001:
+		_look(sk)
 	for leg: Leg in _legs:
 		_foot_lock(sk, leg, delta)
+
+## Humanoid head bones face +Z. Rotate neck then head (skeleton space) by a
+## clamped fraction of the arc from the current face direction to the target.
+func _look(sk: Skeleton3D) -> void:
+	if _head == -1:
+		return
+	var head_g: Transform3D = sk.get_bone_global_pose(_head)
+	var target: Vector3 = sk.global_transform.affine_inverse() * look_at_world
+	var face: Vector3 = head_g.basis.z.normalized()
+	var want: Vector3 = (target - head_g.origin).normalized()
+	var angle: float = face.angle_to(want)
+	if angle < 0.001 or angle > LOOK_GIVE_UP_ANGLE:
+		return
+	var arc := Quaternion(face, want)
+	var amount: float = minf(1.0, LOOK_MAX_ANGLE / angle) * look_weight
+	if _neck != -1:
+		_rotate_skeleton(sk, _neck, Quaternion.IDENTITY.slerp(arc, amount * LOOK_NECK_SHARE))
+	_rotate_skeleton(sk, _head, Quaternion.IDENTITY.slerp(arc, amount * (1.0 - LOOK_NECK_SHARE)))
 
 func _foot_lock(sk: Skeleton3D, leg: Leg, delta: float) -> void:
 	var xf: Transform3D = sk.global_transform

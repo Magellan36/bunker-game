@@ -78,6 +78,13 @@ const LEAN_PITCH_MAX: float = 0.09
 const LEAN_SMOOTH_RATE: float = 6.0
 ## Pillow head support fade rate while sleeping, per second.
 const HEAD_SUPPORT_RATE: float = 1.2
+## Look-at: glance at what the character is about to use (player: the
+## interaction prompt's focus; NPC: its activity's attention target).
+const LOOK_RANGE: float = 3.5
+const LOOK_WEIGHT: float = 0.7
+const LOOK_FADE_RATE: float = 2.5
+const LOOK_FOLLOW_RATE: float = 5.0
+const LOOK_HEIGHT: float = 0.3
 
 # ─── Furniture tuning (world metres) ─────────────────────────────────────────
 ## Hip bone height above a seat surface when sitting (pelvis half-depth).
@@ -169,6 +176,7 @@ var _prev_yaw: float = 0.0
 var _prev_speed: float = 0.0
 var _yaw_rate: float = 0.0
 var _accel: float = 0.0
+var _look_point: Vector3 = Vector3.ZERO
 
 ## Action state.
 var _stage: Stage = Stage.NONE
@@ -436,9 +444,38 @@ func _update_procedural_pose(speed: float, delta: float) -> void:
 	_pose_mod.foot_lock_enabled = not _stage in [Stage.DEAD, Stage.LIE_DOWN, Stage.SLEEP, Stage.GET_UP]
 	_pose_mod.floor_y = _floor_y()
 	_pose_mod.body_speed = speed
+	_update_look(delta)
 	var support: float = 1.0 if _stage == Stage.SLEEP else 0.0
 	_pose_mod.head_support = move_toward(_pose_mod.head_support, support,
 		delta * (HEAD_SUPPORT_RATE if support > 0.0 else HEAD_SUPPORT_RATE * 2.0))
+
+func _update_look(delta: float) -> void:
+	var want: float = 0.0
+	var target: Node3D = _look_target() if _stage == Stage.NONE or _stage == Stage.SEATED else null
+	if target != null:
+		var point: Vector3 = target.global_position + Vector3.UP * LOOK_HEIGHT
+		var to: Vector3 = point - _visual.global_position
+		var facing := Vector3(-sin(_visual_yaw), 0.0, -cos(_visual_yaw))
+		if Vector2(to.x, to.z).length() < LOOK_RANGE and facing.dot(Vector3(to.x, 0.0, to.z).normalized()) > -0.35:
+			want = LOOK_WEIGHT
+			if _pose_mod.look_weight < 0.01:
+				_look_point = point
+			_look_point = _look_point.lerp(point, clampf(LOOK_FOLLOW_RATE * delta, 0.0, 1.0))
+	_pose_mod.look_weight = move_toward(_pose_mod.look_weight, want, LOOK_FADE_RATE * delta)
+	_pose_mod.look_at_world = _look_point
+
+## Duck-typed: the player's interaction focus, or an NPC activity's
+## attention target. Nothing to look at → null.
+func _look_target() -> Node3D:
+	var target: Variant = null
+	if "interaction_system" in _player and _player.interaction_system != null \
+			and "look_focus" in _player.interaction_system:
+		target = _player.interaction_system.look_focus
+	elif "brain" in _player and _player.brain != null and _player.brain.has_method("current_activity"):
+		var activity: Variant = _player.brain.current_activity()
+		if activity != null and activity.has_method("attention_target"):
+			target = activity.attention_target(_player)
+	return target as Node3D if target is Node3D and is_instance_valid(target) else null
 
 # ─── Furniture planning ──────────────────────────────────────────────────────
 func _parent_furniture() -> Node3D:

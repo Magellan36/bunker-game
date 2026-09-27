@@ -25,6 +25,8 @@ class_name InteractionSystem
 ## header comment for what moved and why.
 var _proximity: InteractionProximityScan = null
 var _focus_glow: InteractionFocusGlow = null
+## The interactable the prompt currently points at (read by the body's look-at).
+var look_focus: Node3D = null
 
 ## Set by MainWorld after ready
 var prompt: Node     = null
@@ -1536,6 +1538,9 @@ func _update_prompt() -> void:
 	## ANY current focus target, not just Grow Light/Water Hookup — the
 	## glow follows is_focus_target generically, whatever object that
 	## happens to land on.
+	## What the prompt is about — the character model glances at it
+	## (AdventurerModelController look-at, docs/systems/player-model/ANIMATIONS.md).
+	look_focus = entry_bodies[focus_idx] as Node3D if focus_idx != -1 else null
 	if _focus_glow != null:
 		if focus_idx != -1 and FocusMode.is_active():
 			_focus_glow.set_target(entry_bodies[focus_idx])
