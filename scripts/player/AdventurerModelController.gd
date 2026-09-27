@@ -683,6 +683,13 @@ func _finish_sequence() -> void:
 		stand_animation_finished.emit()
 
 func _enter_death() -> void:
+	if _stage in [Stage.SIT_DOWN, Stage.SEATED, Stage.LIE_DOWN, Stage.SLEEP, Stage.GET_UP, Stage.STAND_UP]:
+		## Dying on furniture: stay where the body is (slumped in the chair,
+		## still in bed) instead of snapping to a standing collapse.
+		_stage = Stage.DEAD
+		for s: ActionSlot in _slots:
+			s.rate = 0.0
+		return
 	_stage = Stage.DEAD
 	var slot: ActionSlot = _push_slot(&"dying", 1.0, false, XF_DEATH)
 	var anim: Animation = _lib.get_animation("dying")
