@@ -606,7 +606,7 @@ func _build_at_a_glance(parent: Container) -> void:
 	C.section_header(box, "AT A GLANCE")
 	_overview_medical_value = _build_fact_row(box, "medical", "Medical status", "No active conditions")
 	box.add_child(HSeparator.new())
-	_overview_irritability_value = _build_fact_row(box, "mood", "Irritability", "Calm")
+	_overview_irritability_value = _build_fact_row(box, "mood", "Feeling", "Calm")
 	box.add_child(HSeparator.new())
 	_overview_last_action_value = _build_fact_row(box, "clock", "Last notable action", "Nothing notable yet")
 
@@ -898,9 +898,20 @@ func _update_overview_facts() -> void:
 	var irritation: String = ""
 	if _npc.has_method("get_irritability_label"):
 		irritation = String(_npc.call("get_irritability_label"))
-	_overview_irritability_value.text = "Calm" if irritation == "" else irritation
+	## Temper word + the strongest things on their mind (NPC thoughts), so
+	## the player can see WHY a resident feels the way they do.
+	var feeling: String = "Calm" if irritation == "" else irritation
+	var mind: Array[String] = []
+	if _npc.has_method("get_thought_summaries"):
+		for t: Variant in _npc.call("get_thought_summaries"):
+			if t is Dictionary and mind.size() < 2:
+				mind.append("%s (%+.0f)" % [String(t.get("text", "")), float(t.get("mood", 0.0))])
+	if not mind.is_empty():
+		feeling += "  •  " + ", ".join(mind)
+	_overview_irritability_value.text = feeling
+	var mood_now: float = float(_npc.get("mood")) if _npc.get("mood") != null else 50.0
 	_overview_irritability_value.add_theme_color_override(
-		"font_color", S.GREEN if irritation == "" else ENERGY_COLOR
+		"font_color", S.GREEN if irritation == "" and mood_now >= 55.0 else (S.RED if mood_now < 30.0 else ENERGY_COLOR)
 	)
 	var entries: Array[Dictionary] = _get_action_log()
 	if entries.is_empty():

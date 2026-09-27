@@ -1,8 +1,139 @@
-# NPC System (Aug 2026)
+# NPC System (Aug 2026, overhauled Sep 2026)
 
 **Read this before opening any `scripts/npc/`, `scripts/ui/npc/`, or
 `scenes/npc/` file.** Only open the actual source for the specific
 function you're changing — this doc should tell you which one that is.
+
+> **Sep 2026 overhaul — start here.** The section directly below
+> ("Architecture & guarantees") describes how the system works NOW and
+> supersedes older per-part notes further down wherever they disagree
+> (scores, sleep/rest, stuck recovery, persistence, cooldown clocks).
+> Later sections are kept for the history/rationale of individual
+> mechanics that didn't change.
+
+---
+
+## Architecture & guarantees (Sep 2026)
+
+### Files
+| File | Role |
+|---|---|
+| `NPC.gd` | Resident state (needs, personality, mood, relationships, skills…), locomotion, public API used by activities & UI, persistence (`get_save_dict`/`apply_save_dict`). |
+| `NPCBrain.gd` | Utility-AI loop. **All activity changes go through `_switch_to()`.** |
+| `NPCActivity.gd` | Activity contract (see "Activity contract" below). |
+| `components/NPCClock.gd` | The ONE game-time source (game hours since day 1). |
+| `components/NPCThoughts.gd` | Event-driven mood modifiers ("thoughts"). |
+| `components/NPCStuckRecovery.gd` | Travel-stall detection, safe (navmesh-snapped, collision-checked) recovery, fell-through-floor rescue, unreachable-target watchdog. |
+| `components/NPCDialogue.gd` | Greeting / ask-about / bark line selection. |
+| `components/NPCCatchUp.gd` | Instant time-skip approximation (F7 fast-forward). |
+| `NPCItemUser.gd` | Reservations + carry primitives (`grab_*`, `drop_held`, `store_held`, `hand_over`, `in_reach`). |
+| `queries/NPCJobQueries.gd` | "Is there X to do / where" queries shared by `score()` AND `enter()`. |
+| `activities/*` | One file per activity. |
+
+### What the brain guarantees (NPCBrain._switch_to / _exit_current)
+1. **Reservations can't leak.** After ANY activity exit (finish, interrupt,
+   command, pass-out, stuck), `NPCItemUser.release_all_for(npc)` drops every
+   item/cell/stove reservation that NPC holds. `drop_held()`, `store_held()`
+   and `hand_over()` also release the item they move, and a reservation whose
+   owner no longer exists counts as free.
+2. **Hands policy.** Before `enter()`, if the NPC is holding something the new
+   activity can't use (`accepts_held_item()` false) it is set down first.
+   Every `grab_*` refuses when hands are full. `NPC._validate_held_item()`
+   clears `held_item` every frame if the item was knocked out, freed or
+   taken. → no "Eating a basket forever", no stacked items, no ghost items.
+3. **No idle gaps.** When an activity finishes, the next is chosen the same
+   frame.
+4. **Futility backoff.** An activity that ends within `FUTILE_SEC` of starting
+   (its `score()` said yes but `enter()` found nothing) is benched with an
+   exponential cooldown. Generic cure for flicker loops. Opt out with
+   `backoff_on_futile() -> false` (Wander, Given*, PutAway, commands).
+5. **Urgent needs can break a job at a safe point.** A need scoring
+   ≥ `URGENT_NEED_SCORE` may interrupt a non-interruptible activity when its
+   `can_yield_to_need()` says so (sessions: hands empty).
+6. **Relative hysteresis + commitment.** Challenger must beat the incumbent by
+   20% (and ≥ 4 points), +25% defence during the first 6 s.
+7. `NPCBrain.abandon_current(reason, bench)` — used by stuck recovery.
+
+### Activity contract additions
+`accepts_held_item(npc, item)`, `is_need()`, `is_work()`,
+`can_yield_to_need(npc)`, `backoff_on_futile()` — all optional with safe
+defaults; see `NPCActivity.gd`.
+
+### One score scale
+| Tier | Range | Examples |
+|---|---|---|
+| Idle | 5–15 | Wander 6, Relax 9, Talk 7–25 (relationship/sociability/loneliness), Give-to-friend 12 |
+| Chores | 15–35 | `NPC.work_score()` = 20 × priority × urgency × work ethic × skill pref × willingness. Cleaning 4→30 with clutter (3→20 items), Gardening 16, Harvest 26, Cooking 19–27 (serve/restart/meal demand) |
+| Urgent jobs | 35–60 | Refuel as the lowest generator nears empty; filter as quality nears 0 |
+| Carrying | 30 | PutAwayHeldItem — finish what's in your hands first |
+| Needs | 0–100 | `NPC.urgency(value, start, full)` smoothstep curves: Eat 58→8, Drink 68→10, Sleep (night drive / daytime exhaustion), Sit rest 40→10 |
+
+Work ethic multiplies jobs 0.7–1.3 and idle activities 1.3–0.7. Needs are
+NOT scaled by work ethic.
+
+### Daily rhythm & sleep
+- Each resident has a `chronotype` (±1.5 h): bedtime `22:00+c`, wake
+  `06:30+0.7c`. `NPC.get_sleep_drive()` — at night sleep is attractive when
+  energy < 92 (not in the last 1.5 h before wake-up); in the day only real
+  exhaustion (< 28) prompts a nap.
+- `LieActivity` = going to bed: own bed (`npc.home_bed`, persisted) → an
+  unclaimed bed → any free bed → doze in a chair → sleep on the floor. Beds
+  use the player's animated sit → lie-down → sleep sequence (`npc.sleeping_bed`
+  drives the shared `AdventurerModelController`). Wake when full, when
+  rested (≥ 70) after the night, or on a critical need.
+- `SitActivity` = short daytime rest (energy < 40, until 60).
+- Furniture stand points are floor-level: always stand up via
+  `npc.request_stand_at()` / `place_standing_at()` (navmesh-snapped, proper
+  standing height). Assigning them to `global_position` directly sank NPCs
+  into the floor — the old "fell out of the world after sitting" bug.
+
+### Mood & thoughts
+Mood target = contented baseline (82, sliding smoothly down as needs fall
+below 75) + sum of thoughts (`NPCThoughts.DEFS`): hot meal +6, fresh food
++2.5, cold can −1.5, bed +4, chair −2, floor −5, collapsed −8, good chat +3,
+argument −3, gift +5, helped a friend +2, snatched from −6, relaxed +2,
+break interrupted −3, productive +1.5; conditions: cluttered bunker (≥ 12
+items) −3, in pain −4, lonely (no chat in 30 h) −3. Optimists feel positive
+thoughts more, neurotic residents negative ones. Shown on the resident panel
+("Feeling") and used by dialogue.
+
+### Social
+- Conversations: friends (mutual ≥ 20) walk over to chat from up to 12 m;
+  others only chat when close. One shared outcome per conversation
+  (`NPC.resolve_conversation`) from relationship, moods, tempers and trait
+  compatibility; both sides get the relationship change + a thought + one
+  log line. Turn-taking "…" indicator over the speaker. Either side leaving
+  ends it for both.
+- Proximity bonding & mood contagion now require line of sight.
+- Barks: short floating lines — greeting when the player walks up (≤ 1/game
+  hour/resident), plus event barks (thanks, snatched, food ready, woke up).
+
+### Wandering
+Weighted destinations (near friends, near used furniture, random), pauses
+that look at nearby people (the player first), and a stroll ends after 2–4
+legs so relaxing/chatting/chores get a natural look-in.
+
+### Persistence
+`NPC.get_save_dict()` / `apply_save_dict()` (called BEFORE `add_child`):
+identity, needs, health, mood, irritability, personality, skills, age,
+birthday, chronotype, relationships, contagion exposure, gift saturation,
+relax budget, cooldowns (game-time), thoughts, action log, home bed and
+medical conditions (`NPCMedical.to_save/from_save`). Old saves load with
+fresh values for missing keys.
+
+### Time
+All cooldowns are in game hours via `NPCClock.now()` (pause-, fast-forward-
+and save-safe). Short physical actions still use frame delta.
+
+### Testing: headless simulation harness
+`tools/tests/run_npc_sim.sh --scenario=basic|farm|cook|power|stress|scarcity|all
+--minutes=10 --npcs=4 --seed=1 [--timeline] [--scores=15] [--saveload=300]`
+boots the real MainWorld headless, furnishes it through
+`BuildModeController.restore_placed_objects()`, spawns items and NPCs and
+flags: ghost/stuck/orphaned held items, churn loops, frozen NPCs, escapes
+from the bunker, leaked reservations, starving-with-food-available, and
+save/load field drift. Exit code 0 = clean. Rendered frame capture:
+`tools/tests/run_npc_visual.sh` (Xvfb + software GL; see script header).
 
 ---
 

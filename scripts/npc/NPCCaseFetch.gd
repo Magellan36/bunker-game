@@ -114,7 +114,7 @@ func _tick_travel_loose(npc: NPC, delta: float) -> void:
 		return
 	NPCItemUser.track_fetch_target(npc, _case)
 	npc.nav_steer(delta)
-	if NPCItemUser.flat_distance(npc.global_position, _case.global_position) <= CASE_RANGE:
+	if NPCItemUser.in_reach(npc, _case.global_position, CASE_RANGE):
 		if NPCItemUser.grab_loose(npc, _case):
 			_wait_timer = PRE_EJECT_WAIT
 			phase = Phase.WAIT_PRE_EJECT
@@ -128,7 +128,7 @@ func _tick_travel_shelf(npc: NPC, delta: float) -> void:
 		phase = Phase.FAILED
 		return
 	npc.nav_steer(delta)
-	if NPCItemUser.flat_distance(npc.global_position, (_origin_shelf as Node3D).global_position) <= NPCItemUser.SHELF_RANGE:
+	if NPCItemUser.in_reach(npc, (_origin_shelf as Node3D).global_position, NPCItemUser.SHELF_RANGE):
 		if NPCItemUser.grab_from_shelf(npc, _origin_shelf, _origin_slot):
 			_case = npc.held_item
 			_wait_timer = PRE_EJECT_WAIT
@@ -193,7 +193,7 @@ func _tick_reshelve(npc: NPC, delta: float) -> void:
 		phase = Phase.DONE
 		return
 	npc.nav_steer(delta)
-	if NPCItemUser.flat_distance(npc.global_position, (_origin_shelf as Node3D).global_position) <= NPCItemUser.SHELF_RANGE:
+	if NPCItemUser.in_reach(npc, (_origin_shelf as Node3D).global_position, NPCItemUser.SHELF_RANGE):
 		if not _origin_shelf.npc_try_place_item(npc, _case):
 			## Origin shelf filled by someone/something else in the rare
 			## window we were away — just set it down instead of

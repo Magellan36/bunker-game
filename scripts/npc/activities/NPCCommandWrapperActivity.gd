@@ -46,3 +46,11 @@ func exit(npc: NPC) -> void:
 func _make_inner(_npc: NPC) -> NPCActivity:
 	push_error("NPCCommandWrapperActivity._make_inner() not overridden")
 	return null
+
+## Delegates the hands policy to the inner activity this command would run.
+func accepts_held_item(npc: NPC, item: Node) -> bool:
+	var probe: NPCActivity = _inner if _inner != null else _make_inner(npc)
+	return probe != null and probe.accepts_held_item(npc, item)
+
+func backoff_on_futile() -> bool:
+	return false

@@ -235,6 +235,17 @@ static func get_refuel_unavailable_reason(npc: NPC) -> String:
 			return "FUEL_CAN_CLAIMED"
 	return "NO_FUEL_CAN"
 
+## Lowest fuel % across all generators (100 if none).
+static func lowest_generator_fuel(npc: NPC) -> float:
+	var pm: Node = npc.get_tree().get_first_node_in_group("power_manager")
+	var lowest: float = 100.0
+	if pm == null:
+		return lowest
+	for gen: Node in npc.get_tree().get_nodes_in_group("generator"):
+		if is_instance_valid(gen):
+			lowest = minf(lowest, pm.get_generator_fuel(str(gen.get_instance_id())))
+	return lowest
+
 static func has_refuel_target_available(npc: NPC) -> bool:
 	var pm: Node = npc.get_tree().get_first_node_in_group("power_manager")
 	if pm == null:
@@ -255,42 +266,35 @@ static func has_refuel_target_available(npc: NPC) -> bool:
 		or not NPCItemUser.find_shelved_item(npc, filt).is_empty()
 
 static func has_gardening_target_available(npc: NPC) -> bool:
-	var any_tray: bool = false
-	var needs_soil: bool = false
-	var needs_plant: bool = false
+	var soil_ok: bool = supply_available(npc, func(it: Node) -> bool: return it is BagOfSoilItem)
 	for tray: Node in npc.get_tree().get_nodes_in_group("farming_tray"):
 		if not is_instance_valid(tray):
 			continue
-		any_tray = true
-		if tray.has_open_soil_cell():
-			needs_soil = true
-		if tray.has_open_plantable_cell():
-			needs_plant = true
-		if needs_soil and needs_plant:
-			break
-	if not any_tray:
-		return false
-	if needs_soil:
-		for item: Node in npc.get_tree().get_nodes_in_group("pickup"):
-			if is_instance_valid(item) and item is BagOfSoilItem and not (("is_held" in item) and item.is_held) and not item.is_in_group("shelved"):
-				return true
-		for shelf: Node in npc.get_tree().get_nodes_in_group("shelving"):
-			if not is_instance_valid(shelf) or not ("slots" in shelf):
+		for i: int in range(tray.cell_count):
+			if NPCItemUser.is_cell_claimed_by_other(tray, i, npc):
 				continue
-			for stack in shelf.slots:
-				if stack is Array and not stack.is_empty() and stack.back() is BagOfSoilItem:
+			if not tray.soil_filled[i]:
+				if soil_ok:
 					return true
-	if needs_plant:
-		for item: Node in npc.get_tree().get_nodes_in_group("pickup"):
-			if is_instance_valid(item) and item is SeedItem and not (("is_held" in item) and item.is_held) and not item.is_in_group("shelved"):
+			elif tray.planted_type[i] == "" and seed_available(npc, tray.get_cell_seed_lock(i)):
 				return true
-		for shelf: Node in npc.get_tree().get_nodes_in_group("shelving"):
-			if not is_instance_valid(shelf) or not ("slots" in shelf):
-				continue
-			for stack in shelf.slots:
-				if stack is Array and not stack.is_empty() and stack.back() is SeedItem:
-					return true
 	return false
+
+## Sep 2026 — a supply "is available" only if a free (unheld, unreserved by
+## someone else) item matching `filter` is loose or on a shelf, or already
+## in this NPC's hands. Availability checks that ignored reservations and
+## seed locks made activities win on score, find nothing in enter(), and
+## re-enter every second — the "frozen gardener" loop.
+static func supply_available(npc: NPC, filter: Callable) -> bool:
+	if NPCItemUser.hands_full(npc) and filter.call(npc.held_item):
+		return true
+	return not NPCItemUser.find_fetch_target(npc, filter).is_empty()
+
+## Seed for a cell with this lock ("" = any seed).
+static func seed_available(npc: NPC, lock: String) -> bool:
+	if lock == "":
+		return supply_available(npc, func(it: Node) -> bool: return it is SeedItem)
+	return supply_available(npc, func(it: Node) -> bool: return it is SeedItem and it.seed_type == lock)
 
 static func is_trash_item(_npc: NPC, item: Node) -> bool:
 	return JobBoard._is_trash_item(item) if JobBoard.has_method("_is_trash_item") else false
@@ -355,6 +359,8 @@ static func find_cooking_needs_power_target(npc: NPC) -> Node:
 			continue
 		if stove.powered_on:
 			continue
+		if NPCClock.now() < float(stove.get_meta("_npc_unpowered_until", -1.0)):
+			continue   ## tried recently and there's no power — don't retry every few seconds
 		var pot: Node = stove.pot_ref
 		if pot == null or not pot.has_method("count_filled") or pot.count_filled() <= 0:
 			continue
@@ -387,17 +393,55 @@ static func find_cooking_pot_target(npc: NPC) -> Node:
 ## the same way REFUEL/GARDENING's own has_..._available() functions
 ## already feed their score()s.
 static func has_cooking_target_available(npc: NPC) -> bool:
-	return find_cooking_serve_target(npc) != null \
-		or find_cooking_needs_power_target(npc) != null \
-		or find_cooking_ingredient_target(npc) != null \
-		or find_cooking_pot_target(npc) != null
+	return not cooking_opportunity(npc).is_empty()
 
-## Deliberately minimal — one distinguished reason (no stove built at all);
-## everything else (every stove mid-cook and genuinely nothing to do, or a
-## momentary claim clash) falls through to NPCTalkMenuUI's generic
-## empty_desc, which is accurate for those cases as-is. Matches the level
-## of detail REFUEL/CLEANING's own reason sets settled on — not every
-## possible cause needs its own string.
+## Sep 2026 — the single source of truth for "is there cooking this NPC can
+## actually do right now", shared by CookingActivity.score() AND enter().
+## The old availability check said yes whenever a stove had an open pot
+## slot or a non-full pot — even with no pot or no ingredient anywhere in
+## the bunker — so NPCs re-entered Cooking every second and did nothing.
+## Returns {"mode": "serve"|"power"|"ingredient"|"pot", "stove": Node} or {}.
+## `demand_only`: skip starting/filling meals unless someone could use food.
+static func cooking_opportunity(npc: NPC) -> Dictionary:
+	var serve: Node = find_cooking_serve_target(npc)
+	if serve != null:
+		return {"mode": "serve", "stove": serve}
+	var power: Node = find_cooking_needs_power_target(npc)
+	if power != null:
+		return {"mode": "power", "stove": power}
+	var have_ingredient: bool = supply_available(npc, Callable(NPCItemUser, "is_cookable_ingredient"))
+	if not have_ingredient:
+		return {}
+	var ing: Node = find_cooking_ingredient_target(npc)
+	if ing != null:
+		return {"mode": "ingredient", "stove": ing}
+	var pot: Node = find_cooking_pot_target(npc)
+	if pot != null and supply_available(npc, Callable(NPCItemUser, "is_cooking_pot")):
+		return {"mode": "pot", "stove": pot}
+	return {}
+
+## How much the bunker could use a cooked meal right now (0..1): someone is
+## getting hungry, and there's no ready meal already waiting.
+static func cooking_demand(npc: NPC) -> float:
+	var hungriest: float = 100.0
+	for other: Node in npc.get_tree().get_nodes_in_group("npc"):
+		if other is NPC:
+			hungriest = minf(hungriest, other.hunger)
+	var dishes_waiting: int = 0
+	for item: Node in npc.get_tree().get_nodes_in_group("pickup"):
+		if item is DishItem and is_instance_valid(item):
+			dishes_waiting += 1
+	for shelf: Node in npc.get_tree().get_nodes_in_group("shelving"):
+		if is_instance_valid(shelf) and "slots" in shelf:
+			for stack in shelf.slots:
+				if stack is Array:
+					for it in stack:
+						if it is DishItem:
+							dishes_waiting += 1
+	if dishes_waiting >= 2:
+		return 0.0
+	return clampf((80.0 - hungriest) / 40.0, 0.0, 1.0)
+
 static func get_cooking_unavailable_reason(npc: NPC) -> String:
 	if has_cooking_target_available(npc):
 		return ""

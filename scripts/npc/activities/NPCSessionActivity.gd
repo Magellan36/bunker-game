@@ -29,6 +29,17 @@ class_name NPCSessionActivity
 func interruptible() -> bool:
 	return false
 
+func is_work() -> bool:
+	return true
+
+## Sep 2026 — sessions used to be un-abandonable even for a starving or
+## dehydrated NPC (only a total pass-out ended them). The safe point is
+## "hands empty": nothing is mid-carry, and every reservation the session
+## made is released by NPCBrain on exit, so walking away loses nothing but
+## a little progress. Subclasses with a riskier shape can override.
+func can_yield_to_need(npc: NPC) -> bool:
+	return not NPCItemUser.hands_full(npc)
+
 ## "target key" -> true, THIS SESSION ONLY. Deliberately just a
 ## Dictionary, not a typed structure — each job's natural key shape
 ## differs (item instance_id, "trayid:cell", generator instance_id...).
@@ -63,6 +74,21 @@ static func approach_point(npc: NPC, target: Node, distance: float = 1.0) -> Vec
 	if to_npc.length() < 0.01:
 		to_npc = Vector3(0.0, 0.0, 1.0)   ## degenerate case: npc exactly at center
 	return t3.global_position + to_npc.normalized() * distance
+
+## Nearest valid member of `group` passing `filter` (flat distance).
+static func nearest_in_group(npc: NPC, group: String, filter: Callable = Callable()) -> Node:
+	var best: Node = null
+	var best_d: float = INF
+	for n: Node in npc.get_tree().get_nodes_in_group(group):
+		if not is_instance_valid(n) or not (n is Node3D):
+			continue
+		if filter.is_valid() and not filter.call(n):
+			continue
+		var d: float = NPCItemUser.flat_distance(npc.global_position, (n as Node3D).global_position)
+		if d < best_d:
+			best_d = d
+			best = n
+	return best
 
 ## Shared item-name fallback — was hand-copied (as _display_name()) into
 ## both Cleaning and Gardening already.

@@ -507,6 +507,44 @@ func get_medical_job_speed_multiplier() -> float:
 		mult *= c.work_speed_mult
 	return mult
 
+# ─── Persistence (Sep 2026) ─────────────────────────────────────────────────
+## Conditions are plain Resources; every script variable (exported or not)
+## is copied generically so new condition fields persist automatically.
+func to_save() -> Array:
+	var out: Array = []
+	for c: MedicalCondition in active_conditions:
+		var d: Dictionary = {}
+		for prop: Dictionary in c.get_property_list():
+			if int(prop["usage"]) & PROPERTY_USAGE_SCRIPT_VARIABLE:
+				var v: Variant = c.get(prop["name"])
+				if v is Dictionary or v is Array:
+					v = v.duplicate(true)
+				if v is Object:
+					continue
+				d[prop["name"]] = v
+		out.append(d)
+	return out
+
+func from_save(data: Array) -> void:
+	active_conditions.clear()
+	for v: Variant in data:
+		if not (v is Dictionary):
+			continue
+		var c: MedicalCondition = MedicalCondition.new()
+		for key: Variant in (v as Dictionary).keys():
+			var k: String = String(key)
+			if not (k in c):
+				continue
+			var val: Variant = v[key]
+			## JSON turns ints into floats — coerce back to the property's type.
+			if typeof(c.get(k)) == TYPE_INT and typeof(val) == TYPE_FLOAT:
+				val = int(val)
+			elif typeof(c.get(k)) == TYPE_BOOL and typeof(val) != TYPE_BOOL:
+				val = bool(val)
+			c.set(k, val)
+		active_conditions.append(c)
+	_apply_needs_cap_modifiers()
+
 func add_condition(condition: MedicalCondition) -> void:
 	active_conditions.append(condition)
 	condition_added.emit(condition)

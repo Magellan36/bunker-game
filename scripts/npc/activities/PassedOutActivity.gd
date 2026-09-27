@@ -44,6 +44,7 @@ func enter(npc: NPC) -> void:
 	npc.mood = clampf(npc.mood - mood_drop, 0.0, 100.0)
 	if NPCDebug.enabled:
 		NPCDebug.log_mood_event(npc, -mood_drop, "passed out")
+	npc.add_thought("collapsed")
 	npc.log_action("Passed out (0 energy)")
 
 func tick(npc: NPC, delta: float) -> void:
@@ -55,3 +56,6 @@ func done(npc: NPC) -> bool:
 func exit(npc: NPC) -> void:
 	npc.log_action("Woke up")
 	npc.rotation = _orig_rotation
+
+func backoff_on_futile() -> bool:
+	return false

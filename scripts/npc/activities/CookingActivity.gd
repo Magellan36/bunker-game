@@ -1,426 +1,275 @@
 extends NPCSessionActivity
 class_name CookingActivity
-## Cooking (Aug 2026, sustained session, command-only for now). One command
-## = one target: serve a ready dish if one exists anywhere; otherwise
-## finish an in-progress pot (fetch ingredients one at a time up to
-## CookingPot.CAPACITY, or until none are left) over starting a new pot on
-## an empty stove. Never waits through the cook timer itself — turns the
-## stove on and ends the session, same as every other multi-visit job in
-## this system leaving further progress for a later command/think-cycle.
-## All progress lives on the Stove/CookingPot objects themselves (no new
-## per-NPC memory), so a DIFFERENT NPC picking up this same stove later is
-## just... the normal case, not a special one.
+## CookingActivity.gd — kitchen work, one opportunity per session (see
+## NPCJobQueries.cooking_opportunity()):
+##   serve      — a dish is ready: plate it; eat it if hungry, else store it
+##   power      — a filled pot sits on a stove that's off: switch it on
+##   ingredient — a pot on a stove has room: fetch ingredients (one at a
+##                time, up to CookingPot.CAPACITY), then switch it on
+##   pot        — a stove has no pot: fetch one, place it, then fill it
+## Never waits out the cook timer — it leaves and a later session (anyone's)
+## serves the dish. All progress lives on the Stove/CookingPot, so any
+## resident can pick up where another left off.
 ##
-## Built as a proper NPCSessionActivity (not folded directly into a Command
-## wrapper) specifically so a later autonomous-scoring pass only has to
-## change score() below — see its own comment for the exact shape to
-## follow when that pass happens.
+## Sep 2026: now autonomous — residents cook when someone is getting hungry
+## and no meal is already waiting (NPCJobQueries.cooking_demand()), and
+## always serve a finished dish or restart a stove that lost power. A
+## stove that can't be switched on (no grid) is left alone for a while
+## instead of being retried (and re-notified) every few seconds. Each step
+## at the stove is a short visible work beat.
 
-const WORK_RANGE: float = 1.6   ## matches RefuelActivity's WORK_RANGE — distance to work a stove
+const WORK_RANGE: float = 1.8
+const STEP_TIME: float = 1.6            ## seconds per action at the stove
+const UNPOWERED_RETRY_HOURS: float = 2.0
 
 var _stove: Node = null
-var _mode: String = ""            ## "serve", "power", or "setup"
-var _phase: String = ""           ## sub-phase, meaning depends on _mode
-var _carrying_kind: String = ""   ## "pot" or "ingredient" — which fetch is in flight (setup mode)
+var _mode: String = ""
+var _phase: String = ""                 ## fetch | travel | work | store
 var _fetch_loose: RigidBody3D = null
 var _fetch_shelf: Dictionary = {}
-var _storage_dest: Node = null    ## serve mode only
+var _storage_dest: Node = null
+var _work_left: float = 0.0
 var _finished: bool = false
 
 func label() -> String:
-	if _mode == "serve":
-		match _phase:
-			"travel_to_stove": return "Heading to plate a dish"
-			"travel_to_storage": return "Storing a meal"
-			_: return "Serving a dish"
-	if _mode == "power":
-		return "Heading to restart the stove"
-	if _carrying_kind == "pot":
-		match _phase:
-			"fetch": return "Fetching a Cooking Pot"
-			"travel_to_stove": return "Bringing a pot to the stove"
-			_: return "Cooking"
-	if _carrying_kind == "ingredient":
-		match _phase:
-			"fetch": return "Fetching an ingredient"
-			"travel_to_stove": return "Bringing an ingredient to the pot"
-			_: return "Cooking"
+	match _mode:
+		"serve":
+			return "Storing a meal" if _phase == "store" else "Plating a meal"
+		"power":
+			return "Switching on the stove"
+		"pot":
+			return "Fetching a cooking pot" if _phase == "fetch" else "Setting up the stove"
+		"ingredient":
+			return "Fetching ingredients" if _phase == "fetch" else "Cooking"
 	return "Cooking"
 
-## Autonomous scoring (Aug 2026, Brannon-requested) — was hard-stubbed at
-## 0.0 ("command-only for now"), meaning Cooking was NEVER picked
-## autonomously and could ONLY run via a forced "Cook a meal" command.
-## This is confirmed as the root cause of three separate symptoms
-## reported together: NPCs never proactively started cooking, never
-## returned to serve a dish that finished cooking (find_cooking_serve_
-## target() already has top priority in enter()'s check order — it just
-## never got a chance to run, since nothing ever re-entered this activity
-## once the forced session ended), and by extension the existing
-## plate/store/eat pipeline in _take_dish()/_tick_serve() (already fully
-## implemented, verified working) never got exercised in normal play.
-## Wired exactly per this function's own prior comment — same shape as
-## REFUEL's own score().
 func score(npc: NPC) -> float:
-	if not NPCJobQueries.has_cooking_target_available(npc):
+	var opp: Dictionary = NPCJobQueries.cooking_opportunity(npc)
+	if opp.is_empty():
 		return 0.0
-	return NPC.COOKING_BASE_SCORE * npc.get_work_ethic_job_mult() \
-		* npc.get_job_priority_weight("COOKING")
+	match String(opp["mode"]):
+		"serve":
+			return npc.work_score("COOKING", 1.4)
+		"power":
+			return npc.work_score("COOKING", 1.2)
+	var demand: float = NPCJobQueries.cooking_demand(npc)
+	if demand <= 0.0:
+		return 0.0
+	return npc.work_score("COOKING", 0.8 + 0.6 * demand)
+
+func accepts_held_item(_npc: NPC, item: Node) -> bool:
+	return item is CookingPot or NPCItemUser.is_cookable_ingredient(item)
 
 func enter(npc: NPC) -> void:
 	_skipped = {}
 	_finished = false
-	_mode = ""
-	_phase = ""
-	_stove = null
-	_carrying_kind = ""
-	_fetch_loose = null
-	_fetch_shelf = {}
-	_storage_dest = null
-
-	## Recovering mid-carry (e.g. force_command() re-fired this while
-	## already holding the pot/ingredient from an interrupted attempt) —
-	## re-pick a target for what's already in hand rather than re-fetching.
-	if npc.held_item != null and npc.held_item is CookingPot:
-		var t: Node = NPCJobQueries.find_cooking_pot_target(npc)
-		if t == null:
-			NPCItemUser.drop_held(npc)   ## nothing needs this pot anymore
-			_finished = true
-			return
-		if not NPCItemUser.claim_item(t, npc):
-			_finished = true
-			return
-		_mode = "setup"
-		_carrying_kind = "pot"
-		_stove = t
-		_phase = "travel_to_stove"
-		npc.set_nav_target(approach_point(npc, _stove))
-		return
-
-	if npc.held_item != null and NPCItemUser.is_cookable_ingredient(npc.held_item):
-		var t2: Node = NPCJobQueries.find_cooking_ingredient_target(npc)
-		if t2 == null:
-			NPCItemUser.drop_held(npc)
-			_finished = true
-			return
-		if not NPCItemUser.claim_item(t2, npc):
-			_finished = true
-			return
-		_mode = "setup"
-		_carrying_kind = "ingredient"
-		_stove = t2
-		_phase = "travel_to_stove"
-		npc.set_nav_target(approach_point(npc, _stove))
-		return
-
-	var serve: Node = NPCJobQueries.find_cooking_serve_target(npc)
-	if serve != null:
-		_start_serve(npc, serve)
-		return
-
-	var power_target: Node = NPCJobQueries.find_cooking_needs_power_target(npc)
-	if power_target != null:
-		_start_power_retry(npc, power_target)
-		return
-
-	var ing_target: Node = NPCJobQueries.find_cooking_ingredient_target(npc)
-	if ing_target != null:
-		_start_setup(npc, ing_target, "ingredient")
-		return
-
-	var pot_target: Node = NPCJobQueries.find_cooking_pot_target(npc)
-	if pot_target != null:
-		_start_setup(npc, pot_target, "pot")
-		return
-
-	_finished = true   ## nothing to do anywhere
-
-func _start_serve(npc: NPC, stove: Node) -> void:
-	if not NPCItemUser.claim_item(stove, npc):
+	var opp: Dictionary = NPCJobQueries.cooking_opportunity(npc)
+	if opp.is_empty():
 		_finished = true
 		return
-	_mode = "serve"
-	_stove = stove
-	_phase = "travel_to_stove"
-	npc.set_nav_target(approach_point(npc, _stove))
-
-func _start_power_retry(npc: NPC, stove: Node) -> void:
-	if not NPCItemUser.claim_item(stove, npc):
+	_stove = opp["stove"]
+	_mode = String(opp["mode"])
+	if not NPCItemUser.claim_item(_stove, npc):
 		_finished = true
 		return
-	_mode = "power"
-	_stove = stove
-	_phase = "travel_to_stove"
-	npc.set_nav_target(approach_point(npc, _stove))
-
-func _start_setup(npc: NPC, stove: Node, needs: String) -> void:
-	if not NPCItemUser.claim_item(stove, npc):
-		_finished = true
+	## Already carrying the right thing? Go straight to the stove.
+	if NPCItemUser.hands_full(npc) and ((_mode == "pot" and npc.held_item is CookingPot) \
+			or (_mode == "ingredient" and NPCItemUser.is_cookable_ingredient(npc.held_item))):
+		_go_to_stove(npc)
 		return
-	_mode = "setup"
-	_stove = stove
-	if needs == "pot":
-		_begin_fetch_pot(npc)
+	if _mode == "pot" or _mode == "ingredient":
+		_begin_fetch(npc)
 	else:
-		_begin_fetch_ingredient(npc)
+		_go_to_stove(npc)
 
-func _begin_fetch_pot(npc: NPC) -> void:
-	_carrying_kind = "pot"
+func _fetch_filter() -> Callable:
+	return Callable(NPCItemUser, "is_cooking_pot") if _mode == "pot" else Callable(NPCItemUser, "is_cookable_ingredient")
+
+func _begin_fetch(npc: NPC) -> void:
 	_phase = "fetch"
-	_fetch_loose = null
-	_fetch_shelf = {}
-	var filt: Callable = Callable(NPCItemUser, "is_cooking_pot")
-	var loose: RigidBody3D = NPCItemUser.find_loose_item(npc, filt)
-	var shelf_pick: Dictionary = {} if loose != null else NPCItemUser.find_shelved_item(npc, filt)
-	var tgt: Node3D = loose if loose != null \
-		else (shelf_pick.get("shelf") as Node3D if not shelf_pick.is_empty() else null)
-	if tgt == null:
-		_finished = true   ## no Cooking Pot anywhere
+	var pick: Dictionary = NPCItemUser.find_fetch_target(npc, _fetch_filter())
+	_fetch_loose = pick.get("loose")
+	_fetch_shelf = pick.get("shelf", {})
+	var tgt: Node3D = _fetch_loose if _fetch_loose != null else (_fetch_shelf.get("shelf") as Node3D if not _fetch_shelf.is_empty() else null)
+	var claim_target: Node = _fetch_loose if _fetch_loose != null else _fetch_shelf.get("item")
+	if tgt == null or not NPCItemUser.claim_item(claim_target, npc):
+		## No more ingredients: cook with what's already in the pot.
+		if _mode == "ingredient":
+			_mode = "power"
+			_go_to_stove(npc)
+		else:
+			_finished = true
 		return
-	if loose != null:
-		if not NPCItemUser.claim_item(loose, npc):
-			_finished = true
-			return
-		_fetch_loose = loose
-	else:
-		if not NPCItemUser.claim_item(shelf_pick.get("item"), npc):
-			_finished = true
-			return
-		_fetch_shelf = shelf_pick
 	npc.set_nav_target(tgt.global_position)
 
-func _begin_fetch_ingredient(npc: NPC) -> void:
-	_carrying_kind = "ingredient"
-	_phase = "fetch"
-	_fetch_loose = null
-	_fetch_shelf = {}
-	var filt: Callable = Callable(NPCItemUser, "is_cookable_ingredient")
-	var loose: RigidBody3D = NPCItemUser.find_loose_item(npc, filt)
-	var shelf_pick: Dictionary = {} if loose != null else NPCItemUser.find_shelved_item(npc, filt)
-	var tgt: Node3D = loose if loose != null \
-		else (shelf_pick.get("shelf") as Node3D if not shelf_pick.is_empty() else null)
-	if tgt == null:
-		_turn_on_stove(npc)   ## no more ingredients anywhere — cook with whatever's already in
-		return
-	if loose != null:
-		if not NPCItemUser.claim_item(loose, npc):
-			_turn_on_stove(npc)   ## momentary claim clash — settle for what's already in the pot
-			return
-		_fetch_loose = loose
-	else:
-		if not NPCItemUser.claim_item(shelf_pick.get("item"), npc):
-			_turn_on_stove(npc)
-			return
-		_fetch_shelf = shelf_pick
-	npc.set_nav_target(tgt.global_position)
+func _go_to_stove(npc: NPC) -> void:
+	_phase = "travel"
+	npc.set_nav_target(approach_point(npc, _stove))
 
 func tick(npc: NPC, delta: float) -> void:
-	if _mode == "serve":
-		_tick_serve(npc, delta)
-	elif _mode == "power":
-		_tick_power(npc, delta)
-	else:
-		_tick_setup(npc, delta)
-
-func _tick_power(npc: NPC, delta: float) -> void:
+	if _finished:
+		return
 	if _stove == null or not is_instance_valid(_stove):
 		_finished = true
 		return
-	npc.nav_steer(delta)
-	if NPCItemUser.flat_distance(npc.global_position, (_stove as Node3D).global_position) <= WORK_RANGE:
-		npc.velocity = Vector3.ZERO
-		_turn_on_stove(npc)
-
-func _tick_serve(npc: NPC, delta: float) -> void:
 	match _phase:
-		"travel_to_stove":
-			if _stove == null or not is_instance_valid(_stove):
+		"fetch":
+			_tick_fetch(npc, delta)
+		"travel":
+			npc.nav_steer(delta)
+			if NPCItemUser.in_reach(npc, (_stove as Node3D).global_position, WORK_RANGE):
+				npc.lock_movement()
+				npc.face_toward((_stove as Node3D).global_position, 1.0)
+				_phase = "work"
+				_work_left = STEP_TIME
+				npc.show_work_banner()
+		"work":
+			npc.halt_movement(delta)
+			_work_left -= delta * npc.get_work_speed_mult("cooking")
+			npc.update_work_banner(label().to_upper(), 1.0 - _work_left / STEP_TIME)
+			if _work_left <= 0.0:
+				npc.hide_work_banner()
+				_do_step(npc)
+		"store":
+			_tick_store(npc, delta)
+
+func _tick_fetch(npc: NPC, delta: float) -> void:
+	if NPCItemUser.hands_full(npc):
+		if _fetch_filter().call(npc.held_item):
+			_go_to_stove(npc)
+		else:
+			NPCItemUser.drop_held(npc)
+		return
+	if _fetch_loose != null:
+		if not is_instance_valid(_fetch_loose) or (("is_held" in _fetch_loose) and _fetch_loose.is_held) or NPCItemUser.is_on_stove(_fetch_loose):
+			_begin_fetch(npc)
+			return
+		NPCItemUser.track_fetch_target(npc, _fetch_loose)
+		npc.nav_steer(delta)
+		if NPCItemUser.in_reach(npc, _fetch_loose.global_position, NPCItemUser.PICKUP_RANGE):
+			if not NPCItemUser.grab_loose(npc, _fetch_loose):
+				_begin_fetch(npc)
+		return
+	if not _fetch_shelf.is_empty():
+		var shelf: Node3D = _fetch_shelf.get("shelf")
+		if shelf == null or not is_instance_valid(shelf):
+			_begin_fetch(npc)
+			return
+		npc.nav_steer(delta)
+		if NPCItemUser.in_reach(npc, shelf.global_position, NPCItemUser.SHELF_RANGE):
+			if not NPCItemUser.grab_from_shelf(npc, shelf, int(_fetch_shelf.get("slot", -1))):
+				_begin_fetch(npc)
+		return
+	_finished = true
+
+func _do_step(npc: NPC) -> void:
+	match _mode:
+		"serve":
+			_take_dish(npc)
+		"power":
+			_turn_on_stove(npc)
+		"pot":
+			if npc.held_item is CookingPot and _stove.has_open_slot() and _stove.try_place_pot(npc.held_item):
+				NPCItemUser.release_item(npc.held_item)
+				npc.held_item = null
+				npc.log_action("Set a pot on the stove")
+				_mode = "ingredient"
+				_begin_fetch(npc)
+			else:
+				_finished = true
+		"ingredient":
+			var pot: Node = _stove.pot_ref
+			if pot == null or not NPCItemUser.hands_full(npc) or pot.is_full() or (pot.has_method("is_dish_ready") and pot.is_dish_ready()):
 				_finished = true
 				return
-			npc.nav_steer(delta)
-			if NPCItemUser.flat_distance(npc.global_position, (_stove as Node3D).global_position) <= WORK_RANGE:
-				npc.velocity = Vector3.ZERO
-				_take_dish(npc)
-		"travel_to_storage":
-			if _storage_dest == null or not is_instance_valid(_storage_dest):
-				NPCItemUser.drop_held(npc)
-				_finished = true
-				return
-			npc.nav_steer(delta)
-			if NPCItemUser.flat_distance(npc.global_position, (_storage_dest as Node3D).global_position) <= NPCItemUser.SNATCH_RANGE:
-				if npc.held_item != null and _storage_dest.has_method("npc_try_place_item") \
-						and _storage_dest.npc_try_place_item(npc, npc.held_item):
-					pass   ## stored successfully
+			var item: RigidBody3D = npc.held_item
+			var item_name: String = display_name(item)
+			if pot.try_add_item(item):
+				NPCItemUser.release_item(item)
+				if npc.held_item == item:
+					npc.held_item = null
+				npc.log_action("Added %s to the pot" % item_name)
+				if pot.count_filled() < CookingPot.CAPACITY:
+					_begin_fetch(npc)
 				else:
-					NPCItemUser.drop_held(npc)
+					_turn_on_stove(npc)
+			else:
 				_finished = true
 
 func _take_dish(npc: NPC) -> void:
 	var pot: Node = _stove.pot_ref
 	if pot == null or not pot.has_method("is_dish_ready") or not pot.is_dish_ready():
-		_finished = true   ## someone else served it, or state changed since target-find
+		_finished = true
 		return
 	var result: Dictionary = pot.serve_dish()
 	if result.is_empty():
 		_finished = true
 		return
+	_stove.npc_set_powered(false)
 
-	## Aug 2026 fix (Brannon-requested) — turn the stove back off once the
-	## meal is actually served/complete, same as a person wouldn't leave a
-	## stove burning after finishing. npc_set_powered() always succeeds
-	## turning OFF (no grid-connection gate needed in that direction).
-	if _stove != null and is_instance_valid(_stove):
-		_stove.npc_set_powered(false)
-
-	## Mirrors InteractionSystem._try_take_dish()'s spawn exactly.
-	var dish_script: GDScript = load("res://scripts/world/items/DishItem.gd")
 	var dish: RigidBody3D = RigidBody3D.new()
-	dish.set_script(dish_script)
+	dish.set_script(load("res://scripts/world/items/DishItem.gd"))
 	dish.collision_layer = 1
-	dish.collision_mask  = 1
-	dish.continuous_cd   = true
-	## Must be set before add_child() — see InteractionSystem._try_take_dish()'s
-	## identical comment. Mirrors that fix exactly.
-	dish.fill_value      = float(result["value"])
-	dish.bonus_pct       = float(result["bonus_pct"])
-	dish.dish_name       = String(result.get("name", "Cooked Dish"))
+	dish.collision_mask = 1
+	dish.continuous_cd = true
+	dish.fill_value = float(result["value"])
+	dish.bonus_pct = float(result["bonus_pct"])
+	dish.dish_name = String(result.get("name", "Cooked Dish"))
 	dish.hydration_value = float(result.get("hydration", 0.0))
-
-	var world_root: Node = npc.get_tree().get_root()
-	world_root.add_child(dish)
-	dish.global_position = (_stove as Node3D).global_position
+	var world: Node = npc.get_tree().get_first_node_in_group("main_world")
+	(world if world != null else npc.get_tree().get_root()).add_child(dish)
+	dish.global_position = (_stove as Node3D).global_position + Vector3(0.0, 1.0, 0.0)
 	dish.pickup(npc.hold_point)
 	npc.held_item = dish
+	npc.on_work_done("cooking")
+	NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.INFO,
+		"%s cooked %s" % [npc.npc_name, dish.dish_name])
 
-	if npc.hunger < 55.0:   ## same threshold EatActivity.score() uses
-		var name_before: String = dish.dish_name   ## capture before eat_held_step() frees the node
+	if npc.hunger < 60.0:
+		var name_before: String = dish.dish_name
 		NPCItemUser.eat_held_step(npc)
 		npc.log_action("Cooked and ate %s" % name_before)
 		_finished = true
 		return
-
 	npc.log_action("Cooked %s" % dish.dish_name)
+	npc.bark_event("food_ready")
 	_storage_dest = NPCJobQueries.find_cleaning_destination(npc, false, dish)
 	if _storage_dest == null:
-		NPCItemUser.drop_held(npc)
+		NPCItemUser.drop_held(npc)   ## leave it out where people can find it
 		_finished = true
 		return
-	_phase = "travel_to_storage"
+	_phase = "store"
 	npc.set_nav_target((_storage_dest as Node3D).global_position)
 
-func _tick_setup(npc: NPC, delta: float) -> void:
-	match _phase:
-		"fetch":
-			_tick_fetch(npc, delta)
-		"travel_to_stove":
-			if _stove == null or not is_instance_valid(_stove):
-				_finished = true
-				return
-			npc.nav_steer(delta)
-			if NPCItemUser.flat_distance(npc.global_position, (_stove as Node3D).global_position) <= WORK_RANGE:
-				npc.velocity = Vector3.ZERO
-				_apply_at_stove(npc)
-
-## Identical shape to RefuelActivity._tick_fetch() — generalized here since
-## _fetch_loose/_fetch_shelf are populated identically regardless of
-## whether _carrying_kind is "pot" or "ingredient".
-func _tick_fetch(npc: NPC, delta: float) -> void:
-	if npc.held_item != null:
-		_phase = "travel_to_stove"
-		npc.set_nav_target(approach_point(npc, _stove))
-		return
-	if _fetch_loose != null and is_instance_valid(_fetch_loose):
-		if "is_held" in _fetch_loose and _fetch_loose.is_held:
-			_fetch_loose = null
-			_finished = true
-			return
-		NPCItemUser.track_fetch_target(npc, _fetch_loose)
-		npc.nav_steer(delta)
-		if NPCItemUser.flat_distance(npc.global_position, _fetch_loose.global_position) <= NPCItemUser.PICKUP_RANGE:
-			if not NPCItemUser.grab_loose(npc, _fetch_loose):
-				_finished = true
-		return
-	if not _fetch_shelf.is_empty():
-		var shelf: Node3D = _fetch_shelf.get("shelf")
-		if shelf == null or not is_instance_valid(shelf):
-			_finished = true
-			return
-		npc.nav_steer(delta)
-		if NPCItemUser.flat_distance(npc.global_position, shelf.global_position) <= NPCItemUser.SHELF_RANGE:
-			if not NPCItemUser.grab_from_shelf(npc, shelf, int(_fetch_shelf.get("slot", -1))):
-				_finished = true
-		return
-	_finished = true
-
-func _apply_at_stove(npc: NPC) -> void:
-	if _carrying_kind == "pot":
-		if npc.held_item == null or not (npc.held_item is CookingPot):
-			_finished = true
-			return
-		if _stove == null or not is_instance_valid(_stove) or not _stove.has_open_slot():
-			NPCItemUser.drop_held(npc)   ## filled/gone since we set out — don't get stuck on a dead trip
-			_finished = true
-			return
-		var pot: RigidBody3D = npc.held_item
-		if _stove.try_place_pot(pot):
-			npc.held_item = null
-			_begin_fetch_ingredient(npc)   ## chain straight into filling it, same session
-		else:
+func _tick_store(npc: NPC, delta: float) -> void:
+	if _storage_dest == null or not is_instance_valid(_storage_dest) or not NPCItemUser.hands_full(npc):
+		if NPCItemUser.hands_full(npc):
 			NPCItemUser.drop_held(npc)
-			_finished = true
-		return
-
-	## _carrying_kind == "ingredient"
-	if npc.held_item == null or not NPCItemUser.is_cookable_ingredient(npc.held_item):
 		_finished = true
 		return
-	if _stove == null or not is_instance_valid(_stove) or _stove.pot_ref == null:
-		NPCItemUser.drop_held(npc)
-		_finished = true
-		return
-	var pot2: Node = _stove.pot_ref
-	if not pot2.has_method("try_add_item") or pot2.is_full():
-		NPCItemUser.drop_held(npc)
-		_finished = true
-		return
-	var item: RigidBody3D = npc.held_item
-	if pot2.try_add_item(item):
-		npc.held_item = null
-		if pot2.count_filled() < CookingPot.CAPACITY:
-			_begin_fetch_ingredient(npc)
-		else:
-			_turn_on_stove(npc)
-	else:
-		NPCItemUser.drop_held(npc)
+	npc.nav_steer(delta)
+	if NPCItemUser.in_reach(npc, (_storage_dest as Node3D).global_position, NPCItemUser.SNATCH_RANGE):
+		npc.lock_movement()
+		if not NPCItemUser.store_held(npc, _storage_dest):
+			NPCItemUser.drop_held(npc)
 		_finished = true
 
 func _turn_on_stove(npc: NPC) -> void:
-	if _stove == null or not is_instance_valid(_stove) or _stove.pot_ref == null:
-		_finished = true
+	_finished = true
+	var pot: Node = _stove.pot_ref
+	if pot == null or pot.count_filled() <= 0:
 		return
-	if _stove.pot_ref.count_filled() <= 0:
-		_finished = true   ## empty pot — nothing to cook, leave it for next time
+	if _stove.powered_on:
+		npc.log_action("Checked on the cooking")
 		return
-	if not _stove.powered_on:
-		## Aug 2026 fix (Brannon-requested) — was _stove.on_interact(), which
-		## is player-only (see Stove.npc_set_powered()'s own comment for the
-		## full explanation): it always resolves the PLAYER's
-		## InteractionSystem regardless of caller, and now gates the actual
-		## toggle behind an async Job Progress Bar — so the very next check
-		## below always saw the STALE pre-toggle value and concluded "no
-		## power" even when the stove was genuinely grid-connected.
-		## npc_set_powered() is a direct, synchronous set — same
-		## grid-connection gate, no player-bound indirection, real result
-		## available immediately.
-		if not _stove.npc_set_powered(true):
-			NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING,
-				"%s cannot cook meal (Stove unpowered)" % npc.npc_name)
-			npc.log_action("Cooking blocked — stove unpowered")
-			_finished = true
-			return
-		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.INFO,
-			"%s started cooking a meal" % npc.npc_name)
+	if not _stove.npc_set_powered(true):
+		_stove.set_meta("_npc_unpowered_until", NPCClock.now() + UNPOWERED_RETRY_HOURS)
+		NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING,
+			"%s can't cook — the stove has no power" % npc.npc_name)
+		npc.log_action("Cooking blocked — stove unpowered")
+		return
 	npc.log_action("Started cooking a meal")
-	_finished = true   ## work here is done — leave, per the leave-and-recheck model
+	npc.on_work_done("cooking")
 
 func done(_npc: NPC) -> bool:
 	return _finished
@@ -430,19 +279,10 @@ func debug_info() -> Dictionary:
 		"activity": "cooking",
 		"mode": _mode,
 		"phase": _phase,
-		"carrying": _carrying_kind,
 		"stove": (_stove.name if _stove != null and is_instance_valid(_stove) else ""),
 		"stove_powered": (_stove.powered_on if _stove != null and is_instance_valid(_stove) else false),
 	}
 
 func exit(npc: NPC) -> void:
-	if _stove != null:
-		NPCItemUser.release_item(_stove)
-	if _fetch_loose != null:
-		NPCItemUser.release_item(_fetch_loose)
-	if not _fetch_shelf.is_empty():
-		NPCItemUser.release_item(_fetch_shelf.get("item"))
-	var detail: String = "mode=%s phase=%s carrying=%s stove=%s" % [
-		_mode, _phase, _carrying_kind,
-		(_stove.name if _stove != null and is_instance_valid(_stove) else "none")]
+	var detail: String = "mode=%s phase=%s" % [_mode, _phase]
 	on_session_exit(npc, "cooking", _finished, detail)

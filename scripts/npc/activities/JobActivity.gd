@@ -1,17 +1,25 @@
 extends NPCActivity
 class_name JobActivity
-## Executes one JobBoard job: [optional fetch item] → travel → work timer
-## with overhead banner → apply the SAME world effect a player action has.
-const WORK_RANGE: float = 2.0   ## Aug 2026 — was 1.6; widened along with NPCItemUser.SHELF_RANGE so NPCs stop pushing into the plant/purifier before work starts
+## JobActivity.gd — one JobBoard job (HARVEST a ready plant, REPLACE_FILTER
+## on a worn purifier). NPCBrain offers one throwaway JobActivity per open
+## job each think; the job is claimed on JobBoard in enter().
+## Phases: fetch (REPLACE_FILTER needs a spare filter) → travel → work.
+##
+## Sep 2026: scored on the shared scale via NPC.work_score() (a failing
+## filter grows more urgent as its quality drops); work speed follows the
+## resident's age/injuries/skill; the fetched item is reserved; the harvest
+## notification only fires when a harvest actually happened.
 
-## Per-type work seconds and skill key.
+const WORK_RANGE: float = 2.0
+const APPROACH_DISTANCE: float = 1.0
+
 const TYPE_CONF: Dictionary = {
-	"HARVEST":        {"time": 4.0, "skill": "farming",    "base": 55.0, "verb": "HARVESTING"},
-	"REPLACE_FILTER": {"time": 5.0, "skill": "plumbing",   "base": 65.0, "verb": "FITTING FILTER"},
+	"HARVEST":        {"time": 4.0, "skill": "farming",  "verb": "HARVESTING"},
+	"REPLACE_FILTER": {"time": 5.0, "skill": "plumbing", "verb": "FITTING FILTER"},
 }
 
 var _job: Dictionary
-var _phase: String = "fetch"   ## fetch → travel → work
+var _phase: String = "fetch"
 var _work_left: float = 0.0
 var _work_total: float = 1.0
 var _fetch_loose: RigidBody3D = null
@@ -24,31 +32,34 @@ func _init(job: Dictionary) -> void:
 func label() -> String:
 	match _phase:
 		"fetch": return "Fetching supplies"
-		"travel": return "Heading to work"
-		_: return "Working"
+		"travel": return "Heading to %s" % ("the garden" if _job.get("type", "") == "HARVEST" else "the purifier")
+	return "Harvesting" if _job.get("type", "") == "HARVEST" else "Replacing a filter"
+
+func is_work() -> bool:
+	return true
+
+func accepts_held_item(_npc: NPC, item: Node) -> bool:
+	var filt: Variant = _job.get("fetch_filter")
+	return filt is Callable and (filt as Callable).call(item)
 
 func score(npc: NPC) -> float:
-	var conf: Dictionary = TYPE_CONF.get(_job.get("type", ""), {})
-	if conf.is_empty():
+	var type: String = _job.get("type", "")
+	if not TYPE_CONF.has(type):
 		return 0.0
-	var target: Node = _job.get("target")
+	var target: Node3D = _job.get("target") as Node3D
 	if target == null or not is_instance_valid(target):
 		return 0.0
-	var skill: float = float(npc.skills.get(conf["skill"], 1.0))
-	var dist: float = NPCItemUser.flat_distance((target as Node3D).global_position, npc.global_position)
-	var base_score: float = float(conf["base"]) * skill / (1.0 + dist * 0.08)
-	## Irritability reduces willingness to work (Part 20) — distinct from
-	## forgetfulness, which diverts AWAY from a job already chosen. This
-	## instead makes an irritable NPC less likely to be picked as a job's
-	## best candidate in the first place. Halves at max irritability (100%).
-	## Not separately logged — it's a continuous scoring effect evaluated
-	## every think-cycle for every open job, not a discrete event.
-	var willingness: float = 1.0 - (npc.irritability / 100.0) * 0.5
-	return base_score * willingness * npc.get_work_ethic_job_mult() \
-		* npc.get_job_priority_weight(_job.get("type", ""))
+	var urgency_mult: float = 1.0
+	if type == "REPLACE_FILTER" and "filter_quality" in target:
+		urgency_mult = 1.0 + 2.0 * NPC.urgency(float(target.filter_quality), JobBoard.FILTER_BELOW, 3.0)
+	var dist: float = NPCItemUser.flat_distance(target.global_position, npc.global_position)
+	return npc.work_score(type, urgency_mult) / (1.0 + dist * 0.02)
 
 func interruptible() -> bool:
 	return _phase != "work"
+
+func can_yield_to_need(npc: NPC) -> bool:
+	return _phase != "work" and not NPCItemUser.hands_full(npc)
 
 func enter(npc: NPC) -> void:
 	_claimed = JobBoard.claim(_job, npc)
@@ -57,100 +68,72 @@ func enter(npc: NPC) -> void:
 	var conf: Dictionary = TYPE_CONF[_job["type"]]
 	_work_total = float(conf["time"])
 	_work_left = _work_total
-
-	var needs_fetch: bool = _job.get("fetch_filter") != null
-	if needs_fetch and npc.held_item == null:
+	var filt: Variant = _job.get("fetch_filter")
+	if filt is Callable and not (NPCItemUser.hands_full(npc) and (filt as Callable).call(npc.held_item)):
 		_phase = "fetch"
-		var filt: Callable = _job["fetch_filter"]
 		var pick: Dictionary = NPCItemUser.find_fetch_target(npc, filt)
 		_fetch_loose = pick.get("loose")
 		_fetch_shelf = pick.get("shelf", {})
-		var tgt: Node3D = _fetch_loose if _fetch_loose != null \
-			else (_fetch_shelf.get("shelf") as Node3D if not _fetch_shelf.is_empty() else null)
-		if tgt == null:
-			_claimed = false   ## spare vanished between scan and now
-			JobBoard.release(_job, npc)
+		var tgt: Node3D = _fetch_loose if _fetch_loose != null else (_fetch_shelf.get("shelf") as Node3D if not _fetch_shelf.is_empty() else null)
+		var claim_target: Node = _fetch_loose if _fetch_loose != null else _fetch_shelf.get("item")
+		if tgt == null or not NPCItemUser.claim_item(claim_target, npc):
+			_claimed = false
 			return
 		npc.set_nav_target(tgt.global_position)
 	else:
 		_start_travel(npc)
 
-const APPROACH_DISTANCE: float = 1.0   ## stand-off from the object's center —
-                                       ## clear of its own collision footprint
-                                       ## and therefore actually on the navmesh
-
 func _start_travel(npc: NPC) -> void:
 	_phase = "travel"
 	var target: Node3D = _job.get("target") as Node3D
 	if target != null and is_instance_valid(target):
-		npc.set_nav_target(_approach_point(npc, target))
-
-## A reachable point APPROACH_DISTANCE from the object's center, along the
-## line from wherever the NPC currently is — not a hardcoded "front," so
-## it adapts to whichever side the NPC is already approaching from. The
-## raw center (what this replaces) sits inside the object's own collision
-## footprint and off the navmesh entirely (Part 9's bake carves out every
-## static obstacle's interior), which is why targeting it directly made
-## the NPC walk into the object and get stuck fighting its collision.
-func _approach_point(npc: NPC, target: Node3D) -> Vector3:
-	var to_npc: Vector3 = npc.global_position - target.global_position
-	to_npc.y = 0.0
-	if to_npc.length() < 0.01:
-		to_npc = Vector3(0.0, 0.0, 1.0)   ## degenerate case: npc exactly at center
-	return target.global_position + to_npc.normalized() * APPROACH_DISTANCE
+		npc.set_nav_target(NPCSessionActivity.approach_point(npc, target, APPROACH_DISTANCE))
 
 func tick(npc: NPC, delta: float) -> void:
 	if not _claimed:
 		return
-	if not JobBoard.still_valid(_job):   ## player beat us to it
+	if not JobBoard.still_valid(_job):   ## the player (or time) beat us to it
 		_claimed = false
 		return
 	var target: Node3D = _job.get("target") as Node3D
 	if target == null or not is_instance_valid(target):
 		_claimed = false
 		return
-
 	match _phase:
 		"fetch":
 			_tick_fetch(npc, delta)
 		"travel":
 			npc.nav_steer(delta)
-			## Flattened to XZ (Part 15) — target.global_position's Y can sit
-			## anywhere depending on the object's own mesh pivot, and this
-			## NPC's own origin is its capsule center (~1.4) — the same raw-
-			## 3D-distance mismatch already fixed for SitActivity in Part 12.
-			var t_pos: Vector3 = target.global_position
-			var flat_dist: float = Vector2(npc.global_position.x, npc.global_position.z) \
-				.distance_to(Vector2(t_pos.x, t_pos.z))
-			if flat_dist <= WORK_RANGE:
-				npc.velocity = Vector3.ZERO
+			if NPCItemUser.in_reach(npc, target.global_position, WORK_RANGE):
+				npc.lock_movement()
+				npc.face_toward(target.global_position, 1.0)
 				_phase = "work"
 				npc.show_work_banner()
 		"work":
 			npc.halt_movement(delta)
-			_work_left -= delta * npc.get_age_work_mult()   ## Aug 2026 — elders (65+) work at 0.75x
 			var conf: Dictionary = TYPE_CONF[_job["type"]]
-			npc.update_work_banner(String(conf["verb"]),
-				1.0 - (_work_left / _work_total))
+			_work_left -= delta * npc.get_work_speed_mult(String(conf["skill"]))
+			npc.update_work_banner(String(conf["verb"]), 1.0 - (_work_left / _work_total))
 			if _work_left <= 0.0:
 				_complete(npc)
 
 func _tick_fetch(npc: NPC, delta: float) -> void:
-	if npc.held_item != null:
-		_start_travel(npc)
+	var filt: Callable = _job["fetch_filter"]
+	if NPCItemUser.hands_full(npc):
+		if filt.call(npc.held_item):
+			_start_travel(npc)
+		else:
+			NPCItemUser.drop_held(npc)
 		return
-	if _fetch_loose != null and is_instance_valid(_fetch_loose):
-		if "is_held" in _fetch_loose and _fetch_loose.is_held:
-			_fetch_loose = null
+	if _fetch_loose != null:
+		if not is_instance_valid(_fetch_loose) or (("is_held" in _fetch_loose) and _fetch_loose.is_held):
+			_claimed = false
 			return
 		NPCItemUser.track_fetch_target(npc, _fetch_loose)
 		npc.nav_steer(delta)
-		if NPCItemUser.flat_distance(npc.global_position, _fetch_loose.global_position) \
-				<= NPCItemUser.PICKUP_RANGE:
-			if NPCItemUser.grab_loose(npc, _fetch_loose):
-				_start_travel(npc)
-			else:
-				_fetch_loose = null
+		if NPCItemUser.in_reach(npc, _fetch_loose.global_position, NPCItemUser.PICKUP_RANGE):
+			if not NPCItemUser.grab_loose(npc, _fetch_loose):
+				_claimed = false
 		return
 	if not _fetch_shelf.is_empty():
 		var shelf: Node3D = _fetch_shelf.get("shelf")
@@ -158,47 +141,42 @@ func _tick_fetch(npc: NPC, delta: float) -> void:
 			_claimed = false
 			return
 		npc.nav_steer(delta)
-		if NPCItemUser.flat_distance(npc.global_position, shelf.global_position) \
-				<= NPCItemUser.SHELF_RANGE:
-			if NPCItemUser.grab_from_shelf(npc, shelf,
-					int(_fetch_shelf.get("slot", -1))):
-				_start_travel(npc)
-			else:
+		if NPCItemUser.in_reach(npc, shelf.global_position, NPCItemUser.SHELF_RANGE):
+			if not NPCItemUser.grab_from_shelf(npc, shelf, int(_fetch_shelf.get("slot", -1))):
 				_claimed = false
 		return
-	_claimed = false   ## nothing left to fetch
+	_claimed = false
 
 func _complete(npc: NPC) -> void:
 	var target: Node = _job.get("target")
 	var conf: Dictionary = TYPE_CONF[_job["type"]]
+	var succeeded: bool = false
 	match _job["type"]:
 		"HARVEST":
-			## target IS the plant now (Part 31 — one job per plant,
-			## not per tray).
 			if target != null and is_instance_valid(target) and target.has_method("is_ready") and target.is_ready():
-				target.harvest()   ## spawns real produce, clears cell
-			NotificationManager.notify(UIKit.Domain.NEUTRAL,
-				NotificationManager.Severity.INFO,
-				"%s harvested the crops" % npc.npc_name)
-			npc.log_action("Job (Harvest)")
+				target.harvest()   ## spawns real produce, clears the cell
+				succeeded = true
+				NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.INFO,
+					"%s harvested the crops" % npc.npc_name)
+				npc.log_action("Harvested crops")
 		"REPLACE_FILTER":
 			if npc.held_item is PurifierFilterItem:
 				var filt: PurifierFilterItem = npc.held_item
+				NPCItemUser.release_item(filt)
 				npc.held_item = null      ## replace_filter consumes/frees it
 				target.replace_filter(filt)
-				NotificationManager.notify(UIKit.Domain.WATER,
-					NotificationManager.Severity.INFO,
+				succeeded = true
+				NotificationManager.notify(UIKit.Domain.WATER, NotificationManager.Severity.INFO,
 					"%s replaced the purifier filter" % npc.npc_name)
-	NPCDebug.log_job("completed", _job, npc)
-	npc.gain_skill(String(conf["skill"]))
+				npc.log_action("Replaced the purifier filter")
+	NPCDebug.log_job("completed" if succeeded else "no-op", _job, npc)
+	if succeeded:
+		npc.on_work_done(String(conf["skill"]))
 	_claimed = false
 
 func done(_npc: NPC) -> bool:
 	return not _claimed
 
 func exit(npc: NPC) -> void:
-	npc.hide_work_banner()
 	JobBoard.release(_job, npc)
-	if npc.held_item != null:
-		NPCItemUser.drop_held(npc)
 	_claimed = false

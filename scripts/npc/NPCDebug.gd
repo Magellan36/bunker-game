@@ -83,7 +83,7 @@ static func log_stuck(npc: Node, context: String = "?", info: Dictionary = {}) -
 		for key: String in info.keys():
 			parts.append("%s=%s" % [key, str(info[key])])
 		detail = " [%s]" % ", ".join(parts)
-	print("%s STUCK while %s%s — aborting current activity and re-scoring" % [_fmt(npc), context, detail])
+	print("%s STUCK recovery %s%s" % [_fmt(npc), context, detail])
 
 ## Aug 2026 — logged when the same obstruction (or none identifiable)
 ## has kept an NPC stuck across multiple consecutive recovery attempts,
@@ -311,11 +311,18 @@ static func _dump_one(npc: Node) -> void:
 	var activity: String = npc.brain.current_label() if ("brain" in npc and npc.brain != null) else "?"
 	var held: String = npc.held_item.name if ("held_item" in npc and npc.held_item != null) else "none"
 	var locked: bool = npc._movement_locked if "_movement_locked" in npc else false
-	var stuck: int = npc._stuck_recoveries if "_stuck_recoveries" in npc else -1
+	var stuck: int = npc.stuck.recoveries if "stuck" in npc and npc.stuck != null else -1
 
 	print("── %s ──────────────────────────────" % npc_name)
 	print("  pos=%s  activity=%s  held=%s" % [pos, activity, held])
-	print("  movement_locked=%s  stuck_recoveries=%d" % [locked, stuck])
+	print("  movement_locked=%s  stuck_recoveries=%d  claims=%d" % [locked, stuck, NPCItemUser.count_claims_for(npc)])
+	if "brain" in npc and npc.brain != null:
+		print("  last decision: %s" % npc.brain.last_switch_reason)
+	if "thoughts" in npc and npc.thoughts != null:
+		var th: Array[String] = []
+		for t: Dictionary in npc.thoughts.describe():
+			th.append("%s (%+.1f)" % [t["text"], t["mood"]])
+		print("  thoughts: %s  (mood target %.0f)" % [", ".join(th) if not th.is_empty() else "none", npc.get_mood_target()])
 
 	if "health" in npc and "energy" in npc and "hunger" in npc and "thirst" in npc:
 		print("  Health=%.1f  Energy=%.1f  Hunger=%.1f  Thirst=%.1f" % [
