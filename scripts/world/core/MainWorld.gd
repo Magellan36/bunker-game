@@ -1290,34 +1290,9 @@ func _wire_bed(bed: Node) -> void:
 		sleep_overlay.bed = the_bed   ## keep overlay pointing at whichever bed was used
 		if the_bed.has_method("set_sleeping"):
 			the_bed.set_sleeping(true)
-		## Aug 2026 — animated sit-down onto the bed (mirrors _wire_chair's seat
-		## flow). The player sits on the bed's SIDE, facing outward on whichever
-		## side they approached from; the controller eases them from an approach
-		## point just off the bed to the sheets position over stand_to_sit.
-		## The mattress top = the chair seat height, so the controller's seated-Y
-		## math is reused unchanged.
-		## Aug 2026 fix — side detection is done in the BED'S LOCAL frame: the
-		## world-Z comparison picked the wrong side for rotated beds (a bed at
-		## ~90-225° yaw put the player on the opposite side). The bed's local
-		## +Z/-Z are its two long sides (the width), so the sign of the player's
-		## bed-local Z is the correct side at ANY rotation.
-		var side: float = -1.0
-		var bed_local: Vector3 = (the_bed as Node3D).global_transform.affine_inverse() \
-			* player.global_position
-		if bed_local.z >= 0.0:
-			side = 1.0
-		var t: Transform3D = the_bed.get_sheets_transform(side)
-		player.rotation.y = t.basis.get_euler().y
-		var model: Node = player.get_node_or_null("PlayerModel")
-		if model != null:
-			const APPROACH_OFFSET: float = 0.4   ## ~half a bed width — same as _wire_chair
-			var approach_pos: Vector3 = t.origin + t.basis.z * APPROACH_OFFSET
-			approach_pos.y = player.global_position.y
-			model.set("_chair_approach_pos", approach_pos)
-			model.set("_chair_seat_pos", Vector3(t.origin.x, approach_pos.y, t.origin.z))
-			## Side turn for the lying-down clip: rotate side×90° to face AWAY
-			## from the headboard over its first 1/3.
-			model.set("_lie_rot_angle", side * PI * 0.5)
+		## The player's model controller plans the whole thing from the bed
+		## itself: it walks to the nearest side, sits on the edge, swings the
+		## legs up and lies back (docs/systems/player-model/ANIMATIONS.md).
 		player.sleeping_bed = the_bed   ## starts the controller's sitting_down phase
 		player.set_physics_process(false)
 		sleep_overlay.begin_sleep()
@@ -1342,70 +1317,15 @@ func _wire_chair(chair: Node) -> void:
 	chair.set_meta("_seat_wired", true)
 
 	var the_chair: Node = chair
-	## Aug 2026 fix — previously snapped player.global_position to
-	## get_seat_transform()'s elevated seat-height Y the INSTANT E was
-	## pressed, before any animation played — so "standing" at the start
-	## of stand_to_sit rendered at seat height instead of the floor, and
-	## (symmetrically) the end of sit_to_stand rendered "halfway in the
-	## seat" until the position got released. Root cause: with the Hip
-	## root-offset fix (see docs/systems/player-model/README.md "Sit
-	## animation root-offset fix"), the animation's OWN baked Hip motion
-	## already correctly shows the full rise/lower between standing and
-	## seated heights relative to a FIXED floor-level anchor — exactly the
-	## same convention idle/walk/run already use (their root motion is
-	## never consumed either). The game code doesn't need to move the Y
-	## (height) anchor at all during the sit sequence — the clip does that.
-	## X/Z DO still need to snap here though (Aug 2026, 2nd pass): without
-	## it the player keeps whatever horizontal spot they were standing at
-	## when they pressed E, which usually isn't centered on the seat.
-	## Aug 2026 fix (2nd pass) — no longer snaps X/Z instantly either. The
-	## player's CURRENT position (wherever they were standing when they
-	## pressed E — already near the chair, since interaction range put
-	## them there) becomes the "approach" anchor; the chair's own seat X/Z
-	## becomes the "seat" anchor. AdventurerModelController eases the
-	## player smoothly between the two, in sync with the stand_to_sit /
-	## sit_to_stand clip's own playback progress (see _lerp_sit_xz() in
-	## that file) — sitting down eases back into the chair, standing up
-	## eases forward off it, instead of either direction snapping.
 	chair.seat_requested.connect(func() -> void:
 		if the_chair.has_method("set_seated"):
 			the_chair.set_seated(true)
-		var t: Transform3D = the_chair.get_seat_transform()
-		player.rotation.y = t.basis.get_euler().y
-		the_chair.set_meta("_seated_facing_y", player.rotation.y)   ## NEW — restored on stand
+		the_chair.set_meta("_seated_facing_y", player.rotation.y)   ## restored by the fallback stand
 		player.velocity = Vector3.ZERO
 		player.set_physics_process(false)
-		var model: Node = player.get_node_or_null("PlayerModel")
-		if model != null:
-			## Aug 2026 fix (3rd pass) — FIXED approach point (~half a chair
-			## width in front of the seat) instead of the player's actual
-			## position when E was pressed. The clip is authored assuming a
-			## fixed travel distance/timing, so a variable start point (near
-			## vs. far from the chair depending on approach angle) made the
-			## slide look wrong. -t.basis.z is the chair's own "open front"
-			## direction (the model faces +PI from this — toward the
-			## backrest — while seated; see AdventurerModelController.gd).
-			##
-			## Aug 2026 fix (6th pass) — approach_pos.y was being computed
-			## from t.origin.y (= Chair.SEAT_Y, the ELEVATED seat surface
-			## height, ~0.56), not the player's actual floor-level height.
-			## Since a CharacterBody3D's own global_position sits at the
-			## CENTER of its capsule collider (not the feet), the player's
-			## real standing Y is closer to ~1.0 for this project's capsule
-			## — meaning the sit-down height-lerp (see
-			## AdventurerModelController._lerp_sit_position(), "Seat-height
-			## correction" in docs/systems/player-model/README.md) started
-			## FROM the wrong (much lower) value the instant sitting_down
-			## began, snapping the character down before the clip's own
-			## motion had done anything — looked exactly like sinking into
-			## the floor. approach_pos.y must come from the player's OWN
-			## current height, not the chair's seat transform at all.
-			const APPROACH_OFFSET: float = 0.4   ## ~half a chair width
-			var approach_pos: Vector3 = t.origin + t.basis.z * APPROACH_OFFSET
-			approach_pos.y = player.global_position.y
-			model.set("_chair_approach_pos", approach_pos)
-			model.set("_chair_seat_pos", Vector3(t.origin.x, approach_pos.y, t.origin.z))
-		player.seated_chair = the_chair   ## NEW
+		## The player's model controller plans the sit from the chair itself
+		## (approach step, turn, sit) — see docs/systems/player-model/ANIMATIONS.md.
+		player.seated_chair = the_chair
 	)
 	## Aug 2026 fix — the player used to snap free (position + physics)
 	## the instant E was pressed, well before the sit_to_stand animation

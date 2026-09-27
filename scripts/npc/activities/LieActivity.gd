@@ -223,21 +223,12 @@ func _get_into_bed(npc: NPC) -> void:
 	var side: float = _side(npc, bed3)
 	npc.lock_movement()
 	if _bed.has_method("get_sheets_transform"):
+		## Fallback stand spot only — the model controller walks to the bed
+		## side nearest the NPC, lies down, and on waking returns the NPC to
+		## wherever its stand-up clip actually ends (see NPC._physics_process).
 		var t: Transform3D = _bed.get_sheets_transform(side)
-		npc.rotation.y = t.basis.get_euler().y
 		_approach = t.origin + t.basis.z * APPROACH_OFFSET
 		_approach.y = npc.global_position.y
-		npc.global_position = _approach
-		var model: Node = npc.get_node_or_null("CharacterModel")
-		if model != null:
-			model.set("_chair_approach_pos", _approach)
-			model.set("_chair_seat_pos", Vector3(t.origin.x, _approach.y, t.origin.z))
-		## Both the visible model and its shadow stand-in turn the same way.
-		for model_name: String in ["CharacterModel", "CharacterModelShadow"]:
-			var m: Node = npc.get_node_or_null(model_name)
-			if m != null:
-				m.set("_lie_rot_angle", side * PI * 0.5)
-				m.set("lie_signed_turn", true)
 	else:
 		_approach = npc.global_position
 	npc.sleeping_bed = bed3   ## starts the controller's sit → lie-down → sleep sequence

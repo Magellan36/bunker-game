@@ -1,1001 +1,847 @@
 class_name AdventurerModelController
 extends Node3D
-## AdventurerModelController.gd
-## Aug 2026 — V1 simplification. Loads one of the two complete Quaternius
-## "Adventurer" models (Ultimate Modular Men/Women packs) wholesale, no
-## per-piece customization: no outfit swapping, no hairstyle attachment,
-## no skin-material building. The model is a single self-contained body
-## with its own baked-in look (grey hair/beige clothes for male, brown
-## hair/green clothes for female).
+## AdventurerModelController.gd — animation for the V1 Adventurer bodies
+## (player + NPCs, both genders).
 ##
-## This REPLACES PlayerModelController.gd/PlayerModel.tscn for V1's two
-## base models. That file and its whole customization system (hairstyles,
-## outfits, character-creation hair/color picking) are NOT deleted — they
-## are packed away for a later version once real customization art is
-## ready. See docs/systems/player-model/README.md "V1 simplification —
-## Adventurer models" for the full context and how to un-pack it.
+## Read docs/systems/player-model/ANIMATIONS.md before changing this file.
 ##
-## Attach to: res://scenes/player/AdventurerModel.tscn's root node.
-## Instanced as a child of Player.tscn's root, same as the old
-## PlayerModel.tscn was — see that scene for wiring.
+## Three layers, blended by one AnimationTree (deterministic, advanced manually
+## at the end of _process so every weight/time below applies the same frame):
+##
+##   LOCOMOTION  idle / walk / run. Walk and run are baked in place and share
+##               one gait PHASE that advances by ground distance / stride
+##               length, so a planted foot moves at exactly the ground speed
+##               (no foot sliding) at any speed; the walk↔run mix is chosen from
+##               the real speed. Carrying overlays idle_carry's arms only.
+##   ACTIONS     one-shots and furniture loops (sit, lie, sleep, stand, die) in
+##               two cross-fading slots. Each slot owns its clip time (so clips
+##               can be held, looped or played backwards) and its own WORLD
+##               placement. The final body placement blends the slots with the
+##               same weights as their poses, so cross-fades never slide.
+##   WARPING     furniture actions keep the clip's authored full-body motion.
+##               The small error between where the clip would land and where
+##               the chair/bed actually is gets distributed along the clip's own
+##               hip travel (translation) and its feet-in-the-air window (yaw),
+##               the way modern "motion warping" does it.
+##
+## Every pose comes from the human-made source clips (see
+## tools/anim_pipeline/bake_adventurer_anims.gd). Nothing here authors keys.
+##
+## Public surface (unchanged callers): is_sit_sequence_active(),
+## is_animation_locked(), get_visual_yaw(), get_stand_end_position(),
+## sit_animation_finished, stand_animation_finished. Furniture use is started
+## by the parent setting `seated_chair` / `sleeping_bed`, and ended by clearing
+## it — the controller reads the furniture node itself to plan the motion.
 
-## Crossfade time between animation states, in seconds.
-const BLEND_TIME: float = 0.3
-## Short crossfade into the death collapse (the one-shot dying clip).
-const DEATH_BLEND_TIME: float = 0.2
-## Longer ease between the base locomotion states (idle↔walk↔run). The
-## gender-specific locomotion poses differ noticeably from each other
-## (male idle especially), so the standard 0.3s blend still reads as a snap
-## on walk↔run and ↔idle. Carry and sit transitions keep BLEND_TIME.
-const LOCOMOTION_BLEND_TIME: float = 0.5
-## Aug 2026 — the lying_down -> sleeping transition uses a LONGER crossfade so
-## the arms/head visibly "settle" into the sleep pose (the sleeping clip's start
-## pose differs from the lying_down end pose by up to ~100° on the hands) instead
-## of snapping over the standard 0.3s blend. Was 0.9s; now 1.5x faster.
-const SLEEP_BLEND_TIME: float = 0.6
-## Base locomotion states that transition with the longer ease above.
-const LOCOMOTION_STATES: Array[String] = ["idle", "walk", "run"]
+signal sit_animation_finished()
+signal stand_animation_finished()
 
-## Run only kicks in once real velocity is closing in on sprint_speed.
-const RUN_SPEED_FRACTION: float = 0.85
-
-## Playback-rate scaling (Sep 2026) — per-character normalization: the walk/
-## run clips play at speed_scale = actual_speed / the character's OWN nominal
-## speed for that band (move_speed for walk, sprint_speed for run). A slowed
-## character (elder NPC, low energy, medical injury, heavy-carry) reads as
-## actually moving slower, because its stride cadence drops with its real
-## velocity. Full nominal speed = 1.0x (authored cadence).
-const LOCOMOTION_SPEED_SCALE_MIN: float = 0.2    ## floor — a nearly-stopped but mid-blend character
-const LOCOMOTION_SPEED_SCALE_MAX: float = 1.5    ## ceiling — guards walk-over-drive / edge cases
-const LOCOMOTION_SPEED_SCALE_LERP: float = 8.0   ## per-second lerp toward target — smooths the
-	## walk→run handoff (1.0x walk → 0.85x run) and start/stop acceleration
-	## so the cadence doesn't pop.
-
-## How quickly the model's VISUAL facing catches up to Player's actual
-## rotation.y. Same convention/reasoning as the old controller.
+## How quickly the visual facing catches up to the character's rotation.y.
 @export var turn_speed: float = 12.0
-
-## Legacy compatibility for old scenes that still contain a shadow-only model.
-## Current Player/NPC scenes use the visible model itself for a physically
-## accurate silhouette and avoid a second animated/skinned character instance.
+## Legacy: old scenes carried a second, shadow-only model. Hidden if set.
 @export var is_shadow_only: bool = false
-
-## Aug 2026 — opt-in flag for NPCs: each NPC randomly picks a gender
-## (which Adventurer model loads) on spawn, independent of the player's
-## CharacterCreationData choice and every other NPC. Set true on
-## NPC.tscn's CharacterModel node. Simpler than the
-## old PlayerModelController's randomize_appearance — there's no hair/
-## color/beard to roll anymore, just which complete body loads. Mutually
-## exclusive in practice with reading CharacterCreationData: when true,
-## gender comes from this random roll instead.
+## NPCs roll their own body gender (cached on the parent as a meta).
 @export var randomize_gender: bool = false
 
-## Aug 2026 — the two complete Adventurer bodies. Each is a single FBX
-## with its own baked mesh/materials/skeleton, imported with a
-## retarget/bone_map (bone_map_adventurer.tres) that renames its bones
-## to Godot's Humanoid profile — the SAME "GeneralSkeleton" convention
-## our existing animation library (idle/walk/run/*_carry) is baked
-## against, via bone_map_mixamo.tres on those files. That shared
-## convention is what makes the existing animations play correctly on
-## this different-source-rig skeleton with zero per-clip retargeting
-## work. Verified directly in-editor before this controller was written
-## (see the README section referenced above).
 const BODY_SCENE_PATHS: Dictionary = {
 	"male": "res://assets/models/player/adventurer/Adventurer_Male.fbx",
 	"female": "res://assets/models/player/adventurer/Adventurer_Female.fbx",
 }
-
-## Same fallback/floor-alignment math as the old controller — kept in
-## sync deliberately, see that file's own comment for why.
+const LIBRARY_PATHS: Dictionary = {
+	"male": "res://assets/models/player/anims/adventurer_male_lib.res",
+	"female": "res://assets/models/player/anims/adventurer_female_lib.res",
+}
+const LIB: String = "body"
+const ProceduralPose: GDScript = preload("res://scripts/player/AdventurerProceduralPose.gd")
 const FALLBACK_CAPSULE_HEIGHT: float = 2.0
-const MODEL_FLOOR_FUDGE: float = 0.0
 
-const ANIMATION_NAMES: Dictionary = {
-	"idle": "idle_lib/idle",
-	"walk": "walk_lib/walk",
-	"run": "run_lib/run",
-	"idle_carry": "idle_carry_lib/idle_carry",
-	"walk_carry": "walk_carry_lib/walk_carry",
-	"run_carry": "run_carry_lib/run_carry",
-	"stand_to_sit": "stand_to_sit_lib/stand_to_sit",
-	"sit": "sit_lib/sit",
-	"sit_to_stand": "sit_to_stand_lib/sit_to_stand",
-	"lying_down": "lying_down_male_lib/lying_down",
-	"sleeping": "sleep_hybrid_male_lib/sleeping",
-	"dying": "dying_male_lib/dying",
-}
+# ─── Locomotion tuning ───────────────────────────────────────────────────────
+## Below this real speed (m/s) the character is standing.
+const MOVE_START_SPEED: float = 0.08
+## Speed (m/s) at which the idle→gait blend is complete.
+const MOVE_FULL_SPEED: float = 0.7
+## Per-second smoothing rates for the blend weights.
+const MOVE_BLEND_RATE: float = 9.0
+const GAIT_BLEND_RATE: float = 6.0
+const CARRY_BLEND_RATE: float = 7.0
+## Per-second smoothing of the measured speed (kills physics jitter).
+const SPEED_SMOOTH_RATE: float = 14.0
+## Turning on the spot still needs footsteps: the feet sit ~this far from the
+## body's vertical axis, so a turn at ω rad/s moves them at ω × radius.
+const TURN_STEP_RADIUS: float = 0.18
+## Procedural lean (AdventurerProceduralPose): bank into turns by
+## yaw-rate × speed, tip with acceleration. Radians; kept subtle.
+const LEAN_ROLL_GAIN: float = 0.012
+const LEAN_ROLL_MAX: float = 0.13
+const LEAN_PITCH_GAIN: float = 0.006
+const LEAN_PITCH_MAX: float = 0.09
+const LEAN_SMOOTH_RATE: float = 6.0
+## Pillow head support fade rate while sleeping, per second.
+const HEAD_SUPPORT_RATE: float = 1.2
 
-## Male-only idle override (Aug 2026) — the Male Locomotion Pack idle clip
-## replaces the idle for MALE bodies only; walk/run/carry and every female
-## state keep the shared ANIMATION_NAMES.
-## Aug 2026 (sit split) — "sit" is overridden for BOTH genders to the hybrid
-## clip (sit_hybrid_lib/sit_hybrid): legs/pelvis frozen at stand_to_sit's
-## final seated pose, upper body loops. The clip content is gender-neutral
-## (sit + stand_to_sit are shared sources), so both overrides point at it.
-const MALE_ANIMATION_NAMES: Dictionary = {
-	"idle": "idle_male_lib/idle_male",
-	"sit": "sit_hybrid_lib/sit_hybrid",
-	"dying": "dying_male_lib/dying",
-}
+# ─── Furniture tuning (world metres) ─────────────────────────────────────────
+## Hip bone height above a seat surface when sitting (pelvis half-depth).
+const SEAT_HIPS_CLEARANCE: float = 0.08
+## Hips sit this far behind a chair's seat centre (towards the backrest).
+const SEAT_HIPS_BACK: float = 0.05
+## Hip bone height above the mattress when lying on the back.
+const LIE_HIPS_CLEARANCE: float = 0.12
+## How far in from the bed's side edge the hips sit (bed-local |z|).
+const BED_EDGE_HIPS_Z: float = 0.30
+## Bed-local X of the head when lying (the pillow; headboard is at -X).
+const BED_HEAD_X: float = -0.84
+## Bed-local X range the seated hips may use.
+const BED_SEAT_X_RANGE: Vector2 = Vector2(-0.3, 0.95)
+## Calm walk used to reach the exact start spot of a sit/lie.
+const APPROACH_SPEED: float = 1.25
+const APPROACH_ARRIVE: float = 0.03
+## In-place pivot rate before sitting, rad/s.
+const PIVOT_RATE: float = 4.5
+## Playback rates.
+const SIT_RATE: float = 1.0
+const LIE_RATE: float = 1.15
+const GET_UP_RATE: float = 1.25
+const STAND_RATE: float = 1.0
 
-## Female-only idle override (Aug 2026) — the Female Basic Locomotion Pack
-## idle clip replaces the idle for FEMALE bodies only.
-## Aug 2026 (sit split) — the female sit set is fully female-rigged: the shared
-## stand_to_sit / sit_to_stand (male/Mixamo-rigged) stretched on the female
-## rig, so both transitions point at female-specific clips, and "sit" uses a
-## female hybrid (frozen legs from the FEMALE stand_to_sit's end pose + upper
-## body loop).
-const FEMALE_ANIMATION_NAMES: Dictionary = {
-	"idle": "idle_female_lib/idle_female",
-	"stand_to_sit": "stand_to_sit_female_lib/stand_to_sit",
-	"sit": "sit_hybrid_female_lib/sit_hybrid",
-	"sit_to_stand": "sit_to_stand_female_lib/sit_to_stand",
-	"lying_down": "lying_down_female_lib/lying_down",
-	"sleeping": "sleep_hybrid_female_lib/sleeping",
-	"dying": "dying_female_lib/dying",
-}
+## Cross-fade durations (s) between the named stages.
+const XF_ENTER_ACTION: float = 0.3
+const XF_SEAT_LOOP: float = 0.7
+const XF_STAND: float = 0.35
+const XF_TO_LIE: float = 0.5
+const XF_TO_SLEEP: float = 1.2
+const XF_WAKE: float = 0.9
+const XF_EXIT: float = 0.45
+const XF_DEATH: float = 0.2
+
+enum Stage { NONE, APPROACH, PIVOT, SIT_DOWN, SEATED, LIE_DOWN, SLEEP, GET_UP, STAND_UP, DEAD }
+
+## A furniture-use plan: every target the stages need, computed once.
+class FurniturePlan:
+	var is_bed: bool = false
+	var approach_pos: Vector3        ## world floor point the clip starts from
+	var approach_yaw: float
+	var seat_hips: Vector3           ## world hip target when seated
+	var seat_yaw: float
+	var lie_hips: Vector3            ## world hip target when lying (bed)
+	var head_dir: Vector3            ## world direction feet→head when lying
+	var stand_end_pos: Vector3       ## world floor point the stand-up ends at
+	var stand_end_yaw: float
+
+## One clip placed in the world. Placement = warp(t) (see _warp_world()).
+class ActionSlot:
+	var clip: StringName = &""
+	var time: float = 0.0
+	var rate: float = 1.0
+	var length: float = 1.0
+	var looping: bool = false
+	var base: Transform3D            ## W0: clip start placement
+	var dpsi: float = 0.0            ## yaw correction reached at the end
+	var dp: Vector3 = Vector3.ZERO   ## translation correction reached at the end
+	var yaw_by_feet: bool = false    ## yaw correction paced by feet lift (lie down)
+	var world: Transform3D           ## cached placement for this frame
 
 var _player: CharacterBody3D = null
-var _anim_player: AnimationPlayer = null
-var _skeleton: Skeleton3D = null
-var _foot_bone_indices: Array[int] = []
-## P2 (Aug 2026) — the real gap between the Foot/Toe bones and the visible
-## sole mesh, measured at the rest pose in _ready(). The clamp holds the
-## bones at GROUND_Y + this, so the actual soles rest on the floor (the foot
-## mesh rides the bones rigidly, so the gap stays constant through the fold).
-var _foot_mesh_clearance: float = 0.03
-## Pose-aware sole clamp (Aug 2026, experimental) — the sole's position in the
-## nearest foot bone's LOCAL space, measured at rest. Each frame the clamp
-## transforms it by the bone's CURRENT animated transform, so the sole follows
-## the ankle rotation exactly — the constant clearance was pose-dependent and
-## let the heel dip at the near-standing ends of the transitions.
-var _sole_local_offset: Vector3 = Vector3.ZERO
-var _sole_offset_measured: bool = false
-## The sole's world Y minus the player root Y at the standing rest pose — the
-## bunker floor is NOT at Y=0 (standing root sits ~1.5, so the floor is ~0.5).
-## The clamp derives the floor reference from this + the standing approach
-## height, so it's correct regardless of the absolute floor value.
-var _sole_root_offset: float = -0.98
-## Diagnostic (Aug 2026) — set true to log the lowest sole Y every few frames
-## during the sit transitions, to confirm the pose-dependent-gap theory.
-## Sep 2026 — left OFF: this was a per-frame stdout flood (captured and
-## re-sent by the debugger bridge) that throttled the game whenever
-## characters sat/stood. Flip back on only while debugging the sole gap.
-const SOLE_DIAGNOSTIC: bool = false
-var _diag_sole_frames: int = 0
-var _current_state: String = ""
-var _last_state: String = ""
-var _visual_yaw: float = 0.0
-## Which body gender this controller loaded — drives MALE_ANIMATION_NAMES
-## selection in _resolve_anim_name(). Set in _ready() from
-## CharacterCreationData (player) or the per-NPC random roll.
 var _gender: String = "male"
+var _visual: Node3D = null
+var _skeleton: Skeleton3D = null
+var _tree: AnimationTree = null
+var _lib: AnimationLibrary = null
+var _scale: float = 1.0
 
-## Sit lifecycle (Aug 2026): "" = standing/normal locomotion.
-## "sitting_down" → "seated" → "standing_up" → "" drives the imported
-## stand_to_sit / sit / sit_to_stand sequence. The transitions advance on
-## AnimationPlayer.animation_finished (see _on_anim_finished).
-var _sit_phase: String = ""
-## Aug 2026 — true once the bed lie-down clip has completed its first pass
-## (the 90° turn + recline + slide are all done, the player is resting). Input
-## stays locked while false so the lie-down can't be interrupted mid-motion.
-var _lie_down_complete: bool = false
+## Locomotion state.
+var _visual_yaw: float = 0.0
+var _speed: float = 0.0
+var _phase: float = 0.0
+var _move_w: float = 0.0
+var _run_w: float = 0.0
+var _carry_w: float = 0.0
+var _walk_stride: float = 1.5      ## holder metres per cycle (bake metadata)
+var _run_stride: float = 2.9
+var _walk_len: float = 1.0
+var _run_len: float = 0.7
+var _walk_phase0: float = 0.0
+var _run_phase0: float = 0.0
+var _pose_mod: SkeletonModifier3D = null   ## AdventurerProceduralPose
+var _prev_yaw: float = 0.0
+var _prev_speed: float = 0.0
+var _yaw_rate: float = 0.0
+var _accel: float = 0.0
 
-## Aug 2026 — the two horizontal anchor points the sit sequence eases
-## between: the approach spot (near the chair's front edge, where sitting
-## down starts / standing up ends) and the seat center (where sitting down
-## ends / standing up starts). Set by MainWorld.gd right as the sit
-## sequence begins — see _wire_chair()'s seat_requested handler.
-var _chair_approach_pos: Vector3 = Vector3.ZERO
-var _chair_seat_pos: Vector3 = Vector3.ZERO
+## Action state.
+var _stage: Stage = Stage.NONE
+var _plan: FurniturePlan = null
+var _slots: Array[ActionSlot] = [ActionSlot.new(), ActionSlot.new()]
+var _active_slot: int = 0
+var _ab_w: float = 0.0             ## 0 = slot A shown, 1 = slot B shown
+var _ab_target: float = 0.0
+var _xfade_ab: float = 0.3
+var _act_w: float = 0.0            ## 0 = locomotion, 1 = actions
+var _act_target: float = 0.0
+var _xfade_act: float = 0.3
+var _last_visual_world: Transform3D = Transform3D.IDENTITY
+var _lie_slot_backup: ActionSlot = null
+var _stand_end_known: bool = false
 
-## Aug 2026 — bed lie-down turn. Set by MainWorld's bed wiring to the bed SIDE
-## the player sat on (+1/-1) × PI/2, so during the first 1/3 of the lying-down
-## clip the model rotates 90° to face AWAY from the headboard (the player ends
-## lying along the bed, head at the headboard). 0 = not on a bed.
-var _lie_rot_angle: float = 0.0
-
-## Sep 2026 (NPC bed sleep) — when true, the lie-down turn follows the SIGNED
-## side angle, so a sleeper entering from EITHER long side ends in the same
-## face-up, head-at-headboard pose (final yaw = bed yaw + 3π/2 both ways).
-## With the default absf() turn, entering from the bed's local −Z side ends
-## rotated π the other way and the recline tips the body off the mattress
-## (the per-side body mirror that once compensated no longer exists). NPCs
-## set this (LieActivity); the player's tuned flow is left unchanged — if the
-## player shows the same thing on one side of a bed, setting this flag in
-## MainWorld._wire_bed() is the likely one-line fix.
-var lie_signed_turn: bool = false
-
-func _lie_turn() -> float:
-	return _lie_rot_angle if lie_signed_turn else absf(_lie_rot_angle)
-
-## Aug 2026 — GAME-DRIVEN bed recline. The clip's own root motion pivots the
-## body at the FEET (its armature origin), swinging it in a wide arc; instead,
-## the body is parented under a LiePivot node placed at the HIPS, and during the
-## lying-down clip the controller rotates that pivot so the body reclines back
-## onto the bed around the correct point. The body is offset down by
-## LIE_PIVOT_HEIGHT so its feet stay at the controller origin.
-## These are tuning knobs — the axis/sign may need flipping once seen in-game.
-const LIE_PIVOT_HEIGHT: float = 0.9    ## hips height above the model origin
-const RECLINE_ANGLE: float = 100.0      ## degrees to recline back by the clip end (head-hips ~0 = horizontal)
-const RECLINE_DIR: float = 1.0         ## +1 = recline backward (face up); sign ×side mirrors it for the far bed side
-## Aug 2026 — game-driven lateral roll to CENTER the model on the bed. The
-## player sits on the side edge (Bed.SHEETS_EDGE_Z = 0.26) and the final lie
-## pose must end on the bed's center line (Z=0), not the entry-side edge. The
-## shift is a CONSTANT local-X translation: with the opposite per-side turns,
-## each side's local +X points OUTWARD (away from the bed), so the same -0.26
-## rolls both toward the center. Paced with the same slide curve (moves with
-## the length-wise slide).
-const CENTER_SHIFT: float = 0.26        ## metres rolled from the side edge to the bed center (== Bed.SHEETS_EDGE_Z)
-## Aug 2026 — game-driven slide up the bed toward the headboard, matching the
-## clip's own root-position motion ("pushes itself further up the bed"). The
-## curves below were sampled from the clip's armature-root tracks so the
-## recline + slide pace matches the animation instead of a constant linear
-## robotic motion. The slide runs along the LiePivot's LOCAL Z (which, after
-## the game's yaw, is the bed's LENGTH — measured: local +Z -> world -X for
-## side +1), with a sign that follows the bed side so it always goes toward
-## the headboard. The head lands at ~X=-0.69 after the recline; the pillow is
-## ~1/6 down the bed at X=-0.828, so ~0.14m gets there (0.2 hammers a touch
-## further).
-const LIE_TRANSLATE: float = 0.615      ## metres the model scoots toward the headboard
-## The 90° side turn completes at this fraction of the clip. Was 1/3, then
-## 1.75x faster; now another 1.25x on top (1.75 * 1.25 = 2.1875x) while the
-## clip itself plays at normal speed — the game just finishes driving the
-## rotation sooner.
-const LIE_TURN_SPEED: float = 2.1875
-const LIE_TURN_END_FRAC: float = 0.333333 / LIE_TURN_SPEED
-## The slide does NOT begin until the 90° side turn is 80% complete. With the
-## turn finishing at LIE_TURN_END_FRAC, 80% of it = 0.8 * LIE_TURN_END_FRAC; the
-## slide then accelerates into the remaining clip time, still reaching its full
-## value at frac 1.0 (identical end pose, just delayed + sped up).
-const LIE_SLIDE_START_AT: float = 0.8 * LIE_TURN_END_FRAC
-## Aug 2026 — the SECOND half of the lying-down clip plays this many times
-## faster (the clip itself AND the game-driven turn/recline/slide, which are all
-## paced by clip progress). The first half plays at 1.0x; at the halfway mark
-## speed_scale jumps to this. Resets to 1.0 outside the lying_down phase.
-const LIE_DOWN_2ND_HALF_SPEED: float = 1.25
-## Recline pacing (0→1): slow start, accelerate through the middle, hold by
-## ~2/3 — sampled from the clip's root X-pitch.
-const LIE_RECLINE_CURVE: PackedFloat32Array = [0.0, 0.02, 0.08, 0.25, 0.45, 0.65, 0.82, 0.93, 1.0, 1.0, 1.0, 1.0, 1.0]
-## Slide pacing (0→1): front-loaded push up the bed, holds — sampled from the
-## clip's root Z-position (most of the ~0.28m happens by the first third).
-const LIE_SLIDE_CURVE: PackedFloat32Array = [0.0, 0.05, 0.30, 0.75, 0.95, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-var _lie_pivot: Node3D = null
-
-## Aug 2026 (8th pass — measured end-to-end through the REAL game code,
-## not an isolated approximation) — the Hips bone's height ABOVE the
-## player's own root (player.global_position.y), once the sit_lib seated
-## pose is truly reached via the actual sit-phase state machine.
-##
-## The 7th-pass value below (-0.1059) was measured by directly
-## instantiating the body + sit_lib.res and forcing the pose via
-## AnimationPlayer.seek() to the clip's 50% mark — that turned out to be
-## a subtly different code path than how the REAL game actually reaches
-## the seated pose (AdventurerModelController._play_state() crossfades
-## into "sit" via .play(), not an instant seek). Confirmed directly: a
-## full end-to-end test using the REAL Player.tscn +
-## MainWorld._wire_chair() + the real sit-phase state machine, run
-## through real frames for the clip's real 2.233s duration and held
-## seated for 2 more real seconds (5 samples, all identical — genuinely
-## stable, not noise), measured the TRUE relationship directly:
-## hip_world.y − player.global_position.y = 0.1176, not -0.1059.
-##
-## Measurement method: tools/_real_e2e_sit_test.tscn(.gd) (deleted after
-## use — reconstructable from this description): instantiate the real
-## Player.tscn, load MainWorld.gd's script onto an OFF-TREE Node3D
-## (never add_child'd, so its full _ready() — which touches $GameCamera/
-## $HUD/etc and would crash outside a real MainWorld — never fires),
-## call ._wire_chair(chair) directly (that function only touches its own
-## parameter and the instance's `player` property), emit the chair's
-## real `seat_requested` signal, then let real _process() frames run and
-## sample Skeleton3D.get_bone_global_pose("Hips") periodically.
-const HIP_OFFSET_FROM_ROOT: Dictionary = {
-	"male": 0.1176,
-	"female": 0.2529,   ## Aug 2026 — re-measured, was 0.0023 (wrong)
-}
-
-## Aug 2026 (correction) — both values re-derived from each model's rest
-## skeleton geometry so male and female follow the SAME seated-height steps:
-## hip_offset = Hips.global_rest_Y × 1.25 (model scale) − 1.0 (model root
-## drop of capsule_height/2). Measured rest hips: male 0.894096 → 0.1176;
-## female 1.00229 → 0.2529. The old female value (0.0023) was wrong and
-## placed her seated hips off the chair. Consumed by _lerp_sit_position()'s
-## seated landing (midpoint of the seat-surface target and approach height).
-
-## Aug 2026 — emitted the moment the stand_to_sit clip actually finishes
-## (sitting_down → seated), so the chair/world code can snap the player
-## down onto the actual seat position at exactly that moment — not
-## before. See MainWorld.gd's _wire_chair() for the consumer.
-signal sit_animation_finished()
-
-## Aug 2026 — emitted the moment the sit_to_stand clip actually finishes
-## (standing_up → ""), so the chair/world code can keep the player
-## anchored in place until the stand-up animation is genuinely done,
-## instead of snapping the player's position/physics loose the instant E
-## is pressed. See MainWorld.gd's _wire_chair() for the consumer.
-signal stand_animation_finished()
-
+# ─── Setup ───────────────────────────────────────────────────────────────────
 func _ready() -> void:
-	var parent: Node = get_parent()
-	if parent is CharacterBody3D:
-		_player = parent as CharacterBody3D
-	if _player != null:
+	if get_parent() is CharacterBody3D:
+		_player = get_parent() as CharacterBody3D
 		_visual_yaw = _player.rotation.y
+		_prev_yaw = _visual_yaw
+	_gender = _resolve_gender()
 
-	## Aug 2026 — gender comes from CharacterCreationData for the real
-	## player (the creation screen's Body/gender category is still
-	## functional in V1; only Hair is disabled), or from a random per-NPC
-	## roll when randomize_gender is set. The result remains cached on the
-	## parent so save/load or compatibility scenes resolve consistently.
-	var gender: String = "male"
+	_visual = Node3D.new()
+	_visual.name = "Visual"
+	add_child(_visual)
+	var body: Node3D = (load(BODY_SCENE_PATHS.get(_gender, BODY_SCENE_PATHS["male"])) as PackedScene).instantiate()
+	## Load-bearing: every baked track is "MaleModel/%GeneralSkeleton:<bone>".
+	body.name = "MaleModel"
+	## FBX forward vs Godot -Z forward (both bodies need the same flip).
+	body.transform = Transform3D(Basis(Vector3.UP, PI), Vector3.ZERO)
+	_visual.add_child(body)
+	_skeleton = body.find_child("GeneralSkeleton", true, false) as Skeleton3D
+	_pose_mod = ProceduralPose.new()
+	_pose_mod.name = "ProceduralPose"
+	_skeleton.add_child(_pose_mod)
+
+	position.y = -_capsule_height() * 0.5 if _player != null else 0.0
+	_setup_meshes()
+	_lib = load(LIBRARY_PATHS.get(_gender, LIBRARY_PATHS["male"])) as AnimationLibrary
+	_read_gait_metadata()
+	_build_tree()
+	_last_visual_world = _visual.global_transform
+
+func _resolve_gender() -> String:
 	if randomize_gender and _player != null:
 		if not _player.has_meta("_adventurer_random_gender"):
-			var rolled_gender: String = "male" if randi() % 2 == 0 else "female"
-			_player.set_meta("_adventurer_random_gender", rolled_gender)
-		gender = _player.get_meta("_adventurer_random_gender")
-	else:
-		gender = CharacterCreationData.gender
-	_gender = gender
+			_player.set_meta("_adventurer_random_gender", "male" if randi() % 2 == 0 else "female")
+		return String(_player.get_meta("_adventurer_random_gender"))
+	if randomize_gender and get_parent() != null and get_parent().has_meta("_adventurer_random_gender"):
+		return String(get_parent().get_meta("_adventurer_random_gender"))
+	return CharacterCreationData.gender
 
-	var body_scene_path: String = BODY_SCENE_PATHS.get(gender, BODY_SCENE_PATHS["male"])
-	var body_scene: PackedScene = load(body_scene_path)
-	var body: Node3D = body_scene.instantiate()
-	## Load-bearing: every baked AnimationLibrary track is NodePath
-	## "MaleModel/%GeneralSkeleton:<bone>" (see docs/systems/player-model/
-	## README.md "Runtime body & character creation" — the SAME convention
-	## the old PlayerModelController.gd relies on for its own runtime body).
-	## The Adventurer FBX's own root node name ("Adventurer_Male"/
-	## "Adventurer_Female") does NOT match that hardcoded prefix, which
-	## silently breaks every track's resolution — confirmed directly via a
-	## runtime diagnostic: has_animation()/root_motion_track resolution/
-	## _play_state() all succeeded, yet the body stayed in bind pose
-	## (T-pose), because the ACTUAL per-bone tracks inside the animation
-	## couldn't find a child literally named "MaleModel" to resolve
-	## through. Renaming here, regardless of gender, matches what the
-	## animation data actually expects.
-	body.name = "MaleModel"
-	## Aug 2026 — same 180° Y-rotation fix the old PlayerModelController.gd
-	## needed for BOTH the Mixamo and native-rig bodies (Mixamo/FBX forward
-	## axis vs. Godot's own -Z forward). The Adventurer rig needs the exact
-	## same correction — confirmed live: without this, the model and its
-	## animations render facing/walking backwards. A model-space fix, not
-	## a movement-code change; Player.gd's own facing math is untouched.
-	## (Applied together with the hip-aligned pivot offset below.)
-	## Aug 2026 — LiePivot for the game-driven bed recline: the body hangs under
-	## a pivot at the HIPS so the recline rotates around the hips (on the bed)
-	## instead of the feet. The AnimationPlayer's root_node moves to the pivot so
-	## the baked "MaleModel/..." track paths still resolve.
-	_lie_pivot = Node3D.new()
-	_lie_pivot.name = "LiePivot"
-	_lie_pivot.position = Vector3(0.0, LIE_PIVOT_HEIGHT, 0.0)
-	add_child(_lie_pivot)
-	body.transform = Transform3D(Basis(Vector3.UP, PI), Vector3(0.0, -LIE_PIVOT_HEIGHT, 0.0))
-	_lie_pivot.add_child(body)
+func _capsule_height() -> float:
+	var shape_node: Node = _player.get_node_or_null("CollisionShape3D")
+	if shape_node is CollisionShape3D and (shape_node as CollisionShape3D).shape is CapsuleShape3D:
+		return ((shape_node as CollisionShape3D).shape as CapsuleShape3D).height
+	return FALLBACK_CAPSULE_HEIGHT
 
-	var capsule_height: float = FALLBACK_CAPSULE_HEIGHT
-	var had_real_collision: bool = false
-	if _player != null:
-		var collision_node: Node = _player.get_node_or_null("CollisionShape3D")
-		if collision_node is CollisionShape3D:
-			var shape: Shape3D = (collision_node as CollisionShape3D).shape
-			if shape is CapsuleShape3D:
-				capsule_height = (shape as CapsuleShape3D).height
-				had_real_collision = true
-	position.y = -(capsule_height * 0.5) + MODEL_FLOOR_FUDGE if had_real_collision else 0.0
-
-	_anim_player = _find_first_of_type(self, "AnimationPlayer") as AnimationPlayer
-	_skeleton = _find_first_of_type(self, "Skeleton3D") as Skeleton3D
-	var skeleton: Skeleton3D = _skeleton
-	if _anim_player != null and _lie_pivot != null:
-		## Resolve the baked "MaleModel/..." track paths from the LiePivot (the
-		## body is now a child of the pivot).
-		_anim_player.root_node = _anim_player.get_path_to(_lie_pivot)
-	_measure_foot_mesh_clearance()
-	_measure_sole_local_offset()
-
-	for node in _find_all_of_type(self, "MeshInstance3D"):
+func _setup_meshes() -> void:
+	for node: Node in _find_all_of_type(self, "MeshInstance3D"):
 		var mi: MeshInstance3D = node as MeshInstance3D
 		if _player != null and "PLAYER_SELF_LIGHT_LAYER_BIT" in _player:
 			mi.layers = _player.PLAYER_SELF_LIGHT_LAYER_BIT
 		else:
-			## NPCs: tag with the NPC shadow layer so the dynamic-shadow budget
-			## can keep far lamps from re-rendering around them every frame
-			## (GraphicsSettings.NPC_SHADOW_LAYER_BIT). Visibility is unchanged.
+			## NPCs: tag for the dynamic-shadow budget (GraphicsSettings).
 			mi.layers |= GraphicsSettings.NPC_SHADOW_LAYER_BIT
-		## Aug 2026 — the male Adventurer body ships its own separate
-		## "Backpack" mesh piece (the female body has no equivalent node at
-		## all, confirmed directly — this check naturally no-ops for her).
-		## Turned off per explicit request; a simple visibility toggle since
-		## it's a genuinely separate mesh, not baked into the body/clothes.
 		if mi.name.to_lower() == "backpack":
-			mi.visible = false
-		## Aug 2026 — the Adventurer FBX's own baked materials are used
-		## as-is (flat colors, no texture files, confirmed directly
-		## against the source pack). No skin/eye/eyebrow override logic
-		## needed here, unlike the old controller.
+			mi.visible = false   ## the male body's separate backpack piece is off by request
 	_apply_dynamic_shadow()
-	## Dynamic character casting follows the quality setting live.
 	if not GraphicsSettings.settings_changed.is_connected(_apply_dynamic_shadow):
 		GraphicsSettings.settings_changed.connect(_apply_dynamic_shadow)
 
-	if _anim_player != null and skeleton != null:
-		if not _root_motion_track_valid(_anim_player, skeleton):
-			var hips: NodePath = _find_bone_path(_anim_player, skeleton, "Hips")
-			if hips != NodePath():
-				_anim_player.root_motion_track = hips
-		_anim_player.animation_finished.connect(_on_anim_finished)
-		_play_state("idle")
-
-## Sep 2026 — dynamic shadow gate (Layer 2 of the "classic" two-layer split).
-## Lights always cast (Layer 1) so static walls/pillars cut light at every
-## quality; characters are NOT part of Layer 1. The visible animated mesh casts
-## its own full-height silhouette only while Layer 2 is enabled. This is both
-## physically correct and substantially cheaper than the former second,
-## vertically-squashed animated model per player/NPC. Legacy shadow-only scene
-## instances are kept hidden if an old save/mod still provides one.
+## Characters cast only while GraphicsSettings' dynamic (layer 2) shadows are on.
 func _apply_dynamic_shadow() -> void:
 	var layer2: bool = GraphicsSettings.shadow_casting_enabled
-	for node in _find_all_of_type(self, "MeshInstance3D"):
-		var mi := node as MeshInstance3D
-		if mi == null:
-			continue
-		mi.cast_shadow = (
+	for node: Node in _find_all_of_type(self, "MeshInstance3D"):
+		(node as MeshInstance3D).cast_shadow = (
 			GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 			if layer2 and not is_shadow_only
 			else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
 	if is_shadow_only:
 		visible = false
 
+func _read_gait_metadata() -> void:
+	var walk: Animation = _lib.get_animation("walk")
+	var run: Animation = _lib.get_animation("run")
+	_walk_len = walk.length
+	_run_len = run.length
+	_walk_stride = float(walk.get_meta("stride_length", 1.5))
+	_run_stride = float(run.get_meta("stride_length", 2.9))
+	_walk_phase0 = float(walk.get_meta("phase_offset", 0.0))
+	_run_phase0 = float(run.get_meta("phase_offset", 0.0))
+
+func _anim_node(clip: String) -> AnimationNodeAnimation:
+	var node := AnimationNodeAnimation.new()
+	node.animation = StringName(LIB + "/" + clip)
+	return node
+
+func _build_tree() -> void:
+	var bt := AnimationNodeBlendTree.new()
+	bt.add_node("idle", _anim_node("idle"))
+	for gait: String in ["walk", "run"]:
+		bt.add_node(gait, _anim_node(gait))
+		bt.add_node(gait + "_seek", AnimationNodeTimeSeek.new())
+		bt.connect_node(gait + "_seek", 0, gait)
+	bt.add_node("gait", AnimationNodeBlend2.new())
+	bt.connect_node("gait", 0, "walk_seek")
+	bt.connect_node("gait", 1, "run_seek")
+	bt.add_node("loco", AnimationNodeBlend2.new())
+	bt.connect_node("loco", 0, "idle")
+	bt.connect_node("loco", 1, "gait")
+
+	## Carrying: idle_carry's arms (and only its arms) over any gait.
+	bt.add_node("idle_carry", _anim_node("idle_carry"))
+	var carry := AnimationNodeBlend2.new()
+	carry.filter_enabled = true
+	for i: int in _skeleton.get_bone_count():
+		var bone: String = _skeleton.get_bone_name(i)
+		if _is_arm_bone(bone):
+			carry.set_filter_path(NodePath("MaleModel/%GeneralSkeleton:" + bone), true)
+	bt.add_node("carry", carry)
+	bt.connect_node("carry", 0, "loco")
+	bt.connect_node("carry", 1, "idle_carry")
+
+	for slot: String in ["act_a", "act_b"]:
+		bt.add_node(slot, _anim_node("idle"))
+		bt.add_node(slot + "_seek", AnimationNodeTimeSeek.new())
+		bt.connect_node(slot + "_seek", 0, slot)
+	bt.add_node("act", AnimationNodeBlend2.new())
+	bt.connect_node("act", 0, "act_a_seek")
+	bt.connect_node("act", 1, "act_b_seek")
+	bt.add_node("out", AnimationNodeBlend2.new())
+	bt.connect_node("out", 0, "carry")
+	bt.connect_node("out", 1, "act")
+	bt.connect_node("output", 0, "out")
+
+	_tree = AnimationTree.new()
+	_tree.name = "AnimationTree"
+	add_child(_tree)
+	_tree.add_animation_library(LIB, _lib)
+	_tree.root_node = _tree.get_path_to(_visual)
+	## Tracks a clip doesn't key fall back to rest — no pose ever leaks from a
+	## previous clip (the old "stuck hip tilt after standing up" bug).
+	_tree.deterministic = true
+	_tree.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL
+	_tree.tree_root = bt
+	_tree.active = true
+
+static func _is_arm_bone(bone: String) -> bool:
+	for key: String in ["Shoulder", "UpperArm", "LowerArm", "Hand", "Thumb", "Index", "Middle", "Ring", "Little", "Pinky"]:
+		if bone.contains(key):
+			return true
+	return false
+
+# ─── Frame ───────────────────────────────────────────────────────────────────
 func _process(delta: float) -> void:
-	if _player == null:
+	if _tree == null:
 		return
+	_scale = global_transform.basis.get_scale().x
+	if _player != null:
+		_update_stage(delta)
+		_update_locomotion(delta)
+	_update_slots(delta)
+	_apply_tree_params()
+	_tree.advance(delta)
+	_place_visual()
 
-	## Dead — the one-shot dying clip plays once and holds its final frame
-	## (the frozen corpse). Preempts everything: no locomotion, no sit
-	## phases, no speed scaling. Both the visible model and the shadow-only
-	## silhouette play it, so the dead body casts a matching shadow.
+func _update_stage(delta: float) -> void:
 	if _is_dead():
-		## The dying clip's armature tracks (kept in the bake) tip the runtime
-		## `MaleModel` root ~86° about X; MaleModel's origin sits at the floor,
-		## so the body falls from the feet and ends lying on the ground. No
-		## root-position driving needed — the character body stays put (dead
-		## NPCs have collision disabled; the player is locked).
-		_play_state("dying", DEATH_BLEND_TIME)
+		if _stage != Stage.DEAD:
+			_enter_death()
 		return
+	var furniture: Node3D = _parent_furniture()
+	match _stage:
+		Stage.NONE:
+			if furniture != null:
+				_begin_furniture(furniture)
+		Stage.APPROACH:
+			if furniture == null:
+				_finish_sequence()
+			else:
+				_tick_approach(delta)
+		Stage.PIVOT:
+			if furniture == null:
+				_finish_sequence()
+			else:
+				_tick_pivot(delta)
+		Stage.SIT_DOWN:
+			if _slot_done():
+				sit_animation_finished.emit()
+				if furniture == null:
+					_start_stand_up()
+				elif _plan.is_bed:
+					_start_lie_down()
+				else:
+					_start_seated_loop()
+		Stage.SEATED:
+			if furniture == null:
+				_start_stand_up()
+		Stage.LIE_DOWN:
+			if furniture == null:
+				_start_get_up(false)
+			elif _slot_done():
+				_start_sleep_loop()
+		Stage.SLEEP:
+			if furniture == null:
+				_start_get_up(true)
+		Stage.GET_UP:
+			if _slot_done():
+				_start_stand_up()
+		Stage.STAND_UP:
+			if _slot_done():
+				_finish_sequence()
 
-	## Sitting (Aug 2026): the model faces the seat's backrest — 180° from
-	## the character's own facing (which the seat flow points at the chair's
-	## open front). Same for player and NPC, both genders (shared controller).
-	## The offset holds for the WHOLE sit sequence (down/seated/up) so the
-	## transition clips don't snap 180° mid-play.
-	var seated: bool = _parent_seated()
-	var facing_target: float = _player.rotation.y
-	if _sit_phase == "lying_down":
-		## Aug 2026 — bed lie-down turn: rotate side×90° to face AWAY from the
-		## headboard over the FIRST 1/3 of the lying-down clip (the game owns
-		## this rotation — the clip's root tracks are stripped). Driven directly
-		## by clip progress so the turn lands exactly at the 1/3 mark.
-		var len: float = _anim_player.current_animation_length if _anim_player != null else 0.0
-		var frac: float = 1.0
-		if len > 0.0:
-			frac = clampf(_anim_player.current_animation_position / len, 0.0, 1.0)
-		if _anim_player != null:
-			## 2nd-half speed-up: first half 1.0x, then 1.25x to the end. This
-			## also accelerates the game-driven turn/recline/slide (they're all
-			## paced by frac), so everything stays in sync and the end pose is
-			## unchanged — the lie-down just reaches it sooner.
-			_anim_player.speed_scale = 1.0 if frac < 0.5 else LIE_DOWN_2ND_HALF_SPEED
-		if frac >= 1.0:
-			## Backup to _on_anim_finished: the lie-down motion is complete.
-			_lie_down_complete = true
-		var rot_frac: float = clampf(frac / LIE_TURN_END_FRAC, 0.0, 1.0)
-		## Aug 2026 — the side turn goes the SAME direction for both sides (absf):
-		## face-up + head-at-headboard is only achievable at yaw 3PI/2, so both
-		## sides end in the same (face up, head at headboard) pose. The far side's
-		## left-right mirror is applied via the body X-scale in _wire_bed.
-		_visual_yaw = _player.rotation.y + PI + _lie_turn() * rot_frac
-		## Aug 2026 — GAME-DRIVEN recline + slide around the hips pivot (the clip's
-		## root motion pivots at the feet and swings the body in a wide arc; this
-		## reclines it smoothly back onto the bed AND slides it up toward the
-		## headboard). Both follow the sampled pacing curves so they match the
-		## animation instead of a constant linear motion.
-		if _lie_pivot != null:
-			var rec: float = _sample_curve(LIE_RECLINE_CURVE, frac)
-			## Slide waits until the side turn is 80% done (LIE_SLIDE_START_AT),
-			## then runs the same curve compressed into the remaining time.
-			var slide_frac: float = clampf(
-				(frac - LIE_SLIDE_START_AT) / (1.0 - LIE_SLIDE_START_AT), 0.0, 1.0)
-			var sli: float = _sample_curve(LIE_SLIDE_CURVE, slide_frac)
-			## Recline is the same +100° for both sides (both bodies end with the
-			## same yaw, so the recline axis resolves the same way in world space).
-			_lie_pivot.rotation.x = RECLINE_DIR * deg_to_rad(RECLINE_ANGLE) * rec
-			## Slide along local Z toward the headboard (same for both sides —
-			## both have the same yaw, so local +Z is the headboard direction).
-			_lie_pivot.position.z = LIE_TRANSLATE * sli
-			## Roll from the entry-side edge to the bed's center line. Side-aware:
-			## with the same yaw, local +X maps to the same world direction, so the
-			## roll to center must flip per side.
-			_lie_pivot.position.x = -signf(_lie_rot_angle) * CENTER_SHIFT * sli
-	elif _sit_phase == "sleeping" and seated:
-		## Aug 2026 — the sleeping loop HOLD the exact final lie-down pose: the
-		## 90° turn done, full recline, full slide up the bed, rolled to center.
-		## The game keeps driving these even though the sleeping clip only
-		## articulates the upper body (legs are frozen in the hybrid).
-		if _anim_player != null:
-			_anim_player.speed_scale = 1.0
-		_visual_yaw = _player.rotation.y + PI + _lie_turn()
-		if _lie_pivot != null:
-			_lie_pivot.rotation.x = RECLINE_DIR * deg_to_rad(RECLINE_ANGLE)
-			_lie_pivot.position.z = LIE_TRANSLATE
-			_lie_pivot.position.x = -signf(_lie_rot_angle) * CENTER_SHIFT
-	elif _sit_phase == "sleeping":
-		## Aug 2026 — WAKE FRAME: sleeping_bed just cleared this frame. TELEPORT
-		## now — face the side the player is getting up on (the standing-up
-		## facing, the same direction they entered from) and reset the LiePivot
-		## upright immediately, so there's no one-frame glimpse of the rotated
-		## lie-down direction.
-		if _anim_player != null:
-			_anim_player.speed_scale = 1.0
-		_visual_yaw = _player.rotation.y + PI
-		if _lie_pivot != null:
-			_lie_pivot.rotation = Vector3.ZERO
-			_lie_pivot.position = Vector3(0.0, LIE_PIVOT_HEIGHT, 0.0)
-	else:
-		if _anim_player != null:
-			_anim_player.speed_scale = 1.0
-		if _lie_pivot != null:
-			_lie_pivot.rotation = Vector3.ZERO
-			_lie_pivot.position = Vector3(0.0, LIE_PIVOT_HEIGHT, 0.0)
-		if seated or _sit_phase != "":
-			facing_target += PI
-		_visual_yaw = lerp_angle(_visual_yaw, facing_target, clampf(turn_speed * delta, 0.0, 1.0))
-	rotation.y = _visual_yaw - _player.rotation.y
+# ─── Locomotion ──────────────────────────────────────────────────────────────
+func _update_locomotion(delta: float) -> void:
+	var speed: float = _speed
+	if _stage != Stage.APPROACH and _stage != Stage.PIVOT:
+		## get_real_velocity(): what move_and_slide ACHIEVED — a blocked
+		## character never "ghost-walks" in place.
+		var v: Vector3 = _player.get_real_velocity()
+		var measured: float = Vector2(v.x, v.z).length() if _stage == Stage.NONE else 0.0
+		speed = lerpf(_speed, measured, clampf(SPEED_SMOOTH_RATE * delta, 0.0, 1.0))
+		if _stage == Stage.NONE:
+			_visual_yaw = lerp_angle(_visual_yaw, _player.rotation.y, clampf(turn_speed * delta, 0.0, 1.0))
+	_speed = speed
 
-	if _anim_player == null:
-		return
+	## Leg speed = ground speed + the feet's turning arc (turn-on-the-spot steps).
+	var leg_speed: float = speed
+	if _stage == Stage.NONE:
+		leg_speed += absf(_yaw_rate) * TURN_STEP_RADIUS
+	var walk_speed: float = _walk_stride * _scale / _walk_len
+	var run_speed: float = _run_stride * _scale / _run_len
+	var run_target: float = clampf((speed - walk_speed) / maxf(run_speed - walk_speed, 0.01), 0.0, 1.0)
+	_run_w = lerpf(_run_w, run_target, clampf(GAIT_BLEND_RATE * delta, 0.0, 1.0))
+	var move_target: float = smoothstep(MOVE_START_SPEED, MOVE_FULL_SPEED, leg_speed)
+	_move_w = lerpf(_move_w, move_target, clampf(MOVE_BLEND_RATE * delta, 0.0, 1.0))
+	var carry_target: float = 1.0 if _is_holding_item() and _stage == Stage.NONE else 0.0
+	_carry_w = lerpf(_carry_w, carry_target, clampf(CARRY_BLEND_RATE * delta, 0.0, 1.0))
+	## Distance-driven phase: one cycle per blended stride length.
+	var stride: float = lerpf(_walk_stride, _run_stride, _run_w) * _scale
+	if stride > 0.0:
+		_phase = fposmod(_phase + leg_speed * delta / stride, 1.0)
+	_update_procedural_pose(speed, delta)
 
-	## Sit sequence overrides locomotion entirely while it's active. The
-	## is_shadow_only guard remains for compatibility scenes; current scenes
-	## contain only the real model.
-	if seated:
-		if _sit_phase == "":
-			_sit_phase = "sitting_down"
-			_play_state("stand_to_sit")
-		elif _sit_phase == "sitting_down":
-			if not is_shadow_only:
-				_lerp_sit_position(_chair_approach_pos, _chair_seat_pos, SIT_DOWN_CURVE, true)
-		elif _sit_phase == "seated":
-			_play_state("sit")   ## looped anchor, idempotent once current
-		elif _sit_phase == "lying_down":
-			pass   ## the clip plays itself; the 90° turn is handled in the facing section above
-		elif _sit_phase == "sleeping":
-			_play_state("sleeping")   ## looped anchor, idempotent once current
+## Feeds AdventurerProceduralPose: lean into turns / acceleration while moving
+## freely, pillow head support while asleep.
+func _update_procedural_pose(speed: float, delta: float) -> void:
+	if delta <= 0.0:
 		return
-	## Not seated, but mid sit-sequence — play the stand-up and wait.
-	if _sit_phase == "sleeping":
-		## Aug 2026 — wake from sleep TELEPORTS straight into the sit_to_stand
-		## start: the LiePivot resets upright and sit_to_stand plays with a ZERO
-		## blend so the bones snap to the seated start pose in the same frame —
-		## no visible swing, the player is just sitting up.
-		_sit_phase = "standing_up"
-		if _lie_pivot != null:
-			_lie_pivot.rotation = Vector3.ZERO
-			_lie_pivot.position = Vector3(0.0, LIE_PIVOT_HEIGHT, 0.0)
-		_play_state("sit_to_stand", 0.0)
-		return
-	if _sit_phase == "sitting_down" or _sit_phase == "seated" \
-			or _sit_phase == "lying_down":
-		_sit_phase = "standing_up"
-		_play_state("sit_to_stand")
-		return
-	if _sit_phase == "standing_up":
-		if not is_shadow_only:
-			_lerp_sit_position(_chair_seat_pos, _chair_approach_pos, STAND_UP_CURVE, false)
-		return   ## waiting for sit_to_stand to finish → back to locomotion
+	var k: float = clampf(LEAN_SMOOTH_RATE * delta, 0.0, 1.0)
+	_yaw_rate = lerpf(_yaw_rate, wrapf(_visual_yaw - _prev_yaw, -PI, PI) / delta, k)
+	_accel = lerpf(_accel, (speed - _prev_speed) / delta, k)
+	_prev_yaw = _visual_yaw
+	_prev_speed = speed
+	var free: bool = _stage == Stage.NONE
+	var roll: float = clampf(_yaw_rate * speed * LEAN_ROLL_GAIN, -LEAN_ROLL_MAX, LEAN_ROLL_MAX) if free else 0.0
+	var pitch: float = clampf(_accel * LEAN_PITCH_GAIN, -LEAN_PITCH_MAX, LEAN_PITCH_MAX) * _move_w if free else 0.0
+	_pose_mod.lean_roll = lerpf(_pose_mod.lean_roll, roll, k)
+	_pose_mod.lean_pitch = lerpf(_pose_mod.lean_pitch, pitch, k)
+	var support: float = 1.0 if _stage == Stage.SLEEP else 0.0
+	_pose_mod.head_support = move_toward(_pose_mod.head_support, support,
+		delta * (HEAD_SUPPORT_RATE if support > 0.0 else HEAD_SUPPORT_RATE * 2.0))
 
-	## Aug 2026 fix — was Vector2(_player.velocity.x, _player.velocity.z),
-	## the REQUESTED velocity (set by nav-avoidance's lerp toward its "safe"
-	## velocity, before move_and_slide() resolves it against real
-	## collisions). A blocked/wedged character could keep this comfortably
-	## above the walk threshold indefinitely while barely moving at all —
-	## the literal mechanical cause of a visible "ghost walk" (animation
-	## still playing walk/run while real displacement is ~zero). Same fix
-	## NPC.gd's own _handle_physics_pushes() already uses this exact
-	## distinction for (`velocity - get_real_velocity()`) — get_real_velocity()
-	## reflects what move_and_slide() ACTUALLY achieved this physics step,
-	## collisions included, so the animation now always matches what's
-	## really happening on screen instead of what was merely requested.
-	var real_vel: Vector3 = _player.get_real_velocity()
-	var speed: float = Vector2(real_vel.x, real_vel.z).length()
-	var next_state: String = "idle"
-	if speed > 0.1:
-		var sprint_speed: float = 7.5
-		if "sprint_speed" in _player:
-			sprint_speed = _player.sprint_speed
-		next_state = "run" if speed >= sprint_speed * RUN_SPEED_FRACTION else "walk"
-	if _is_holding_item():
-		next_state += "_carry"
-	_play_state(next_state)
-	_apply_locomotion_speed_scale(speed, next_state, delta)
-
-## Per-character playback-rate scaling (Sep 2026): the walk/run clips play at
-## speed_scale = actual_speed / the character's OWN nominal speed for that band
-## (move_speed for walk, sprint_speed for run), clamped and lerped for smooth
-## transitions. Idle always resets to 1.0. Duck-typed like the rest of the
-## controller so it works for both Player and NPC (NPC exposes move_speed but
-## no sprint_speed — it never reaches the run band, so walk normalization is
-## all that matters there). The "_carry" suffix is stripped before matching,
-## so carry clips scale exactly like their non-carry siblings.
-func _apply_locomotion_speed_scale(speed: float, state: String, delta: float) -> void:
-	if _anim_player == null:
-		return
-	if not state.begins_with("walk") and not state.begins_with("run"):
-		_anim_player.speed_scale = 1.0
-		return
-	var is_run: bool = state.begins_with("run")
-	var nominal: float = 7.5 if is_run else 4.0
-	if is_run and "sprint_speed" in _player:
-		nominal = _player.sprint_speed
-	elif not is_run and "move_speed" in _player:
-		nominal = _player.move_speed
-	var target: float = clampf(
-		speed / nominal if nominal > 0.0 else 1.0,
-		LOCOMOTION_SPEED_SCALE_MIN, LOCOMOTION_SPEED_SCALE_MAX)
-	_anim_player.speed_scale = lerpf(_anim_player.speed_scale, target,
-		clampf(LOCOMOTION_SPEED_SCALE_LERP * delta, 0.0, 1.0))
-
-## True while the owning character is seated in a chair. Player exposes
-## `seated_chair`; NPC.gd mirrors it (set by SitActivity/RelaxSitActivity).
-## Aug 2026 — ALSO true while the player is sitting on a bed (sleeping_bed set,
-## the animated sit-down sleep sequence), so the shared sit phase machine
-## drives the stand_to_sit / sit / sit_to_stand clips onto the bed the same way
-## it does onto a chair. The bed's mattress top = the chair seat height, so the
-## Y math is reused unchanged.
-func _parent_seated() -> bool:
+# ─── Furniture planning ──────────────────────────────────────────────────────
+func _parent_furniture() -> Node3D:
 	if _player == null:
-		return false
-	if "seated_chair" in _player:
-		if _player.seated_chair != null:
-			return true
-	if "sleeping_bed" in _player:
-		if _player.sleeping_bed != null:
-			return true
-	return false
+		return null
+	if "seated_chair" in _player and _player.seated_chair != null and is_instance_valid(_player.seated_chair):
+		return _player.seated_chair
+	if "sleeping_bed" in _player and _player.sleeping_bed != null and is_instance_valid(_player.sleeping_bed):
+		return _player.sleeping_bed
+	return null
 
-## True when the sit sequence is happening on a BED (sleeping_bed set) rather
-## than a chair — the bed skips the seated hold and goes straight to the
-## lying-down clip after stand_to_sit.
-func _on_bed() -> bool:
-	if _player != null and "sleeping_bed" in _player:
-		return _player.sleeping_bed != null
-	return false
+func _begin_furniture(furniture: Node3D) -> void:
+	var is_bed: bool = "sleeping_bed" in _player and _player.sleeping_bed == furniture
+	_plan = _plan_bed(furniture) if is_bed else _plan_chair(furniture)
+	_stand_end_known = true
+	_stage = Stage.APPROACH
 
-## True while the sit sequence is mid-flight (sitting down, seated, or
-## standing up). NPCs use this to freeze their own gravity/move_and_slide so
-## the controller's eased position isn't fought by physics — mirrors the
-## player's set_physics_process(false) during a sit (Aug 2026 NPC port).
-func is_sit_sequence_active() -> bool:
-	return _sit_phase != ""
+func _plan_chair(chair: Node3D) -> FurniturePlan:
+	var p := FurniturePlan.new()
+	var seat: Transform3D = chair.get_seat_transform() if chair.has_method("get_seat_transform") \
+		else chair.global_transform
+	p.seat_yaw = _yaw_of(seat.basis.z)
+	p.seat_hips = seat.origin - seat.basis.z.normalized() * SEAT_HIPS_BACK \
+		+ Vector3.UP * SEAT_HIPS_CLEARANCE
+	_plan_sit_and_stand(p)
+	return p
 
-## Aug 2026 — the model's current ABSOLUTE facing (visual yaw). MainWorld reads
-## this when the stand-up finishes so the PLAYER ends up facing whatever
-## direction the standing animation ended facing, instead of being reset to the
-## pre-sit/pre-sleep facing.
-func get_visual_yaw() -> float:
-	return _visual_yaw
+func _plan_bed(bed: Node3D) -> FurniturePlan:
+	var p := FurniturePlan.new()
+	p.is_bed = true
+	var bt: Transform3D = bed.global_transform
+	var local_char: Vector3 = bt.affine_inverse() * _last_visual_world.origin
+	var side: float = 1.0 if local_char.z >= 0.0 else -1.0
+	var surface_y: float = float(bed.get("SHEETS_SURFACE_Y")) if "SHEETS_SURFACE_Y" in bed else 0.4971
+	var out_dir: Vector3 = (bt.basis.z * side).normalized()
+	p.seat_yaw = _yaw_of(out_dir)
+	p.head_dir = -bt.basis.x.normalized()
+	var head_to_hips: float = _lying_head_to_hips()
+	p.lie_hips = bt * Vector3(BED_HEAD_X, surface_y, 0.0) - p.head_dir * head_to_hips \
+		+ Vector3.UP * LIE_HIPS_CLEARANCE
+	## Choose where along the edge to sit so the clip's own backward travel
+	## lands the head on the pillow with (almost) no along-bed warping.
+	var seat_x: float = 0.4
+	for _i: int in 2:
+		p.seat_hips = bt * Vector3(seat_x, surface_y, side * BED_EDGE_HIPS_Z) + Vector3.UP * SEAT_HIPS_CLEARANCE
+		var lie: ActionSlot = _make_lie_slot(p)
+		var along: float = lie.dp.dot(-p.head_dir)
+		seat_x = clampf(seat_x + along / bt.basis.x.length(), BED_SEAT_X_RANGE.x, BED_SEAT_X_RANGE.y)
+	p.seat_hips = bt * Vector3(seat_x, surface_y, side * BED_EDGE_HIPS_Z) + Vector3.UP * SEAT_HIPS_CLEARANCE
+	_plan_sit_and_stand(p)
+	return p
 
-## Aug 2026 — the position the standing animation LEAVES the player at: the end
-## of the seat→approach ease (_chair_approach_pos). MainWorld snaps the player
-## here when the stand-up finishes instead of a separate fixed stand point, so
-## there is NO visible teleport — the player is exactly where the animation
-## placed them (rotation-aware: the approach is derived from the furniture's own
-## transform).
-func get_stand_end_position() -> Vector3:
-	return _chair_approach_pos
+## Approach spot (where stand_to_sit must start to land its hips on the seat
+## naturally) and the natural stand-up landing spot.
+func _plan_sit_and_stand(p: FurniturePlan) -> void:
+	var sit: Animation = _lib.get_animation("stand_to_sit")
+	var sit_end_yaw: float = p.seat_yaw - _clip_yaw(sit, sit.length)
+	var w_sit: Transform3D = _placement(sit_end_yaw, _meta_at(sit, "hips", sit.length), p.seat_hips)
+	var feet0: Vector3 = w_sit * _meta_at(sit, "feet", 0.0)
+	p.approach_pos = Vector3(feet0.x, _floor_y(), feet0.z)
+	p.approach_yaw = sit_end_yaw + _clip_yaw(sit, 0.0)
+	var stand: Animation = _lib.get_animation("sit_to_stand")
+	var stand_yaw: float = p.seat_yaw - _clip_yaw(stand, 0.0)
+	var w_stand: Transform3D = _placement(stand_yaw, _meta_at(stand, "hips", 0.0), p.seat_hips)
+	var feet_end: Vector3 = w_stand * _meta_at(stand, "feet", stand.length)
+	p.stand_end_pos = Vector3(feet_end.x, _floor_y(), feet_end.z)
+	p.stand_end_yaw = stand_yaw + _clip_yaw(stand, stand.length)
 
-## Aug 2026 — input is LOCKED (every button swallowed by the input handlers)
-## while a sit/lie animation is mid-play, so it can't be interrupted or shifted
-## by a keypress. sitting_down and standing_up are always locked; the bed's
-## lying_down is locked until its clip completes its first pass (turn + recline
-## + slide done). The chair's stable "seated" hold is NOT locked — E stands up
-## from there, then standing_up locks again until it finishes.
-func is_animation_locked() -> bool:
-	if _sit_phase == "sitting_down" or _sit_phase == "standing_up":
-		return true
-	if _sit_phase == "lying_down":
-		return not _lie_down_complete
-	return false
+func _lying_head_to_hips() -> float:
+	var lie: Animation = _lib.get_animation("lie_down")
+	var d: Vector3 = _meta_at(lie, "head", lie.length) - _meta_at(lie, "hips", lie.length)
+	return Vector2(d.x, d.z).length() * _scale
 
-## Advances the sit lifecycle when a one-shot sit clip finishes.
-func _on_anim_finished(_anim_name: StringName) -> void:
-	if _sit_phase == "sitting_down":
-		if _on_bed():
-			## Aug 2026 — bed sleep sequence skips the seated hold entirely:
-			## stand_to_sit -> lying_down directly. The 90° side turn to face
-			## away from the headboard plays during the first 1/3 of the clip
-			## (see the facing section in _process).
-			_sit_phase = "lying_down"
-			_lie_down_complete = false
-			_play_state("lying_down")
-		else:
-			_sit_phase = "seated"
-			_play_state("sit")
-	elif _sit_phase == "lying_down":
-		## The lie-down clip finished its first pass — the turn, recline and
-		## slide are all complete. Transition to the looping sleeping state
-		## (legs frozen at this final pose, upper body breathes). The longer
-		## crossfade lets the arms/head settle into the sleep pose.
-		_lie_down_complete = true
-		_sit_phase = "sleeping"
-		_play_state("sleeping", SLEEP_BLEND_TIME)
-	elif _sit_phase == "standing_up":
-		_sit_phase = ""
-		_lie_down_complete = false
+# ─── Stage transitions ───────────────────────────────────────────────────────
+func _tick_approach(delta: float) -> void:
+	var here: Vector3 = _player.global_position
+	var to: Vector3 = Vector3(_plan.approach_pos.x - here.x, 0.0, _plan.approach_pos.z - here.z)
+	var dist: float = to.length()
+	if dist <= APPROACH_ARRIVE:
+		_speed = 0.0
+		_stage = Stage.PIVOT
+		return
+	## Ease in/out so the few short steps don't start or stop abruptly.
+	_speed = lerpf(_speed, minf(APPROACH_SPEED, dist * 4.0), clampf(8.0 * delta, 0.0, 1.0))
+	var step: float = minf(dist, maxf(_speed, 0.1) * delta)
+	_player.global_position += to / dist * step
+	if dist > 0.12:
+		_visual_yaw = lerp_angle(_visual_yaw, _yaw_of(to), clampf(10.0 * delta, 0.0, 1.0))
+
+func _tick_pivot(delta: float) -> void:
+	var diff: float = wrapf(_plan.approach_yaw - _visual_yaw, -PI, PI)
+	var step: float = clampf(diff, -PIVOT_RATE * delta, PIVOT_RATE * delta)
+	_visual_yaw += step
+	## Small shuffle steps while turning on the spot (feet travel ≈ turn arc).
+	_speed = lerpf(_speed, absf(step) / maxf(delta, 0.0001) * 0.18, clampf(10.0 * delta, 0.0, 1.0))
+	if absf(diff) < 0.02:
+		_speed = 0.0
+		_start_sit_down()
+
+func _start_sit_down() -> void:
+	_stage = Stage.SIT_DOWN
+	var slot: ActionSlot = _push_slot(&"stand_to_sit", SIT_RATE, false, XF_ENTER_ACTION)
+	var anim: Animation = _lib.get_animation("stand_to_sit")
+	slot.base = _placement(_visual_yaw - _clip_yaw(anim, 0.0), _meta_at(anim, "feet", 0.0),
+		Vector3(_player.global_position.x, _floor_y(), _player.global_position.z))
+	_solve_warp(slot, _plan.seat_yaw, "hips", _plan.seat_hips)
+	_act_target = 1.0
+	_xfade_act = XF_ENTER_ACTION
+
+func _start_seated_loop() -> void:
+	_stage = Stage.SEATED
+	var slot: ActionSlot = _push_slot(&"sit", 1.0, true, XF_SEAT_LOOP)
+	var anim: Animation = _lib.get_animation("sit")
+	slot.base = _placement(_plan.seat_yaw - _clip_yaw(anim, 0.0), _meta_at(anim, "hips", 0.0), _plan.seat_hips)
+
+func _start_lie_down() -> void:
+	_stage = Stage.LIE_DOWN
+	var slot: ActionSlot = _push_slot(&"lie_down", LIE_RATE, false, XF_TO_LIE)
+	var built: ActionSlot = _make_lie_slot(_plan)
+	slot.base = built.base
+	slot.dpsi = built.dpsi
+	slot.dp = built.dp
+	slot.yaw_by_feet = true
+	_lie_slot_backup = built
+
+## Lie-down placement: starts with the hips on the bed edge facing out, ends
+## on the bed's centre line with the head on the pillow. The yaw correction
+## (≈90°, the clip itself lies straight back) happens while the legs are
+## lifting, pivoting about the hips — the way people swing their legs up.
+func _make_lie_slot(p: FurniturePlan) -> ActionSlot:
+	var anim: Animation = _lib.get_animation("lie_down")
+	var s := ActionSlot.new()
+	s.clip = &"lie_down"
+	s.length = anim.length
+	s.yaw_by_feet = true
+	s.base = _placement(p.seat_yaw - _clip_yaw(anim, 0.0), _meta_at(anim, "hips", 0.0), p.seat_hips)
+	var head: Vector3 = s.base.basis * (_meta_at(anim, "head", anim.length) - _meta_at(anim, "hips", anim.length))
+	s.dpsi = _signed_yaw(Vector3(head.x, 0.0, head.z), p.head_dir)
+	var hips_end: Vector3 = s.base * _meta_at(anim, "hips", anim.length)
+	s.dp = p.lie_hips - hips_end   ## rotation about the hips leaves them in place
+	return s
+
+func _start_sleep_loop() -> void:
+	_stage = Stage.SLEEP
+	var lie: Animation = _lib.get_animation("lie_down")
+	var sleep: Animation = _lib.get_animation("sleep")
+	var lie_slot: ActionSlot = _slots[_active_slot]
+	var lie_end: Transform3D = _warp_world(lie_slot, lie.length)
+	## Align the sleep loop's body to where the lie-down ended: same hips,
+	## same feet→head direction.
+	var lie_axis: Vector3 = lie_end.basis * (_meta_at(lie, "head", lie.length) - _meta_at(lie, "hips", lie.length))
+	var sleep_axis: Vector3 = _meta_at(sleep, "head", 0.0) - _meta_at(sleep, "hips", 0.0)
+	var yaw: float = _yaw_of(lie_axis) - _yaw_of(sleep_axis)
+	var hips_world: Vector3 = lie_end * _meta_at(lie, "hips", lie.length)
+	var slot: ActionSlot = _push_slot(&"sleep", 1.0, true, XF_TO_SLEEP)
+	slot.base = _placement(yaw, _meta_at(sleep, "hips", 0.0), hips_world)
+
+func _start_get_up(from_sleep: bool) -> void:
+	_stage = Stage.GET_UP
+	## The lie-down played backwards: sit up, swing the legs back down. Uses
+	## the identical placement so it retraces the same path.
+	var t_now: float = _slots[_active_slot].time if not from_sleep else _lib.get_animation("lie_down").length
+	var slot: ActionSlot = _push_slot(&"lie_down", -GET_UP_RATE, false, XF_WAKE if from_sleep else XF_STAND)
+	var src: ActionSlot = _lie_slot_backup if _lie_slot_backup != null else _make_lie_slot(_plan)
+	slot.base = src.base
+	slot.dpsi = src.dpsi
+	slot.dp = src.dp
+	slot.yaw_by_feet = true
+	slot.time = t_now
+
+func _start_stand_up() -> void:
+	_stage = Stage.STAND_UP
+	var slot: ActionSlot = _push_slot(&"sit_to_stand", STAND_RATE, false, XF_STAND)
+	var anim: Animation = _lib.get_animation("sit_to_stand")
+	slot.base = _placement(_plan.seat_yaw - _clip_yaw(anim, 0.0), _meta_at(anim, "hips", 0.0), _plan.seat_hips)
+
+func _finish_sequence() -> void:
+	var was_active: bool = _stage != Stage.NONE
+	if _stage == Stage.STAND_UP:
+		## Hand the body back to the capsule exactly where the clip left it.
+		var s: ActionSlot = _slots[_active_slot]
+		var end_world: Transform3D = _warp_world(s, s.length)
+		var anim: Animation = _lib.get_animation("sit_to_stand")
+		var feet: Vector3 = end_world * _meta_at(anim, "feet", anim.length)
+		_plan.stand_end_pos = Vector3(feet.x, _floor_y(), feet.z)
+		_visual_yaw = _yaw_of(end_world.basis * _meta_at(anim, "hips_forward", anim.length))
+		_plan.stand_end_yaw = _visual_yaw
+	elif _plan != null:
+		## Cancelled before sitting: stay where the approach walk got to.
+		_plan.stand_end_pos = Vector3(_player.global_position.x, _floor_y(), _player.global_position.z)
+		_plan.stand_end_yaw = _visual_yaw
+	if _plan != null:
+		## The controller owns the whole sequence, so it also returns the
+		## capsule to where the body is standing (no pop for player or NPC).
+		_player.global_position.x = _plan.stand_end_pos.x
+		_player.global_position.z = _plan.stand_end_pos.z
+		_player.rotation.y = _plan.stand_end_yaw
+		_visual_yaw = _plan.stand_end_yaw
+	_stage = Stage.NONE
+	_act_target = 0.0
+	_xfade_act = XF_EXIT
+	_speed = 0.0
+	_lie_slot_backup = null
+	if was_active:
 		stand_animation_finished.emit()
 
-## Aug 2026 — smoothly interpolates the player's horizontal (X/Z)
-## position between the chair's approach spot (near the front edge) and
-## its seat center. Vertical motion is untouched here; that's already
-## handled entirely by the animation's own baked Hip motion (see the Aug
-## 2026 root-offset fix in docs/systems/player-model/README.md).
-##
-## Aug 2026 (2nd pass) — the horizontal slide's PACE now follows one of
-## the two curves below instead of raw animation time. Sampled directly
-## from each clip's own baked Hip motion in Blender (21 evenly-spaced
-## points across the clip, standing/seated height mapped to 0/1): the
-## real sit-down/stand-up motion is NOT linear over time — e.g.
-## stand_to_sit stays essentially upright for the first ~10% of the clip,
-## does almost the entire vertical drop across the next ~55%, then holds
-## at seated height for the remaining ~35% (sit_to_stand is similarly
-## non-linear, just shaped differently — it isn't a mirror of the other).
-## Driving the horizontal slide by raw time put it badly out of sync with
-## the actual vertical motion: the body kept sliding sideways while still
-## standing tall, then dropped late, reading as "hovering" over the chair
-## rather than settling into it. Sampling these curves instead keeps the
-## horizontal slide's pace locked to however fast the body is actually
-## lowering/rising at each moment, so both motions read as one connected
-## movement instead of two independent ones.
-const SIT_DOWN_CURVE: PackedFloat32Array = [
-	0.0, 0.0014, 0.0055, 0.0324, 0.0658, 0.1023, 0.1660, 0.2703, 0.4118,
-	0.5398, 0.6790, 0.8071, 0.9037, 0.9782, 0.9967, 0.9996, 1.0, 1.0, 1.0, 1.0, 1.0,
-]
-const STAND_UP_CURVE: PackedFloat32Array = [
-	0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0069, 0.0643, 0.1632, 0.2603, 0.3574,
-	0.4398, 0.5505, 0.6667, 0.7474, 0.8217, 0.8633, 0.9039, 0.9410, 0.9692, 1.0,
-]
+func _enter_death() -> void:
+	_stage = Stage.DEAD
+	var slot: ActionSlot = _push_slot(&"dying", 1.0, false, XF_DEATH)
+	var anim: Animation = _lib.get_animation("dying")
+	var feet: Vector3 = _last_visual_world.origin
+	slot.base = _placement(_visual_yaw - _clip_yaw(anim, 0.0), _meta_at(anim, "feet", 0.0),
+		Vector3(feet.x, _floor_y(), feet.z))
+	_act_target = 1.0
+	_xfade_act = XF_DEATH
 
-## Piecewise-linear lookup into one of the curves above — maps a raw
-## 0..1 time fraction to the corresponding motion fraction.
-static func _sample_curve(curve: PackedFloat32Array, t: float) -> float:
-	var n: int = curve.size() - 1
-	var scaled: float = clampf(t, 0.0, 1.0) * n
-	var i: int = clampi(int(scaled), 0, n - 1)
-	var frac: float = scaled - i
-	return lerpf(curve[i], curve[i + 1], frac)
+# ─── Slots ───────────────────────────────────────────────────────────────────
+func _push_slot(clip: StringName, rate: float, looping: bool, xfade: float) -> ActionSlot:
+	var first: bool = _act_w <= 0.001 and _act_target <= 0.0
+	if not first:
+		_active_slot = 1 - _active_slot
+	var slot := ActionSlot.new()
+	slot.clip = clip
+	slot.rate = rate
+	slot.looping = looping
+	slot.length = _lib.get_animation(String(clip)).length
+	slot.time = 0.0 if rate >= 0.0 else slot.length
+	_slots[_active_slot] = slot
+	var node: AnimationNodeAnimation = (_tree.tree_root as AnimationNodeBlendTree).get_node(
+		"act_a" if _active_slot == 0 else "act_b")
+	node.animation = StringName(LIB + "/" + String(clip))
+	_ab_target = float(_active_slot)
+	if first:
+		_ab_w = _ab_target   ## nothing to fade from inside the action layer
+	_xfade_ab = xfade
+	return slot
 
-func _lerp_sit_position(from_xz: Vector3, to_xz: Vector3, curve: PackedFloat32Array, is_sitting_down: bool) -> void:
-	if _player == null or _anim_player == null:
-		return
-	var length: float = _anim_player.current_animation_length
-	if length <= 0.0:
-		return
-	var raw_t: float = clampf(_anim_player.current_animation_position / length, 0.0, 1.0)
-	var t: float = _sample_curve(curve, raw_t)
-	_player.global_position.x = lerpf(from_xz.x, to_xz.x, t)
-	_player.global_position.z = lerpf(from_xz.z, to_xz.z, t)
-	## Vertical lowering to the GLB's visual seat top, ending with the hips
-	## just above the wood (SEAT_CLEARANCE cushion). Paced by the same curve
-	## as the X/Z slide so the descent reads as one motion (Aug 2026). Both
-	## genders use the shared smooth curve — the female rig's OWN authored
-	## descent is back-loaded (knees fold at ~5% but the body only starts
-	## dropping at ~20%, then rushes to full height), which is exactly the
-	## "knees bend before the hips move down" look; the male already masks it
-	## with this game-driven curve, and the female fold profile matches the
-	## male's, so it drives hers smoothly too.
-	var hip_offset: float = HIP_OFFSET_FROM_ROOT.get(_gender, 0.0)
-	## Seated landing point (Aug 2026): the fully-lowered seat target read as
-	## sitting BELOW the chair, while the no-Y (standing) height read as
-	## hovering ABOVE it — so the landing is tuned to the MIDPOINT between
-	## them (the seat-lowered height and the standing approach height).
-	var seated_low_y: float = Chair.SEAT_SURFACE_Y + Chair.SEAT_CLEARANCE - hip_offset
-	var target_seated_y: float = (seated_low_y + _chair_approach_pos.y) * 0.5
-	if is_sitting_down:
-		_player.global_position.y = lerpf(_chair_approach_pos.y, target_seated_y, t)
-	else:
-		_player.global_position.y = lerpf(target_seated_y, _chair_approach_pos.y, t)
-	## Foot-clearance clamp (Aug 2026) — keeps the feet planted on the ground
-	## through the stand_to_sit / sit_to_stand transitions. The root descent
-	## previously outpaced the legs' gradual fold, so the feet clipped mid-way.
-	## This ties the descent to the ACTUAL leg fold (the body only lowers as
-	## the feet rise). At the fully-folded seated pose the feet clear the
-	## ground, so the clamp is inactive and the seated reference is reached
-	## exactly — the seated loop stays untouched.
-	_clamp_feet_to_ground()
+func _slot_done() -> bool:
+	var s: ActionSlot = _slots[_active_slot]
+	return (s.rate >= 0.0 and s.time >= s.length) or (s.rate < 0.0 and s.time <= 0.0)
 
-## Foot-clearance clamp implementation — see the call site above.
+func _update_slots(delta: float) -> void:
+	for s: ActionSlot in _slots:
+		if s.clip == &"":
+			continue
+		s.time += s.rate * delta
+		s.time = fposmod(s.time, s.length) if s.looping else clampf(s.time, 0.0, s.length)
+		s.world = _warp_world(s, s.time) if not s.looping else s.base
+	_ab_w = move_toward(_ab_w, _ab_target, delta / maxf(_xfade_ab, 0.001))
+	_act_w = move_toward(_act_w, _act_target, delta / maxf(_xfade_act, 0.001))
 
-func _foot_indices() -> Array[int]:
-	if _foot_bone_indices.is_empty() and _skeleton != null:
-		for i in _skeleton.get_bone_count():
-			var bn: String = _skeleton.get_bone_name(i)
-			if bn.contains("Foot") or bn.contains("Toe"):
-				_foot_bone_indices.append(i)
-	return _foot_bone_indices
+## Warped world placement of a slot's clip at time t:
+##   W(t) = T(dp·s(t)) · RotateAbout(hips(t), dpsi·y(t)) · base
+## s = normalised hip travel along the clip; y = the same, or (lie-down) the
+## normalised rise of the feet. Both are read from the bake's measurements, so
+## corrections happen only while the body is genuinely moving.
+func _warp_world(s: ActionSlot, t: float) -> Transform3D:
+	if s.clip == &"" or (s.dpsi == 0.0 and s.dp == Vector3.ZERO):
+		return s.base
+	var anim: Animation = _lib.get_animation(String(s.clip))
+	var sp: float = _progress(anim, "hips", t)
+	var yp: float = _feet_lift_progress(anim, t) if s.yaw_by_feet else sp
+	var pivot: Vector3 = s.base * _meta_at(anim, "hips", t)
+	var rot := Transform3D(Basis(Vector3.UP, s.dpsi * yp), Vector3.ZERO)
+	var about: Transform3D = Transform3D(Basis.IDENTITY, pivot) * rot * Transform3D(Basis.IDENTITY, -pivot)
+	return Transform3D(Basis.IDENTITY, s.dp * sp) * about * s.base
 
-## P2 (Aug 2026) — measures the constant gap between the lowest Foot/Toe bone
-## and the lowest VISIBLE mesh point, at the rest (standing) pose. The clamp
-## then holds the bones at GROUND_Y + this gap so the real soles land exactly
-## on the floor. Skinned meshes don't have a static low point (bones deform
-## them), but the foot mesh rides its bones rigidly, so this rest-pose gap is
-## the correct constant to use through the whole fold.
-func _measure_foot_mesh_clearance() -> void:
-	if _skeleton == null:
-		return
-	var bone_low: float = INF
-	for i: int in _foot_indices():
-		bone_low = minf(bone_low, _skeleton.to_global(_skeleton.get_bone_global_pose(i).origin).y)
-	var mesh_low: float = INF
-	for mi in _find_all_of_type(self, "MeshInstance3D"):
-		var aabb: AABB = (mi as MeshInstance3D).get_aabb()
-		for corner in _aabb_corners(aabb):
-			var w: Vector3 = (mi as MeshInstance3D).to_global(corner)
-			mesh_low = minf(mesh_low, w.y)
-	if bone_low != INF and mesh_low != INF and mesh_low < bone_low:
-		_foot_mesh_clearance = bone_low - mesh_low
+## Solves a slot's end corrections: yaw so the clip's end facing matches
+## target_yaw, then translation so `feature` ("hips"/"feet") lands on target.
+func _solve_warp(s: ActionSlot, target_yaw: float, feature: String, target: Vector3) -> void:
+	var anim: Animation = _lib.get_animation(String(s.clip))
+	var end_fwd: Vector3 = s.base.basis * _meta_at(anim, "hips_forward", anim.length)
+	s.dpsi = wrapf(target_yaw - _yaw_of(end_fwd), -PI, PI)
+	s.dp = Vector3.ZERO
+	var rotated: Transform3D = _warp_world(s, anim.length)
+	s.dp = target - rotated * _meta_at(anim, feature, anim.length)
 
-static func _aabb_corners(a: AABB) -> Array[Vector3]:
-	var corners: Array[Vector3] = []
-	for i in 8:
-		corners.append(a.position + Vector3(
-			a.size.x * float(i & 1),
-			a.size.y * float((i >> 1) & 1),
-			a.size.z * float((i >> 2) & 1)))
-	return corners
+# ─── Tree + placement ────────────────────────────────────────────────────────
+func _apply_tree_params() -> void:
+	_tree.set("parameters/walk_seek/seek_request", fposmod(_walk_phase0 + _phase * _walk_len, _walk_len))
+	_tree.set("parameters/run_seek/seek_request", fposmod(_run_phase0 + _phase * _run_len, _run_len))
+	_tree.set("parameters/gait/blend_amount", _run_w)
+	_tree.set("parameters/loco/blend_amount", _move_w)
+	_tree.set("parameters/carry/blend_amount", _carry_w)
+	_tree.set("parameters/act_a_seek/seek_request", _slots[0].time)
+	_tree.set("parameters/act_b_seek/seek_request", _slots[1].time)
+	_tree.set("parameters/act/blend_amount", _ab_w)
+	_tree.set("parameters/out/blend_amount", _act_w)
 
-## P2+ (Aug 2026, experimental) — measures the sole's position in the nearest
-## foot bone's LOCAL space at the rest pose. Per-frame clamping then recomputes
-## the sole's world position through the bone's ANIMATED transform, so the
-## heel/sole follows the ankle rotation instead of relying on a pose-constant
-## clearance (which let the heel dip at the near-standing ends of the folds).
-func _measure_sole_local_offset() -> void:
-	if _skeleton == null:
-		return
-	var mesh_low: float = INF
-	var mesh_low_pos: Vector3 = Vector3.ZERO
-	for mi in _find_all_of_type(self, "MeshInstance3D"):
-		var aabb: AABB = (mi as MeshInstance3D).get_aabb()
-		for corner in _aabb_corners(aabb):
-			var w: Vector3 = (mi as MeshInstance3D).to_global(corner)
-			if w.y < mesh_low:
-				mesh_low = w.y
-				mesh_low_pos = w
-	if mesh_low == INF:
-		return
-	var best_bone: int = -1
-	var best_d: float = INF
-	for i: int in _foot_indices():
-		var bone_origin: Vector3 = _skeleton.to_global(_skeleton.get_bone_global_pose(i).origin)
-		var d: float = Vector2(bone_origin.x - mesh_low_pos.x, bone_origin.z - mesh_low_pos.z).length()
-		if d < best_d:
-			best_d = d
-			best_bone = i
-	if best_bone == -1:
-		return
-	var bone_world: Transform3D = _skeleton.global_transform * _skeleton.get_bone_global_pose(best_bone)
-	_sole_local_offset = bone_world.affine_inverse() * mesh_low_pos
+func _place_visual() -> void:
+	var loco_world: Transform3D
 	if _player != null:
-		_sole_root_offset = mesh_low_pos.y - _player.global_position.y
-	_sole_offset_measured = true
-
-func _clamp_feet_to_ground() -> void:
-	if _skeleton == null or _player == null:
-		return
-	## The FLOOR reference is the character's OWN standing sole level — the
-	## bunker floor is NOT at Y=0 (the standing root sits ~1.5, so the floor is
-	## ~0.5). Deriving it from the standing approach height + the measured
-	## sole-vs-root offset keeps this correct regardless of the absolute floor.
-	var floor_ref: float = _chair_approach_pos.y + _sole_root_offset
-	if _sole_offset_measured:
-		var lowest_sole: float = INF
-		for i: int in _foot_indices():
-			var bone_world: Transform3D = _skeleton.global_transform * _skeleton.get_bone_global_pose(i)
-			var sole_world: Vector3 = bone_world * _sole_local_offset
-			lowest_sole = minf(lowest_sole, sole_world.y)
-		if SOLE_DIAGNOSTIC:
-			_diag_sole_frames += 1
-			if _diag_sole_frames % 6 == 0:
-				print("[SitSole] floor=%.3f  lowest sole Y=%.3f  root Y=%.3f  sink=%s" \
-					% [floor_ref, lowest_sole, _player.global_position.y, "YES" if lowest_sole < floor_ref else "no"])
-		if lowest_sole != INF and lowest_sole < floor_ref:
-			_player.global_position.y += floor_ref - lowest_sole
+		loco_world = _placement(_visual_yaw, Vector3.ZERO,
+			Vector3(_player.global_position.x, _floor_y(), _player.global_position.z))
 	else:
-		## Fallback (P2 path): constant clearance on the lowest foot bone
-		## (bones sit above the sole by the measured gap).
-		var lowest: float = INF
-		for i: int in _foot_indices():
-			var world_y: float = _skeleton.to_global(_skeleton.get_bone_global_pose(i).origin).y
-			lowest = minf(lowest, world_y)
-		var bone_floor: float = floor_ref + _foot_mesh_clearance
-		if lowest != INF and lowest < bone_floor:
-			_player.global_position.y += bone_floor - lowest
+		loco_world = global_transform
+	var world: Transform3D = loco_world
+	if _act_w > 0.0:
+		var act: Transform3D = _slots[0].world.interpolate_with(_slots[1].world, _ab_w) \
+			if _slots[1].clip != &"" else _slots[0].world
+		world = loco_world.interpolate_with(act, _act_w)
+	if _act_w <= 0.0 and _act_target <= 0.0:
+		for s: ActionSlot in _slots:
+			s.clip = &""
+	_visual.global_transform = world
+	_last_visual_world = world
 
+## World placement (yaw + model scale) that puts clip-space point `clip_point`
+## at `world_point`.
+func _placement(yaw: float, clip_point: Vector3, world_point: Vector3) -> Transform3D:
+	var basis := Basis(Vector3.UP, yaw).scaled(Vector3.ONE * _scale)
+	return Transform3D(basis, world_point - basis * clip_point)
+
+func _floor_y() -> float:
+	return global_position.y
+
+# ─── Bake metadata helpers ───────────────────────────────────────────────────
+static func _meta_at(anim: Animation, key: String, t: float) -> Vector3:
+	var arr: PackedVector3Array = anim.get_meta(key, PackedVector3Array())
+	if arr.is_empty():
+		return Vector3.ZERO
+	var f: float = clampf(t / anim.length, 0.0, 1.0) * float(arr.size() - 1)
+	var i: int = mini(int(f), arr.size() - 2)
+	return arr[i].lerp(arr[i + 1], f - float(i))
+
+static func _clip_yaw(anim: Animation, t: float) -> float:
+	return _yaw_of(_meta_at(anim, "hips_forward", t))
+
+## Normalised cumulative hip path length at time t (0 at start, 1 at end).
+static func _progress(anim: Animation, key: String, t: float) -> float:
+	var arr: PackedVector3Array = anim.get_meta(key, PackedVector3Array())
+	if arr.size() < 2:
+		return clampf(t / anim.length, 0.0, 1.0)
+	var total: float = 0.0
+	var at: float = 0.0
+	var f: float = clampf(t / anim.length, 0.0, 1.0) * float(arr.size() - 1)
+	for i: int in arr.size() - 1:
+		var seg: float = arr[i].distance_to(arr[i + 1])
+		if float(i) < f:
+			at += seg * clampf(f - float(i), 0.0, 1.0)
+		total += seg
+	return at / total if total > 0.0 else 0.0
+
+## Normalised rise of the lower foot (0 = on the floor, 1 = at its highest),
+## smoothed — paces the lie-down's leg swing.
+static func _feet_lift_progress(anim: Animation, t: float) -> float:
+	var arr: PackedFloat32Array = anim.get_meta("feet_low", PackedFloat32Array())
+	if arr.size() < 2:
+		return clampf(t / anim.length, 0.0, 1.0)
+	var lo: float = arr[0]
+	var hi: float = arr[0]
+	for v: float in arr:
+		hi = maxf(hi, v)
+	var f: float = clampf(t / anim.length, 0.0, 1.0) * float(arr.size() - 1)
+	var i: int = mini(int(f), arr.size() - 2)
+	var running: float = lo
+	for k: int in i + 1:
+		running = maxf(running, arr[k])
+	running = maxf(running, lerpf(arr[i], arr[i + 1], f - float(i)))
+	return smoothstep(0.0, 1.0, (running - lo) / maxf(hi - lo, 0.0001))
+
+static func _yaw_of(dir: Vector3) -> float:
+	return atan2(-dir.x, -dir.z)
+
+static func _signed_yaw(from: Vector3, to: Vector3) -> float:
+	return wrapf(_yaw_of(to) - _yaw_of(from), -PI, PI)
+
+# ─── Public API ──────────────────────────────────────────────────────────────
+## True from the moment furniture use starts until the stand-up has finished.
+func is_sit_sequence_active() -> bool:
+	return _stage != Stage.NONE and _stage != Stage.DEAD
+
+## Input is swallowed while a transition is mid-motion; the seated and
+## sleeping holds accept input (E stands / wakes).
+func is_animation_locked() -> bool:
+	return _stage in [Stage.APPROACH, Stage.PIVOT, Stage.SIT_DOWN, Stage.LIE_DOWN,
+		Stage.GET_UP, Stage.STAND_UP]
+
+## The body's current absolute facing.
+func get_visual_yaw() -> float:
+	if _stand_end_known and _plan != null and _stage == Stage.NONE:
+		return _plan.stand_end_yaw
+	return _visual_yaw
+
+## Where the stand-up leaves the body standing (world, at the capsule's own
+## height). Known from the moment furniture use starts; Vector3.INF before.
+func get_stand_end_position() -> Vector3:
+	if not _stand_end_known or _plan == null:
+		return Vector3.INF
+	var y: float = _player.global_position.y if _player != null else _plan.stand_end_pos.y
+	return Vector3(_plan.stand_end_pos.x, y, _plan.stand_end_pos.z)
+
+# ─── Parent queries ──────────────────────────────────────────────────────────
 func _is_holding_item() -> bool:
-	if _player == null:
-		return false
 	if _player.has_method("get_held_item"):
 		return _player.get_held_item() != null
 	if "held_item" in _player:
 		return _player.held_item != null
 	return false
 
-## True when the owning character is dead (duck-typed: an `is_dead()` method
-## or a `dead` bool on the parent — Player or NPC both provide one).
 func _is_dead() -> bool:
-	if _player == null:
-		return false
 	if _player.has_method("is_dead"):
 		return bool(_player.is_dead())
 	if "dead" in _player:
 		return bool(_player.get("dead"))
 	return false
 
-func _play_state(state: String, blend_override: float = -1.0) -> void:
-	var anim_name: String = _resolve_anim_name(state)
-	if anim_name == _current_state:
-		return
-	if not _anim_player.has_animation(anim_name):
-		return
-	## Longer ease between base locomotion states (idle↔walk↔run) — the
-	## gender-specific poses differ enough that the standard blend reads as
-	## a snap, most visibly on the male model's distinct idle stance.
-	var blend: float = BLEND_TIME
-	if blend_override >= 0.0:
-		blend = blend_override
-	elif state == "idle" or _last_state == "idle" \
-			or (LOCOMOTION_STATES.has(state) and LOCOMOTION_STATES.has(_last_state)):
-		blend = LOCOMOTION_BLEND_TIME
-	_last_state = state
-	_current_state = anim_name
-	_anim_player.play(anim_name, blend)
-
-## Gender-aware clip lookup: male uses MALE_ANIMATION_NAMES, female uses
-## FEMALE_ANIMATION_NAMES; any state not overridden (carry, sit) falls
-## through to the shared ANIMATION_NAMES for both genders.
-func _resolve_anim_name(state: String) -> String:
-	if _gender == "male" and MALE_ANIMATION_NAMES.has(state):
-		return String(MALE_ANIMATION_NAMES[state])
-	if _gender == "female" and FEMALE_ANIMATION_NAMES.has(state):
-		return String(FEMALE_ANIMATION_NAMES[state])
-	return String(ANIMATION_NAMES.get(state, state))
-
-static func _root_motion_track_valid(anim_player: AnimationPlayer, skeleton: Skeleton3D) -> bool:
-	var track: NodePath = anim_player.root_motion_track
-	if track == NodePath():
-		return false
-	var bone_name: String = track.get_concatenated_subnames()
-	return skeleton.find_bone(bone_name) != -1
-
-static func _find_first_of_type(root: Node, type_name: String) -> Node:
-	for child in root.get_children():
-		if child.is_class(type_name):
-			return child
-		var found: Node = _find_first_of_type(child, type_name)
-		if found != null:
-			return found
-	return null
-
 static func _find_all_of_type(root: Node, type_name: String) -> Array[Node]:
 	var results: Array[Node] = []
-	for child in root.get_children():
+	for child: Node in root.get_children():
 		if child.is_class(type_name):
 			results.append(child)
 		results.append_array(_find_all_of_type(child, type_name))
 	return results
-
-static func _find_bone_path(anim_player: AnimationPlayer, skeleton: Skeleton3D, bone_hint: String) -> NodePath:
-	for i in skeleton.get_bone_count():
-		var bone_name: String = skeleton.get_bone_name(i)
-		if bone_hint.to_lower() in bone_name.to_lower():
-			var skeleton_path: NodePath = anim_player.get_path_to(skeleton)
-			return NodePath(str(skeleton_path) + ":" + bone_name)
-	return NodePath()

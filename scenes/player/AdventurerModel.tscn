@@ -1,52 +1,6 @@
-[gd_scene load_steps=15 format=3]
+[gd_scene load_steps=2 format=3]
 
 [ext_resource type="Script" path="res://scripts/player/AdventurerModelController.gd" id="1_script"]
-[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/idle_lib.res" id="2_idle"]
-[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/walk_lib.res" id="3_walk"]
-[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/run_lib.res" id="4_run"]
-[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/idle_carry_lib.res" id="5_idle_carry"]
-[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/walk_carry_lib.res" id="6_walk_carry"]
-[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/run_carry_lib.res" id="7_run_carry"]
-[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/stand_to_sit_lib.res" id="8_std2sit"]
-[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/sit_lib.res" id="9_sit"]
-[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/sit_to_stand_lib.res" id="10_std"]
-[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/idle_male_lib.res" id="11_imale"]
-[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/idle_female_lib.res" id="12_ifemale"]
-[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/sit_hybrid_lib.res" id="13_sithyb"]
-[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/stand_to_sit_female_lib.res" id="14_stsfem"]
-[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/sit_to_stand_female_lib.res" id="15_s2sfem"]
-[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/sit_hybrid_female_lib.res" id="16_sithybfem"]
-[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/lying_down_male_lib.res" id="17_liedown"]
-[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/lying_down_female_lib.res" id="18_liefem"]
-[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/sleep_hybrid_male_lib.res" id="19_sleepm"]
-[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/sleep_hybrid_female_lib.res" id="20_sleepf"]
-[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/dying_male_lib.res" id="21_dyem"]
-[ext_resource type="AnimationLibrary" path="res://assets/models/player/anims/dying_female_lib.res" id="22_dyef"]
 
 [node name="AdventurerModel" type="Node3D"]
 script = ExtResource("1_script")
-
-[node name="AnimationPlayer" type="AnimationPlayer" parent="."]
-libraries = {
-"idle_lib": ExtResource("2_idle"),
-"walk_lib": ExtResource("3_walk"),
-"run_lib": ExtResource("4_run"),
-"idle_carry_lib": ExtResource("5_idle_carry"),
-"walk_carry_lib": ExtResource("6_walk_carry"),
-"run_carry_lib": ExtResource("7_run_carry"),
-"stand_to_sit_lib": ExtResource("8_std2sit"),
-"sit_lib": ExtResource("9_sit"),
-"sit_to_stand_lib": ExtResource("10_std"),
-"idle_male_lib": ExtResource("11_imale"),
-"idle_female_lib": ExtResource("12_ifemale"),
-"sit_hybrid_lib": ExtResource("13_sithyb"),
-"stand_to_sit_female_lib": ExtResource("14_stsfem"),
-"sit_to_stand_female_lib": ExtResource("15_s2sfem"),
-	"sit_hybrid_female_lib": ExtResource("16_sithybfem"),
-	"lying_down_male_lib": ExtResource("17_liedown"),
-	"lying_down_female_lib": ExtResource("18_liefem"),
-	"sleep_hybrid_male_lib": ExtResource("19_sleepm"),
-	"sleep_hybrid_female_lib": ExtResource("20_sleepf"),
-	"dying_male_lib": ExtResource("21_dyem"),
-	"dying_female_lib": ExtResource("22_dyef")
-}

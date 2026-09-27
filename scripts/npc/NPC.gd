@@ -1190,11 +1190,15 @@ var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 
 func _physics_process(delta: float) -> void:
 	## An activity released a chair/bed but asked us to finish the stand-up
-	## animation before moving: snap to the stand spot the moment the model
-	## reports the sit sequence finished.
+	## animation before moving. The model's stand-up ends wherever the clip
+	## leaves the body, so settle there (navmesh-snapped) rather than at the
+	## activity's requested spot — no visible pop.
 	if _stand_pos_pending and not in_sit_sequence():
 		_stand_pos_pending = false
-		place_standing_at(_pending_stand_pos)
+		var model: Node = get_node_or_null("CharacterModel")
+		var body_pos: Vector3 = model.get_stand_end_position() \
+			if model != null and model.has_method("get_stand_end_position") else Vector3.INF
+		place_standing_at(body_pos if body_pos != Vector3.INF else _pending_stand_pos)
 
 	_validate_held_item()
 	_tick_needs(delta)

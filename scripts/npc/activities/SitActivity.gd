@@ -90,15 +90,8 @@ func exit(npc: NPC) -> void:
 	_state = SState.SEEK
 
 func _begin_sit(npc: NPC) -> void:
-	var t: Transform3D = (_chair as Node3D).get_seat_transform()
-	npc.rotation.y = t.basis.get_euler().y
-	var approach_pos: Vector3 = t.origin + t.basis.z * APPROACH_OFFSET
-	approach_pos.y = npc.global_position.y
-	npc.global_position = approach_pos
-	var model: Node = npc.get_node_or_null("CharacterModel")
-	if model != null:
-		model.set("_chair_approach_pos", approach_pos)
-		model.set("_chair_seat_pos", Vector3(t.origin.x, approach_pos.y, t.origin.z))
+	## The model controller plans the whole sit from the chair itself: it walks
+	## the last few centimetres to the clip's start spot, turns, sits.
 	npc.seated_chair = _chair   ## starts the controller's sitting_down phase
 	npc.lock_movement()
 
