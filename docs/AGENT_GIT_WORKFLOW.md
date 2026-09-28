@@ -68,7 +68,7 @@ fine, but it must not drift:
 
 | Area | Owner / canonical source |
 |---|---|
-| `scripts/npc/**`, `scenes/npc/**`, `docs/systems/npc/**` | NPC polish session (cloud, `claude/gifted-planck-32j7ii`) |
+| `scripts/npc/**`, `scenes/npc/**`, `docs/systems/npc/**` | NPC system polish review session (local since 2026-09-28; took over from the cloud `claude/gifted-planck-32j7ii` session, which is retired) |
 | `scripts/player/Adventurer*`, `scenes/player/AdventurerModel.tscn`, `assets/models/player/anims/**`, `tools/anim_pipeline/**`, player/NPC sit/lie entry points | Animation polish session (local) |
 | `scripts/ui/**`, `scenes/ui/**`, `docs/ui/**`, `PreviewStudio`, `SharedUI` | UI session (local) |
 | `scripts/weapons/**` (except `PistolAnimationLayer.gd`), `scenes/weapons/**`, `assets/models/weapons/**`, `docs/systems/weapons/**` | Weapons session (local); contract in `docs/systems/weapons/HANDOFF.md` |
