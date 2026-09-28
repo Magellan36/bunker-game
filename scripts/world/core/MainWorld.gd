@@ -442,7 +442,8 @@ func _register_save_fields() -> void:
 ## ── NPC save/restore (NPC Pass 2, Part 6) ───────────────────────────────────
 func _get_npcs_for_save() -> Array:
 	var out: Array = []
-	for npc: Node in get_tree().get_nodes_in_group("npc"):
+	## "npc_dead": residents who died (NPCCombat) — their bodies persist.
+	for npc: Node in get_tree().get_nodes_in_group("npc") + get_tree().get_nodes_in_group("npc_dead"):
 		if is_instance_valid(npc) and npc.has_method("get_save_dict"):
 			out.append(npc.get_save_dict())
 	return out
@@ -454,7 +455,7 @@ func _get_npcs_for_save() -> Array:
 func _restore_npcs(saved: Array) -> void:
 	## Clear the current population first; stop activities cleanly so chairs/
 	## beds/items aren't left occupied or reserved by freed nodes.
-	for npc: Node in get_tree().get_nodes_in_group("npc"):
+	for npc: Node in get_tree().get_nodes_in_group("npc") + get_tree().get_nodes_in_group("npc_dead"):
 		if not is_instance_valid(npc):
 			continue
 		if "brain" in npc and npc.brain != null:
@@ -462,6 +463,7 @@ func _restore_npcs(saved: Array) -> void:
 		if "held_item" in npc and npc.held_item != null:
 			NPCItemUser.drop_held(npc)
 		npc.remove_from_group("npc")
+		npc.remove_from_group("npc_dead")
 		npc.queue_free()
 
 	var scene: PackedScene = load("res://scenes/npc/NPC.tscn")

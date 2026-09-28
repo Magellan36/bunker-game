@@ -198,6 +198,33 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   cooking first. While a passion holder is up and about, everyone else
   scores that job ×0.6 and leaves it to them. Shown with the personality
   words on the panel.
+- **Violence & death** (`NPCCombat`, weapons contract in
+  `docs/systems/weapons/HANDOFF.md`): `NPC.receive_weapon_hit(context)`
+  takes a WeaponItem hit. Health drops; the injury depends on weapon and
+  where it landed (hit height → head/torso/arm/leg): gunshot = open wound +
+  bleeding, knife/hatchet = bleeding, blunt = a chance of a fractured limb.
+  The victim logs it, loses morale, gains fear (if it was you), and takes
+  −30 relationship with a named memory ("You attacked me with a bat"),
+  −8 for further hits within an hour. Witnesses: −4 toward the attacker,
+  more if they liked the victim, plus fear when it's the player. Fight or
+  flight uses how they felt BEFORE the hit: prior hatred (≤ −40) and nerve
+  → they fight back (a hostile crash-out at the attacker); otherwise they
+  run (`FleeActivity`, speed ×1.6). Health 0 = death (any cause: blows,
+  bleeding out, starvation, thirst; `NPCCombat.NEGLECT_DEATHS`):
+  `is_dead()` plays the shared dying clip, the body leaves the `npc` group
+  for `npc_dead` (saved by MainWorld, restored as a body, walk-through), and
+  everyone grieves; the killer gets −25…−75 and a memory from each
+  resident, and killing makes people afraid of you (+20/+35 fear).
+- **Attacking** (`CrashOutActivity` ARM/ATTACK): a hostile crash-out that has
+  ESCALATED (repeat crash-out, relationship+grudge ≤ −65, or the target hit
+  them first) grabs the nearest loose weapon within 14 m (or uses fists, 7
+  damage) and attacks for 12–20 s via `WeaponItem.set_aiming/try_attack`
+  (melee aimed from the body, pistol with some spread from 7 m), pausing
+  0.5–1.1 s between blows. Otherwise it rants and sabotages as before. The
+  player has no `receive_weapon_hit()`, so NPC weapon hits on the player
+  are applied by `NPCCombat.apply_player_hit` (PlayerStats health →
+  game over at 0, plus a PlayerMedical injury); it steps aside if the
+  player ever implements the method. Harness: `--scenario=combat`.
 - **Treating residents**: hold a Bandage/Antibiotics/Splint near an injured
   resident: "[E] Bandage Hana's left arm" treats the worst eligible injury
   (`NPC.receive_treatment`), +8 and a memory the first time (+3 for repeat

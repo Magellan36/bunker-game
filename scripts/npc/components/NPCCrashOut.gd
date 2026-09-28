@@ -30,9 +30,9 @@ const CATHARSIS: float = 14.0
 const DURATION: Dictionary = {Mode.HOSTILE: [2.0, 4.0], Mode.OVERDRIVE: [6.0, 10.0], Mode.BREAKDOWN: [3.0, 6.0]}
 const MODE_NAMES: Dictionary = {Mode.HOSTILE: "hostile", Mode.OVERDRIVE: "overdrive", Mode.BREAKDOWN: "breakdown"}
 
-## Combat hook: when a fighting system exists, set this and implement
-## CrashOutActivity._attack(). Until then hostile crash-outs rant and sabotage.
-static var attack_enabled: bool = false
+## Combat: an ESCALATED hostile crash-out attacks with a weapon or fists
+## (CrashOutActivity ARM/ATTACK phases, NPCCombat). Off = rant and sabotage only.
+static var attack_enabled: bool = true   ## Sep 2026: weapons exist (NPCCombat)
 
 var mode: Mode = Mode.NONE
 var target_id: String = ""                 ## hostile: who they're furious at

@@ -22,7 +22,7 @@ extends Node
 ## (runs res://tools/tests/NPCSimHarness.tscn as the main scene so autoloads exist)
 ## Exit code 0 = no invariant violations, 1 = violations (report printed).
 
-const SCENARIOS: Array[String] = ["basic", "farm", "cook", "power", "stress", "scarcity", "door", "session", "morale", "lazy", "all"]
+const SCENARIOS: Array[String] = ["basic", "farm", "cook", "power", "stress", "scarcity", "door", "session", "morale", "lazy", "combat", "all"]
 
 var _cfg: Dictionary = {
 	"scenario": "basic",
@@ -128,6 +128,8 @@ func _process(delta: float) -> void:
 				_tick_lazy()
 			if String(_cfg["scenario"]) == "session":
 				_check_session_cooking()
+			if String(_cfg["scenario"]) == "combat":
+				_tick_combat()
 		if float(_cfg["scores"]) > 0.0:
 			_score_timer -= delta
 			if _score_timer <= 0.0:
@@ -306,6 +308,79 @@ func _setup() -> void:
 		sc, int(_cfg["npcs"]), float(_cfg["minutes"]), int(_cfg["seed"]), objs.size(), items.size()])
 	for g in ["chair", "bed", "shelving", "trash_receptacle", "generator", "farming_tray", "stove", "pickup"]:
 		print("[harness]   group %s = %d" % [g, get_tree().get_nodes_in_group(g).size()])
+
+## ─── Combat (NPCCombat, weapons HANDOFF) ────────────────────────────────
+## 5 s: the player hits resident 0 with a bat (a real context, as WeaponItem
+## sends it): injury, relationship/memory, fear, fleeing, witnesses.
+## 12 s: three knife blows kill them: death, group swap, grief, the killer
+## remembered, and the body in the save list.
+## 20 s: resident 1, escalated against the player, crashes out hostile with
+## a bat lying nearby: grabs it (real WeaponItem.try_attack) and goes for
+## the player, who stands still. Player health must drop.
+var _combat_done: Dictionary = {}
+var _combat_player_hp: float = -1.0
+
+func _combat_hit(victim: NPC, dmg: float, kind: String) -> void:
+	var player: Node3D = get_tree().get_first_node_in_group("player")
+	victim.receive_weapon_hit({"damage": dmg, "position": victim.global_position + Vector3.UP * 0.2,
+		"direction": (victim.global_position - player.global_position).normalized(), "kind": kind,
+		"source": player, "collider": victim})
+
+func _tick_combat() -> void:
+	var st: float = _t - _setup_at
+	var all: Array = []
+	for id in _track.keys():
+		if is_instance_valid(_track[id]["npc"]):
+			all.append(_track[id]["npc"])
+	if all.size() < 3:
+		return
+	var a: NPC = all[0]
+	var b: NPC = all[1]
+	var player: Node3D = get_tree().get_first_node_in_group("player")
+	var stats: Node = get_tree().get_first_node_in_group("player_stats")
+	if st >= 5.0 and not _combat_done.has("hit"):
+		_combat_done["hit"] = true
+		player.global_position = a.global_position + Vector3(1.2, 0.0, 0.0)
+		var rel0: float = a.get_relationship("player")
+		_combat_hit(a, 30.0, "bat")
+		print("[combat] hit %s: health %.0f, rel %.1f -> %.1f, fear %.0f, fleeing=%s, meds=%s" % [a.npc_name, a.health, rel0,
+			a.get_relationship("player"), a.social.fear, a.combat.is_fleeing(), a.medical.get_medical_status_labels() if a.medical.has_method("get_medical_status_labels") else "-"])
+		print("[combat] memories: %s" % str(a.bonds.get_memories("player").map(func(m): return m["text"])))
+	if st >= 7.0 and not _combat_done.has("flee"):
+		_combat_done["flee"] = true
+		var cur: NPCActivity = a.brain.current_activity()
+		print("[combat] %s is now: %s (%.1f m from player)" % [a.npc_name, cur.label() if cur != null else "idle",
+			NPCItemUser.flat_distance(a.global_position, player.global_position)])
+	if st >= 12.0 and not _combat_done.has("kill"):
+		_combat_done["kill"] = true
+		for i: int in 3:
+			_combat_hit(a, 30.0, "knife")
+		var saved: Array = get_tree().get_first_node_in_group("main_world")._get_npcs_for_save() if get_tree().get_first_node_in_group("main_world") != null else []
+		var dead_saved: int = saved.filter(func(e): return bool((e.get("combat", {}) as Dictionary).get("dead", false))).size()
+		print("[combat] %s dead=%s health=%.0f in_npc_group=%s in_dead_group=%s saved_dead=%d log='%s'" % [a.npc_name, a.is_dead(), a.health,
+			a.is_in_group("npc"), a.is_in_group("npc_dead"), dead_saved, a.combat.describe_death()])
+		for o: NPC in all.slice(1):
+			print("[combat]   %s now: rel(player) %.1f, fear %.0f, morale %.1f" % [o.npc_name, o.get_relationship("player"), o.social.fear, o.morale_sys.morale])
+	if st >= 20.0 and not _combat_done.has("rage"):
+		_combat_done["rage"] = true
+		_combat_player_hp = float(stats.health)
+		FarmingShopHelper.spawn_scene_settled(_world, "res://scenes/weapons/Bat.tscn", b.global_position + Vector3(1.0, 0.0, 0.0))
+		player.global_position = b.global_position + Vector3(4.0, 0.0, 0.0)
+		b.relationships["player"] = -80.0
+		b.crash.target_id = "player"
+		b.crash.begin(NPCCrashOut.Mode.HOSTILE)
+		print("[combat] %s crashes out at the player (escalated), player health %.0f" % [b.npc_name, _combat_player_hp])
+	if _combat_done.has("rage") and not _combat_done.has("report") and (st >= 60.0 or float(stats.health) <= 0.0):
+		_combat_done["report"] = true
+		var bodies: Array = get_tree().get_nodes_in_group("npc_dead").filter(func(n): return n.is_dead())
+		print("[combat] bodies in the world: %d (%s)" % [bodies.size(), ", ".join(bodies.map(func(n): return "%s: %s" % [n.npc_name, n.combat.describe_death()]))])
+		if bodies.is_empty():
+			_flag("combat_body_lost", b, "the dead resident's body is gone (save/load?)", "cbl")
+		var held: String = NPCSessionActivity.display_name(b.held_item) if b.held_item != null else "nothing"
+		print("[combat] after the rage: player health %.0f -> %.0f, %s holding %s, log: %s" % [_combat_player_hp, float(stats.health),
+			b.npc_name, held, " | ".join(b._action_log.slice(maxi(0, b._action_log.size() - 6)).map(func(e): return String(e.get("text", ""))))])
+		if float(stats.health) >= _combat_player_hp:
+			_flag("combat_no_damage", b, "attacked the player but did no damage", "cnd")
 
 ## ─── Lazy resident loop ──────────────────────────────────────────────────
 ## Residents: 0 Lazy, 1 Hard Worker, 2 Steady, 3 Lazy Gourmand, 4 Hard-Working
@@ -547,6 +622,8 @@ func _check_spin(delta: float) -> void:
 		if not is_instance_valid(raw):
 			continue
 		var npc: Node3D = raw
+		if npc.has_method("is_dead") and npc.is_dead():
+			continue   ## a body: the dying clip moves it, that's not a spin
 		var yaw: float = npc.rotation.y
 		var model: Node3D = npc.get_node_or_null("CharacterModel") as Node3D
 		var myaw: float = model.global_rotation.y if model != null else yaw
@@ -759,6 +836,8 @@ func _sample() -> void:
 		if not is_instance_valid(raw):
 			continue
 		var npc: Node = raw
+		if npc.has_method("is_dead") and npc.is_dead():
+			continue
 		if String(_cfg["scenario"]) == "door":
 			var side: int = 1 if (npc as Node3D).global_position.x > DOOR_WALL_X else -1
 			if int(tr.get("side", side)) != side:
@@ -794,7 +873,8 @@ func _sample() -> void:
 			elif ("_hold_point" in h) and h._hold_point != npc.hold_point:
 				_flag("ghost_held", npc, "held_item %s follows a different hold point" % h.name, "hp" + str(h.get_instance_id()))
 		## stuck holding
-		if h != null and is_instance_valid(h) and not (act in HOLD_OK):
+		if h != null and is_instance_valid(h) and not (act in HOLD_OK) \
+				and not (act == "CrashOutActivity" and "weapon_kind" in h):   ## armed and raging: holding it is the point
 			if float(tr["hold_since"]) < 0.0 or tr["hold_act"] != act:
 				tr["hold_since"] = now
 				tr["hold_act"] = act
@@ -859,8 +939,11 @@ func _free_count(filter: Callable) -> int:
 func _check_orphans() -> void:
 	var owners: Dictionary = {}
 	for id in _track.keys():
-		var npc: Node = _track[id]["npc"]
-		if is_instance_valid(npc) and npc.held_item != null and is_instance_valid(npc.held_item):
+		var raw = _track[id]["npc"]   ## untyped: may be freed by a save/load cycle
+		if not is_instance_valid(raw):
+			continue
+		var npc: Node = raw
+		if npc.held_item != null and is_instance_valid(npc.held_item):
 			owners[npc.held_item.get_instance_id()] = true
 	var player: Node = get_tree().get_first_node_in_group("player")
 	if player != null and player.has_method("get_held_item"):

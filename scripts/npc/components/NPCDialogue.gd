@@ -132,6 +132,12 @@ const BARKS: Dictionary = {
 	"seething":      ["Unbelievable.", "Every. Single. Day.", "Don't talk to me.", "I swear..."],
 	"sob":           ["*sobbing*", "I want to go home...", "*shaking*", "Make it stop..."],
 	"sabotage":      ["There! Happy now?!", "Let it all fall apart!", "Who cares anymore?!"],
+	## Violence (NPCCombat).
+	"hurt":          ["Agh!", "Ow — what the hell?!", "Stop!", "Argh!"],
+	"flee":          ["Get away from me!", "Help! Somebody!", "Don't — please!", "Stay back!"],
+	"fight_back":    ["You want a fight? Fine!", "Big mistake.", "That's the last time you touch me!"],
+	"horrified":     ["Oh my God...", "What did you DO?!", "No, no, no...", "Is... is %s dead?"],
+	"attack":        ["This ends NOW!", "You did this to us!", "I warned you!", "Come here!"],
 }
 
 ## Conversation snippets (TalkActivity turn-taking). About half the time a

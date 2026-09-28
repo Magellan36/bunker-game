@@ -70,6 +70,7 @@ var morale_sys: NPCMorale = NPCMorale.new()   ## slow, condition-driven morale (
 var bonds: NPCBonds = NPCBonds.new()           ## relationship ledger + remembered big moments
 var social: NPCSocial = NPCSocial.new()        ## how the player's conduct shapes relationships
 var crash: NPCCrashOut = NPCCrashOut.new()     ## mental breaks when morale collapses
+var combat: NPCCombat = NPCCombat.new()        ## taking hits, dying, attacking (NPCCombat.gd)
 var stuck: NPCStuckRecovery = NPCStuckRecovery.new()
 
 ## True once apply_save_dict() has populated this NPC — _ready() must not
@@ -660,6 +661,15 @@ func receive_treatment(item: Node) -> bool:
 	_last_treated_hours = NPCClock.now()
 	on_treated_by_player(String(t["def"]["what"]) % where, repeat)
 	return true
+
+## Weapons contract (docs/systems/weapons/HANDOFF.md): WeaponItem calls this
+## on the resident it hit. NPCCombat decides what the hit means.
+func receive_weapon_hit(context: Dictionary) -> void:
+	combat.receive_hit(context)
+
+## Read by the shared AdventurerModelController: true plays the dying clip.
+func is_dead() -> bool:
+	return combat.dead
 
 func on_treated_by_player(what: String = "my wounds", repeat: bool = false) -> void:
 	if repeat:
@@ -1443,6 +1453,7 @@ func _ready() -> void:
 	bonds.setup(self)
 	social.setup(self)
 	crash.setup(self)
+	combat.setup(self)
 	if not morale_sys._loaded:
 		mood = morale_sys.morale   ## fresh resident; a loaded one keeps its saved mood
 	_mood_tick_timer = randf() * MOOD_TICK_INTERVAL   ## stagger across NPCs
@@ -1454,6 +1465,7 @@ func _ready() -> void:
 	if not _pending_medical_save.is_empty():
 		medical.from_save(_pending_medical_save)
 		_pending_medical_save = []
+	combat.apply_loaded_death()   ## a saved body stays a body
 
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 
@@ -1469,6 +1481,17 @@ func _physics_process(delta: float) -> void:
 			if model != null and model.has_method("get_stand_end_position") else Vector3.INF
 		place_standing_at(body_pos if body_pos != Vector3.INF else _pending_stand_pos)
 
+	if combat.dead:
+		## A body: no needs, no brain — just gravity (the model plays the dying clip).
+		if not is_on_floor():
+			velocity.y -= _gravity * delta
+		velocity.x = 0.0
+		velocity.z = 0.0
+		move_and_slide()
+		return
+	if health <= 0.0:
+		combat.check_neglect_death()
+		return
 	var prof: bool = NPCDebug.profile
 	var t: int = Time.get_ticks_usec() if prof else 0
 	if prof:
@@ -1910,7 +1933,8 @@ func get_status_speed_multiplier() -> float:
 	var thirst_mult: float = 0.90 if thirst < 25.0 else 1.0
 	var mood_mult: float = 0.85 if mood <= 25.0 else 1.0
 	var medical_mult: float = medical.get_medical_speed_multiplier() if medical != null else 1.0
-	return energy_mult * hunger_mult * thirst_mult * mood_mult * get_age_speed_mult() * medical_mult
+	var adrenaline: float = 1.6 if combat.is_fleeing() or combat.rushing else 1.0   ## running for it / charging in
+	return energy_mult * hunger_mult * thirst_mult * mood_mult * get_age_speed_mult() * medical_mult * adrenaline
 
 ## Chance to divert from a job into forgetful wandering: averaged across
 ## hunger/thirst/mood/energy tiers, scaled by resilience.
@@ -2070,6 +2094,8 @@ var _last_greet_hours: float = -100.0
 var _greet_check: float = 0.0
 
 func bark(text: String, force: bool = false) -> void:
+	if combat.dead:
+		return
 	if text == "" or (brain != null and brain.is_sleeping() and not force):
 		return
 	if not force and Time.get_ticks_msec() - _last_bark_msec < int(BARK_MIN_GAP_SEC * 1000.0):
@@ -2206,6 +2232,7 @@ func get_save_dict() -> Dictionary:
 		"bonds": bonds.to_save(),
 		"social": social.to_save(),
 		"crash": crash.to_save(),
+		"combat": combat.to_save(),
 		"action_log": log_out,
 		"last_irritability_label": _last_irritability_label,
 		"last_player_rel_label": _last_player_relationship_label,
@@ -2263,6 +2290,9 @@ func apply_save_dict(d: Dictionary) -> void:
 	bonds.from_save(d.get("bonds", {}))
 	social.from_save(d.get("social", {}))
 	crash.from_save(d.get("crash", {}))
+	combat.from_save(d.get("combat", {}))
+	if is_inside_tree() and medical != null:
+		combat.apply_loaded_death()
 	_last_irritability_label = String(d.get("last_irritability_label", ""))
 	_last_player_relationship_label = String(d.get("last_player_rel_label", get_relationship_label("player")))
 	_action_log.clear()

@@ -7,17 +7,24 @@ class_name CrashOutActivity
 ## HOSTILE:   storm over to whoever they're furious at and rant at them;
 ##            then lash out at the bunker — shut the generator off, throw
 ##            food away, hurl things around; then pace, seething, until it
-##            passes. (Attacking arrives with the combat system — see
-##            NPCCrashOut.attack_enabled.)
+##            passes. When it has ESCALATED (a repeat crash-out, a deep
+##            hatred, or the target hit them first) they go for a weapon
+##            lying within reach (or their fists) and attack instead of
+##            sabotaging (NPCCombat; weapons contract in
+##            docs/systems/weapons/HANDOFF.md).
 ## BREAKDOWN: go somewhere alone, slump against a wall (the lean rig, head
 ##            down) and fall apart, sobbing now and then.
 ## Not interruptible — like RimWorld mental breaks, it runs its course.
 
-enum Phase { START, APPROACH, RANT, SABOTAGE, PACE, FIND_SPOT, SLUMP, STAND }
+enum Phase { START, APPROACH, RANT, SABOTAGE, PACE, FIND_SPOT, SLUMP, STAND, ARM, ATTACK }
 
 const RANT_SECONDS: Vector2 = Vector2(9.0, 14.0)
 const APPROACH_TIMEOUT: float = 18.0
 const MAX_SABOTAGE: int = 2
+const WEAPON_SEARCH: float = 14.0
+const ATTACK_SECONDS: Vector2 = Vector2(12.0, 20.0)
+const ESCALATE_BELOW: float = -65.0      ## relationship (incl. half the grudge) that turns a rant into an attack
+const GUN_RANGE: float = 7.0
 
 var _phase: Phase = Phase.START
 var _timer: float = 0.0
@@ -27,6 +34,10 @@ var _sabotage_target: Node3D = null
 var _sabotage_kind: String = ""
 var _leaning: bool = false
 var _spot: Dictionary = {}
+var _will_attack: bool = false
+var _weapon = null   ## WeaponItem (untyped: the weapon script has no class_name)
+var _attack_left: float = 0.0
+var _swing_gap: float = 0.0
 
 func score(npc: NPC) -> float:
 	if npc.crash != null and npc.crash.active() and npc.crash.mode in [NPCCrashOut.Mode.HOSTILE, NPCCrashOut.Mode.BREAKDOWN]:
@@ -54,6 +65,7 @@ func enter(npc: NPC) -> void:
 	_leaning = false
 	if npc.crash.mode == NPCCrashOut.Mode.HOSTILE:
 		var t: Node3D = npc.crash.target_node()
+		_will_attack = NPCCrashOut.attack_enabled and t != null and _escalated(npc)
 		_npc_desc = "furious at %s" % ("you" if npc.crash.target_id == "player" else String(t.get("npc_name")) if t != null else "everyone")
 		if npc.crash.confronted or t == null:
 			_phase = Phase.SABOTAGE if _sabotage_done < MAX_SABOTAGE else Phase.PACE
@@ -70,13 +82,13 @@ func tick(npc: NPC, delta: float) -> void:
 		Phase.APPROACH:
 			var t: Node3D = npc.crash.target_node()
 			if t == null or _timer > APPROACH_TIMEOUT:
-				_to(Phase.SABOTAGE)
+				_start_attack_or_sabotage(npc)
 				return
 			npc.set_nav_target(t.global_position)
 			npc.nav_steer(delta)
 			if NPCItemUser.flat_distance(npc.global_position, t.global_position) < 2.2:
 				_to(Phase.RANT)
-				_timer = -randf_range(RANT_SECONDS.x, RANT_SECONDS.y)
+				_timer = -randf_range(RANT_SECONDS.x, RANT_SECONDS.y) * (0.5 if _will_attack else 1.0)
 				_on_confront(npc, t)
 		Phase.RANT:
 			var t: Node3D = npc.crash.target_node()
@@ -89,9 +101,13 @@ func tick(npc: NPC, delta: float) -> void:
 			if NPCCrashOut.attack_enabled and t != null:
 				_attack(npc, t)
 			if _timer >= 0.0:
-				_to(Phase.SABOTAGE)
+				_start_attack_or_sabotage(npc)
 		Phase.SABOTAGE:
 			_tick_sabotage(npc, delta)
+		Phase.ARM:
+			_tick_arm(npc, delta)
+		Phase.ATTACK:
+			_tick_attack(npc, delta)
 		Phase.PACE:
 			## Seething: short fast legs, muttering.
 			npc.nav_steer(delta)
@@ -131,6 +147,15 @@ func done(npc: NPC) -> bool:
 	return not npc.crash.active()
 
 func exit(npc: NPC) -> void:
+	npc.combat.rushing = false
+	if _weapon != null and is_instance_valid(_weapon):
+		if _weapon.has_method("set_aiming"):
+			_weapon.set_aiming(false)
+		npc.combat.unwatch_weapon(_weapon)
+		if npc.held_item == _weapon:
+			NPCItemUser.drop_held(npc)   ## the rage passes; the weapon ends up on the floor
+		NPCItemUser.release_item(_weapon)
+	_weapon = null
 	if _leaning:
 		var model: Node = npc.get_node_or_null("CharacterModel")
 		if model != null:
@@ -140,7 +165,7 @@ func exit(npc: NPC) -> void:
 	_sabotage_target = null
 
 func attention_target(npc: NPC) -> Node3D:
-	return npc.crash.target_node() if _phase in [Phase.APPROACH, Phase.RANT] else null
+	return npc.crash.target_node() if _phase in [Phase.APPROACH, Phase.RANT, Phase.ATTACK] else null
 
 func _to(p: Phase) -> void:
 	_phase = p
@@ -156,9 +181,127 @@ func _on_confront(npc: NPC, t: Node3D) -> void:
 		(t as NPC).social.fear = minf(100.0, (t as NPC).social.fear + 20.0)
 	npc.log_event("crash", "Confronted %s, shouting" % ("you" if npc.crash.target_id == "player" else String(t.get("npc_name"))))
 
-## Combat hook (not wired yet — see NPCCrashOut.attack_enabled).
+## Combat hook kept for the RANT phase: attacking itself is its own phase.
 func _attack(_npc: NPC, _target: Node3D) -> void:
 	pass
+
+# ─── Attacking (NPCCombat) ──────────────────────────────────────────────────
+## Rant → attack only once it has escalated: they've crashed out before, the
+## hatred runs very deep, or the target hit them first.
+func _escalated(npc: NPC) -> bool:
+	var id: String = npc.crash.target_id
+	var score: float = npc.get_relationship(id) + npc.bonds.grudge_against(id) * 0.5
+	return npc.crash.count >= 2 or score <= ESCALATE_BELOW or npc.combat.attacked_by == id
+
+func _start_attack_or_sabotage(npc: NPC) -> void:
+	if not _will_attack or npc.crash.target_node() == null:
+		_to(Phase.SABOTAGE if _sabotage_done < MAX_SABOTAGE else Phase.PACE)
+		return
+	_attack_left = randf_range(ATTACK_SECONDS.x, ATTACK_SECONDS.y)
+	_weapon = npc.held_item if npc.held_item != null and "weapon_kind" in npc.held_item else _find_weapon(npc)
+	if _weapon != null and npc.held_item != _weapon:
+		NPCItemUser.claim_item(_weapon, npc)
+		npc.set_nav_target(_weapon.global_position)
+		_to(Phase.ARM)
+	else:
+		_begin_attack(npc)
+
+## The nearest loose weapon they can get to.
+func _find_weapon(npc: NPC) -> RigidBody3D:
+	var best: RigidBody3D = null
+	var best_d: float = WEAPON_SEARCH
+	for it: Node in npc.get_tree().get_nodes_in_group("inventory_item"):
+		if not (it is RigidBody3D) or not ("weapon_kind" in it) or it.is_in_group("shelved"):
+			continue
+		if ("is_held" in it and it.is_held) or NPCItemUser.is_claimed_by_other(it, npc):
+			continue
+		var d: float = NPCItemUser.flat_distance(npc.global_position, (it as Node3D).global_position)
+		if d < best_d and NPCItemUser.is_reachable(npc, (it as Node3D).global_position, 1.4):
+			best_d = d
+			best = it
+	return best
+
+func _tick_arm(npc: NPC, delta: float) -> void:
+	if _weapon == null or not is_instance_valid(_weapon) or ("is_held" in _weapon and _weapon.is_held) or _timer > APPROACH_TIMEOUT:
+		_weapon = null
+		_begin_attack(npc)   ## someone else got it — fists, then
+		return
+	npc.combat.rushing = true
+	npc.nav_steer(delta)
+	if NPCItemUser.in_reach(npc, _weapon.global_position, NPCItemUser.PICKUP_RANGE):
+		if NPCItemUser.grab_loose(npc, _weapon):
+			npc.log_event("crash", "Grabbed a %s" % NPCCombat.weapon_name(String(_weapon.weapon_kind)))
+		else:
+			_weapon = null
+		_begin_attack(npc)
+
+func _begin_attack(npc: NPC) -> void:
+	var t: Node3D = npc.crash.target_node()
+	if _weapon != null and npc.held_item == _weapon:
+		_weapon.set_aiming(true)
+		npc.combat.watch_weapon(_weapon)
+	else:
+		_weapon = null
+	npc.bark_event("attack")
+	npc.log_event("crash", "Attacked %s%s" % ["you" if npc.crash.target_id == "player" else String(t.get("npc_name")) if t != null else "someone",
+		" with a %s" % NPCCombat.weapon_name(String(_weapon.weapon_kind)) if _weapon != null else ""])
+	NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.CRITICAL,
+		"%s is attacking %s!" % [npc.npc_name, "you" if npc.crash.target_id == "player" else String(t.get("npc_name")) if t != null else "someone"])
+	_to(Phase.ATTACK)
+
+func _attack_range() -> float:
+	if _weapon == null:
+		return NPCCombat.FIST_REACH
+	if _weapon.is_firearm():
+		return GUN_RANGE if _weapon.ammo > 0 else _weapon.whip_reach
+	return _weapon.reach
+
+func _tick_attack(npc: NPC, delta: float) -> void:
+	var t: Node3D = npc.crash.target_node()
+	_attack_left -= delta
+	var target_down: bool = t == null or (t.has_method("is_dead") and t.is_dead())
+	if target_down or _attack_left <= 0.0:
+		npc.combat.rushing = false
+		if _weapon != null and is_instance_valid(_weapon):
+			_weapon.set_aiming(false)
+		_to(Phase.PACE)
+		return
+	var d: float = NPCItemUser.flat_distance(npc.global_position, t.global_position)
+	var reach: float = _attack_range()
+	if d > reach * 0.8:
+		npc.combat.rushing = true
+		npc.set_nav_target(t.global_position)
+		npc.nav_steer(delta)
+		return
+	npc.combat.rushing = false
+	npc.halt_movement(delta)
+	npc.face_toward(t.global_position, 1.0)
+	_swing_gap -= delta
+	if _swing_gap > 0.0:
+		return
+	if _bark_timer <= 0.0:
+		_bark_timer = randf_range(4.0, 7.0)
+		npc.bark_event("attack")
+	var aim_at: Vector3 = t.global_position + Vector3.UP * 0.35
+	if _weapon != null and is_instance_valid(_weapon) and npc.held_item == _weapon:
+		## Melee swings from the body toward the target (the held weapon sits
+		## ahead of the body, so aiming from it goes sideways up close); guns
+		## aim from the weapon, with shaky hands (some shots miss).
+		var dir: Vector3 = Vector3(t.global_position.x - npc.global_position.x, 0.0, t.global_position.z - npc.global_position.z)
+		if _weapon.is_firearm() and _weapon.ammo > 0:
+			dir = (aim_at - _weapon.global_position).normalized().rotated(Vector3.UP, randf_range(-0.07, 0.07))
+		if _weapon.try_attack(dir):
+			_swing_gap = randf_range(0.5, 1.1)   ## wind-up between blows; gives the victim a chance
+	else:
+		_weapon = null
+		_swing_gap = NPCCombat.FIST_INTERVAL
+		if d <= NPCCombat.FIST_REACH:
+			var ctx: Dictionary = {"damage": NPCCombat.FIST_DAMAGE, "position": aim_at, "direction": (t.global_position - npc.global_position).normalized(),
+				"kind": "fists", "source": npc, "collider": t}
+			if t.has_method("receive_weapon_hit"):
+				t.receive_weapon_hit(ctx)
+			elif t.is_in_group("player"):
+				npc.combat.apply_player_hit(ctx)
 
 # ─── Sabotage ───────────────────────────────────────────────────────────────
 func _tick_sabotage(npc: NPC, delta: float) -> void:
