@@ -41,6 +41,11 @@ const DEFS: Dictionary = {
 	"in_pain":           {"label": "I'm hurt",                         "mood": -4.0, "hours": 0.0,  "stack": 1},
 	"lonely":            {"label": "Haven't really talked to anyone",  "mood": -3.0, "hours": 0.0,  "stack": 1},
 	"crowded_beds":      {"label": "No bed to call my own",            "mood": -2.0, "hours": 0.0,  "stack": 1},
+	"hungry":            {"label": "Hungry",                           "mood": -4.0, "hours": 0.0,  "stack": 1},
+	"starving":          {"label": "Starving",                         "mood": -12.0, "hours": 0.0, "stack": 1},
+	"thirsty":           {"label": "Thirsty",                          "mood": -4.0, "hours": 0.0,  "stack": 1},
+	"parched":           {"label": "Parched",                          "mood": -12.0, "hours": 0.0, "stack": 1},
+	"exhausted":         {"label": "Exhausted",                        "mood": -7.0, "hours": 0.0,  "stack": 1},
 }
 const FADE_HOURS: float = 2.0
 const MAX_THOUGHTS: int = 12

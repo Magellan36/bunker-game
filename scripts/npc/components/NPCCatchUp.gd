@@ -90,8 +90,6 @@ static func catch_up_npc(npc: NPC, h: float, avg_mood_before: float) -> void:
 			if npc.energy <= 0.0:
 				npc.energy = 0.0
 				passed_out = true
-				var drop: float = randf_range(1.0, 10.0 * npc.neuroticism_trait_mult())
-				npc.mood = clampf(npc.mood - drop, 0.0, 100.0)
 				npc.add_thought("collapsed")
 		if not night or passed_out:
 			if npc.hunger < EAT_BELOW:
@@ -103,6 +101,8 @@ static func catch_up_npc(npc: NPC, h: float, avg_mood_before: float) -> void:
 			npc.health = maxf(0.0, npc.health - NPC.HEALTH_DRAIN_PER_ZEROED_NEED_PER_GAME_HOUR * zeroed * dt)
 		needs_sum += (npc.energy + npc.hunger + npc.thirst) / 3.0 * dt
 		npc.thoughts.tick(dt)
+		npc._update_condition_thoughts()
+		npc.morale_sys.tick(dt, npc.thoughts.total())   ## hour by hour, same model as live play
 	if slept_hours >= 3.0:
 		npc.add_thought("slept_in_bed" if _has_bed() else "slept_on_floor")
 	npc._tick_relax_day(h)
@@ -143,15 +143,6 @@ static func _drink_something(npc: NPC) -> void:
 	while NPCItemUser.is_drinkable_bottle(item) and npc.thirst < NPC.NEED_SATED:
 		npc.thirst = minf(100.0, npc.thirst + item.take_drink())
 
-## Needs pull and contagion evaluated once with a large h. Random drift is a
-## random walk — its spread grows with √hours, not hours (the old linear
-## version could swing a 24 h skip's mood by ±36 from noise alone).
-static func _catch_up_mood(npc: NPC, h: float, avg_mood_before: float) -> void:
-	var target: float = npc.get_mood_target()
-	var rate: float = NPC.MOOD_CHANGE_PER_GAME_HOUR
-	if target > npc.mood:
-		rate *= npc._mood_recovery_trait_mult()
-	npc.mood = move_toward(npc.mood, target, rate * h)
-	var blend: float = clampf(NPC.MOOD_CONTAGION_STRENGTH_PER_GAME_HOUR * npc.get_contagion_sociability_mult() * h, 0.0, 1.0)
-	npc.mood = clampf(npc.mood + (avg_mood_before - npc.mood) * blend, 0.0, 100.0)
-	npc.mood = clampf(npc.mood + randf_range(-1.0, 1.0) * NPC.MOOD_DRIFT_MAX_PER_GAME_HOUR * npc.neuroticism_trait_mult() * sqrt(h), 0.0, 100.0)
+## Morale already advanced hour by hour above; mood settles on its target.
+static func _catch_up_mood(npc: NPC, _h: float, _avg_mood_before: float) -> void:
+	npc.mood = npc.get_mood_target()

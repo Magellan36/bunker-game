@@ -66,6 +66,7 @@ var brain: NPCBrain = null
 var medical: NPCMedical = null
 var job_state: NPCJobState = NPCJobState.new()
 var thoughts: NPCThoughts = NPCThoughts.new()
+var morale_sys: NPCMorale = NPCMorale.new()   ## slow, condition-driven morale (see NPCMorale.gd)
 var stuck: NPCStuckRecovery = NPCStuckRecovery.new()
 
 ## True once apply_save_dict() has populated this NPC — _ready() must not
@@ -238,10 +239,6 @@ func has_lazy_trait() -> bool:
 func _irritability_trait_mult() -> float:
 	return lerp(1.5, 0.5, _trait("resilience"))
 
-## Optimism scales mood RECOVERY only.
-func _mood_recovery_trait_mult() -> float:
-	return lerp(0.5, 1.5, _trait("optimism"))
-
 ## Sociability: relationship-change magnitude (0.5x..1.5x).
 func _sociability_trait_mult() -> float:
 	return lerp(0.5, 1.5, _trait("sociability"))
@@ -273,6 +270,11 @@ func add_thought(id: String, subject: String = "") -> void:
 	if def.is_empty():
 		return
 	thoughts.add(id, subject, thought_weight(float(def["mood"])))
+	## Meals and nights also shape the slow Food/Rest conditions of morale.
+	if id.begins_with("ate_"):
+		morale_sys.note_meal(id)
+	elif id.begins_with("slept_") or id == "collapsed":
+		morale_sys.note_sleep(id)
 
 # ─── Utility helpers (shared by every activity's score()) ────────────────
 ## 0 while `value` ≥ `start`, 1 once `value` ≤ `full`, smoothstepped in
@@ -333,19 +335,21 @@ func get_work_speed_mult(skill_key: String = "") -> float:
 		m *= 0.85
 	return m
 
-# ─── Mood (0..100, moves slowly) & irritability (fast, no bar) ────────────
-var mood: float = 100.0
-## Contented baseline mood when every need is comfortable, before thoughts.
-## Thoughts (NPCThoughts) push it up or down from there.
-const MOOD_CONTENT_BASELINE: float = 82.0
-const MOOD_CHANGE_PER_GAME_HOUR: float = 4.0
-const MOOD_CONTAGION_STRENGTH_PER_GAME_HOUR: float = 0.03
-const MOOD_DRIFT_MAX_PER_GAME_HOUR: float = 1.0
+# ─── Mood (0..100) & irritability (fast, no bar) ──────────────────────────
+## Displayed mood = MORALE (slow, NPCMorale — sustained bunker conditions)
+## + a capped share of FEELINGS (NPCThoughts — today's moodlets, including
+## hunger/thirst/exhaustion). Crash-outs read morale, not mood.
+## Sep 2026: replaces "needs average + thoughts + random drift", which
+## swung from content to miserable within a game day for no visible reason.
+var mood: float = 65.0
+const MOOD_FEELINGS_MIN: float = -25.0
+const MOOD_FEELINGS_MAX: float = 15.0
+const MOOD_FOLLOW_PER_GAME_HOUR: float = 10.0
 const MOOD_TICK_INTERVAL: float = 5.0   ## real seconds — periodic, not per-frame
 var _mood_tick_timer: float = 0.0
-var _mood_needs_delta: float = 0.0
-var _mood_contagion_delta: float = 0.0
-var _mood_drift_delta: float = 0.0
+
+var morale: float:
+	get: return morale_sys.morale if morale_sys != null else mood
 
 var irritability: float = 0.0
 const IRRITABILITY_NEED_WEIGHT: float = 1.2
@@ -371,14 +375,11 @@ func get_irritability_label() -> String:
 			label = IRRITABILITY_LABELS[i]
 	return label
 
-## Mood target from needs alone: the contented baseline while needs are
-## comfortable, sliding smoothly down as they fall (no cliff at 70).
-func _needs_mood_target() -> float:
-	var needs_avg: float = (energy + hunger + thirst) / 3.0
-	return clampf(MOOD_CONTENT_BASELINE - maxf(0.0, 75.0 - needs_avg) * 1.25, 0.0, 100.0)
+func get_feelings() -> float:
+	return clampf(thoughts.total(), MOOD_FEELINGS_MIN, MOOD_FEELINGS_MAX)
 
 func get_mood_target() -> float:
-	return clampf(_needs_mood_target() + thoughts.total(), 0.0, 100.0)
+	return clampf(morale_sys.morale + get_feelings(), 0.0, 100.0)
 
 func _tick_social_and_mood(delta: float) -> void:
 	_mood_tick_timer -= delta
@@ -396,32 +397,17 @@ func _tick_social_and_mood(delta: float) -> void:
 	_tick_relax_day(h)
 	if gift_saturation > 0.0:
 		gift_saturation = maxf(0.0, gift_saturation - GIFT_SATURATION_DECAY_PER_GAME_HOUR * h)
-	_check_contagion_log()
 	_check_label_crossings()
 	_check_birthday()
 	if NPCDebug.enabled:
 		NPCDebug.log_relationship_tick(self)
 
 func _tick_mood(h: float) -> void:
-	var target: float = get_mood_target()
-	var rate: float = MOOD_CHANGE_PER_GAME_HOUR
-	if target > mood:
-		rate *= _mood_recovery_trait_mult()
 	var before: float = mood
-	mood = move_toward(mood, target, rate * h)
-	_mood_needs_delta = mood - before
-
-	before = mood
-	var contagion_target: float = _compute_weighted_contagion_target()
-	mood = clampf(mood + (contagion_target - mood) * MOOD_CONTAGION_STRENGTH_PER_GAME_HOUR * get_contagion_sociability_mult() * h, 0.0, 100.0)
-	_mood_contagion_delta = mood - before
-
-	before = mood
-	mood = clampf(mood + randf_range(-MOOD_DRIFT_MAX_PER_GAME_HOUR, MOOD_DRIFT_MAX_PER_GAME_HOUR) * neuroticism_trait_mult() * h, 0.0, 100.0)
-	_mood_drift_delta = mood - before
-
+	morale_sys.tick(h, thoughts.total())
+	mood = move_toward(mood, get_mood_target(), MOOD_FOLLOW_PER_GAME_HOUR * h)
 	if NPCDebug.enabled:
-		NPCDebug.log_mood(self, _mood_needs_delta, _mood_contagion_delta, _mood_drift_delta, mood)
+		NPCDebug.log_mood(self, mood - before, 0.0, 0.0, mood)
 
 func _tick_irritability(h: float) -> void:
 	var need_contrib: float = maxf(0.0, 50.0 - energy) + maxf(0.0, 50.0 - hunger) + maxf(0.0, 50.0 - thirst)
@@ -439,6 +425,12 @@ const LONELY_AFTER_HOURS: float = 30.0
 var _last_social_time: float = -1.0   ## NPCClock hours of the last real conversation
 
 func _update_condition_thoughts() -> void:
+	## Acute needs are FEELINGS (fast, visible, explained) — not morale.
+	thoughts.set_condition("starving", hunger < 15.0, thought_weight(-1.0))
+	thoughts.set_condition("hungry", hunger >= 15.0 and hunger < 35.0, thought_weight(-1.0))
+	thoughts.set_condition("parched", thirst < 15.0, thought_weight(-1.0))
+	thoughts.set_condition("thirsty", thirst >= 15.0 and thirst < 35.0, thought_weight(-1.0))
+	thoughts.set_condition("exhausted", energy < 15.0, thought_weight(-1.0))
 	thoughts.set_condition("cluttered", JobBoard.get_total_clutter_count() >= CLUTTER_UPSETS_AT, thought_weight(-1.0))
 	var hurting: bool = false
 	if medical != null:
@@ -541,9 +533,14 @@ func _compute_weighted_contagion_target() -> float:
 		var exposure: float = float(_contagion_exposure.get(other.npc_id, 0.0))
 		if exposure <= 0.0:
 			continue
-		weighted_sum += float(other.mood) * exposure
+		weighted_sum += float(other.morale) * exposure
 		weight_total += exposure
-	return weighted_sum / weight_total if weight_total > 0.0 else mood
+	return weighted_sum / weight_total if weight_total > 0.0 else morale
+
+## Exposure-weighted morale of the people this resident spends time with
+## (NPCMorale pulls gently toward it — moods are contagious, slowly).
+func contagion_target() -> float:
+	return _compute_weighted_contagion_target()
 
 # ─── Action log ─────────────────────────────────────────────────────────────
 ## Player-facing, curated log of MEANINGFUL things this NPC did — not a
@@ -551,9 +548,7 @@ func _compute_weighted_contagion_target() -> float:
 signal action_logged
 
 const ACTION_LOG_MAX_LEN: int = 100
-const CONTAGION_LOG_THRESHOLD: float = 2.0
 var _action_log: Array[Dictionary] = []
-var _contagion_log_accum: float = 0.0
 var _last_irritability_label: String = ""
 var _last_player_relationship_label: String = "Neutral"
 
@@ -571,6 +566,13 @@ func log_action(text: String) -> Dictionary:
 	if _action_log.size() > ACTION_LOG_MAX_LEN:
 		_action_log.pop_front()
 	action_logged.emit()
+	return entry
+
+## A categorised log entry ("morale", "bond", "memory", "crash"...) — the UI
+## can colour/filter by kind; the text is always plain English.
+func log_event(kind: String, text: String) -> Dictionary:
+	var entry: Dictionary = log_action(text)
+	entry["kind"] = kind
 	return entry
 
 ## Newest-first.
@@ -598,12 +600,6 @@ func end_hostile_log() -> void:
 		_hostile_log_entry["text"] = "%s was HOSTILE for %ds" % [npc_name, int((Time.get_ticks_msec() - _hostile_start_msec) / 1000.0)]
 		_hostile_log_entry["is_live_hostile"] = false
 	_hostile_log_entry = {}
-
-func _check_contagion_log() -> void:
-	_contagion_log_accum += _mood_contagion_delta
-	if absf(_contagion_log_accum) >= CONTAGION_LOG_THRESHOLD:
-		log_action("Mood %s %+.0f%% (Mood Contagion)" % ["rose" if _contagion_log_accum > 0.0 else "fell", _contagion_log_accum])
-		_contagion_log_accum = 0.0
 
 func _check_label_crossings() -> void:
 	var irr_label: String = get_irritability_label()
@@ -1184,6 +1180,8 @@ func _ready() -> void:
 	brain = NPCBrain.new()
 	brain.setup(self)
 	stuck.setup(self)
+	morale_sys.setup(self)
+	mood = morale_sys.morale
 	_mood_tick_timer = randf() * MOOD_TICK_INTERVAL   ## stagger across NPCs
 
 	medical = NPCMedical.new()
@@ -1913,7 +1911,7 @@ func get_save_dict() -> Dictionary:
 	var log_out: Array = []
 	for e: Dictionary in _action_log:
 		log_out.append({"text": e.get("text", ""), "stamp_hours": e.get("stamp_hours", NPCClock.now()),
-			"game_time": e.get("game_time", "")})
+			"game_time": e.get("game_time", ""), "kind": e.get("kind", "")})
 	return {
 		"pos": {"x": global_position.x, "y": global_position.y, "z": global_position.z},
 		"rot_y": rotation.y,
@@ -1933,6 +1931,7 @@ func get_save_dict() -> Dictionary:
 		"snatch_cooldowns": _snatch_cooldown_from.duplicate(),
 		"snatch_pair_cooldowns": _npc_snatch_pair_cooldown.duplicate(),
 		"thoughts": thoughts.to_save(),
+		"morale": morale_sys.to_save(),
 		"action_log": log_out,
 		"last_irritability_label": _last_irritability_label,
 		"last_player_rel_label": _last_player_relationship_label,
@@ -1986,6 +1985,7 @@ func apply_save_dict(d: Dictionary) -> void:
 	_snatch_cooldown_from = (d.get("snatch_cooldowns", {}) as Dictionary).duplicate()
 	_npc_snatch_pair_cooldown = (d.get("snatch_pair_cooldowns", {}) as Dictionary).duplicate()
 	thoughts.from_save(d.get("thoughts", []))
+	morale_sys.from_save(d.get("morale", {}))
 	_last_irritability_label = String(d.get("last_irritability_label", ""))
 	_last_player_relationship_label = String(d.get("last_player_rel_label", get_relationship_label("player")))
 	_action_log.clear()
@@ -1996,7 +1996,7 @@ func apply_save_dict(d: Dictionary) -> void:
 			var stamp: float = float(e.get("stamp_hours", now_h))
 			var age_sec: float = maxf(0.0, (now_h - stamp) * NPCClock.seconds_per_game_hour())
 			_action_log.append({"text": String(e.get("text", "")), "stamp_hours": stamp,
-				"game_time": String(e.get("game_time", "")),
+				"game_time": String(e.get("game_time", "")), "kind": String(e.get("kind", "")),
 				"fired_at_msec": now_msec - int(age_sec * 1000.0)})
 	_pending_medical_save = d.get("medical", [])
 	var gender: String = String(d.get("gender", ""))

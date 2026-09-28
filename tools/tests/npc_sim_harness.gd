@@ -22,7 +22,7 @@ extends Node
 ## (runs res://tools/tests/NPCSimHarness.tscn as the main scene so autoloads exist)
 ## Exit code 0 = no invariant violations, 1 = violations (report printed).
 
-const SCENARIOS: Array[String] = ["basic", "farm", "cook", "power", "stress", "scarcity", "door", "session", "all"]
+const SCENARIOS: Array[String] = ["basic", "farm", "cook", "power", "stress", "scarcity", "door", "session", "morale", "all"]
 
 var _cfg: Dictionary = {
 	"scenario": "basic",
@@ -101,6 +101,11 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
+	if String(_cfg["scenario"]) == "morale" and _phase == 1:
+		_run_morale_timeline()
+		_phase = 3
+		get_tree().quit(0 if _violations.is_empty() else 1)
+		return
 	if _phase == 0:
 		if _t >= _setup_at:
 			_phase = -1   ## setup may await a physics frame (door scenario)
@@ -268,6 +273,76 @@ func _setup() -> void:
 		sc, int(_cfg["npcs"]), float(_cfg["minutes"]), int(_cfg["seed"]), objs.size(), items.size()])
 	for g in ["chair", "bed", "shelving", "trash_receptacle", "generator", "farming_tray", "stove", "pickup"]:
 		print("[harness]   group %s = %d" % [g, get_tree().get_nodes_in_group(g).size()])
+
+## ─── Morale timeline (fast-forward, no physics) ─────────────────────────
+## Drives NPCMorale (and crash-out risk) hour by hour for a week under three
+## synthetic bunkers and checks the design targets: a badly run bunker puts
+## residents at crash-out risk in ~3-5 days; a good one never does.
+const MORALE_BUNKERS: Dictionary = {
+	"bad":     {"light": -1.0, "power": -1.0, "space": -0.6, "safety": 0.0, "company": 0.0, "meal": "ate_cold_can", "water_q": 35.0, "sleep": "slept_on_floor"},
+	"average": {"light": 0.2,  "power": 0.1,  "space": 0.0,  "safety": 0.2, "company": 0.1, "meal": "ate_cold_can", "water_q": 70.0, "sleep": "slept_in_bed"},
+	"good":    {"light": 0.5,  "power": 0.3,  "space": 0.3,  "safety": 0.2, "company": 0.3, "meal": "ate_hot_meal", "water_q": 95.0, "sleep": "slept_in_bed"},
+}
+
+func _run_morale_timeline() -> void:
+	var npcs: Array = get_tree().get_nodes_in_group("npc")
+	for n: NPC in npcs:
+		n.set_physics_process(false)
+		n.set_process(false)
+		n.hunger = 70.0; n.thirst = 70.0; n.energy = 70.0
+	for bunker: String in MORALE_BUNKERS.keys():
+		var cfg: Dictionary = MORALE_BUNKERS[bunker]
+		var first_risk: Array[float] = []
+		var first_crash: Array[float] = []
+		var end_morale: Array[float] = []
+		for n: NPC in npcs:
+			n.randomize_personality()
+			n.morale_sys = NPCMorale.new()
+			n.morale_sys.setup(n)
+			n.morale_sys.sample_override = {"light": cfg["light"], "power": cfg["power"], "space": cfg["space"],
+				"safety": cfg["safety"], "company": cfg["company"]}
+			var risk_at: float = -1.0
+			var crash_at: float = -1.0
+			for step: int in 7 * 24 * 4:   ## a week in 15-minute steps
+				var hour: float = step * 0.25
+				var hod: float = fmod(hour, 24.0)
+				if is_equal_approx(fmod(hod, 8.0), 0.0):
+					n.morale_sys.note_meal(String(cfg["meal"]))
+				if is_equal_approx(fmod(hod, 6.0), 0.0):
+					n.morale_sys.note_drink(float(cfg["water_q"]))
+				if is_equal_approx(hod, 7.0):
+					n.morale_sys.note_sleep(String(cfg["sleep"]))
+				n.morale_sys.tick(0.25, 0.0)
+				if risk_at < 0.0 and n.morale_sys.morale < NPCMorale.CRASH_RISK_BELOW:
+					risk_at = hour / 24.0
+				if crash_at < 0.0 and n.has_method("debug_roll_crash_out") and n.debug_roll_crash_out(0.25):
+					crash_at = hour / 24.0
+			first_risk.append(risk_at)
+			first_crash.append(crash_at)
+			end_morale.append(n.morale_sys.morale)
+		print("[morale] %-8s end morale %s | crash-risk from day %s | first crash day %s" % [bunker,
+			_fmt_list(end_morale), _fmt_list(first_risk), _fmt_list(first_crash)])
+		var risked: Array = first_risk.filter(func(d): return d >= 0.0)
+		if bunker == "good" and not risked.is_empty():
+			_flag("morale_timeline", npcs[0], "good bunker reached crash-out risk: %s" % str(first_risk))
+		if bunker == "bad":
+			## Design: the FIRST resident is at risk after ~2-4 days, most of
+			## them within the week; traits spread the rest.
+			var earliest: float = risked.min() if not risked.is_empty() else -1.0
+			if earliest < 2.0 or earliest > 4.0:
+				_flag("morale_timeline", npcs[0], "bad bunker: first resident at crash-out risk on day %.1f (want 2-4)" % earliest, "bad-first")
+			if risked.size() * 2 < first_risk.size():
+				_flag("morale_timeline", npcs[0], "bad bunker: only %d/%d residents at risk within a week" % [risked.size(), first_risk.size()], "bad-most")
+			var crashed: Array = first_crash.filter(func(d): return d >= 0.0)
+			if not crashed.is_empty() and (crashed.min() < 2.5 or crashed.min() > 5.5):
+				_flag("morale_timeline", npcs[0], "bad bunker: first crash-out on day %.1f (want 3-5)" % crashed.min(), "bad-crash")
+	_report()
+
+static func _fmt_list(a: Array) -> String:
+	var parts: Array[String] = []
+	for v in a:
+		parts.append("-" if float(v) < 0.0 else "%.1f" % float(v))
+	return "[" + ", ".join(parts) + "]"
 
 ## Session scenario: the stove nearest the generator is wired to it; the
 ## other stays unplugged (a pot may go on it, but nobody may cook on it).
