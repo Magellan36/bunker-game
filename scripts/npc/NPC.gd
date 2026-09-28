@@ -26,8 +26,8 @@ class_name NPC
 @export var move_speed: float = 2.2
 @export var acceleration: float = 8.0
 @export var npc_name: String = "Survivor"
-@export var idle_time_min: float = 1.5
-@export var idle_time_max: float = 4.0
+@export var idle_time_min: float = 3.0   ## wander pauses: people mostly stand around in downtime
+@export var idle_time_max: float = 8.0
 
 ## Shared need thresholds — "needs it" means the same thing everywhere.
 const NEED_LOW: float = 55.0      ## below this a need is actively pressing
@@ -66,6 +66,10 @@ var brain: NPCBrain = null
 var medical: NPCMedical = null
 var job_state: NPCJobState = NPCJobState.new()
 var thoughts: NPCThoughts = NPCThoughts.new()
+var morale_sys: NPCMorale = NPCMorale.new()   ## slow, condition-driven morale (see NPCMorale.gd)
+var bonds: NPCBonds = NPCBonds.new()           ## relationship ledger + remembered big moments
+var social: NPCSocial = NPCSocial.new()        ## how the player's conduct shapes relationships
+var crash: NPCCrashOut = NPCCrashOut.new()     ## mental breaks when morale collapses
 var stuck: NPCStuckRecovery = NPCStuckRecovery.new()
 
 ## True once apply_save_dict() has populated this NPC — _ready() must not
@@ -238,10 +242,6 @@ func has_lazy_trait() -> bool:
 func _irritability_trait_mult() -> float:
 	return lerp(1.5, 0.5, _trait("resilience"))
 
-## Optimism scales mood RECOVERY only.
-func _mood_recovery_trait_mult() -> float:
-	return lerp(0.5, 1.5, _trait("optimism"))
-
 ## Sociability: relationship-change magnitude (0.5x..1.5x).
 func _sociability_trait_mult() -> float:
 	return lerp(0.5, 1.5, _trait("sociability"))
@@ -251,11 +251,19 @@ func get_contagion_sociability_mult() -> float:
 	return lerp(0.67, 1.33, _trait("sociability"))
 
 ## Work Ethic: ±30% on job scores, mirrored on idle activities.
+## Work Ethic shapes autonomy strongly (Sep 2026): the Lazy (~0.2x on jobs,
+## ~1.5x on leisure) skip ordinary chores for downtime and only move for
+## genuinely urgent work; Hard Workers (~1.3x) seek jobs out. Player
+## pressure (NPCSocial.drive) overrides it for a few hours.
 func get_work_ethic_job_mult() -> float:
-	return lerp(0.7, 1.3, _trait("work_ethic"))
+	var drive: float = social.drive() if social != null else 0.0
+	return lerp(0.2, 1.3, social.ethic() if social != null else 0.5) * (1.0 + 2.5 * drive)
 
 func get_work_ethic_passive_mult() -> float:
-	return lerp(1.3, 0.7, _trait("work_ethic"))
+	if crash != null and crash.mode == NPCCrashOut.Mode.OVERDRIVE:
+		return 0.3   ## overdrive: no breaks, only pacing between jobs
+	var drive: float = social.drive() if social != null else 0.0
+	return lerp(1.5, 0.7, social.ethic() if social != null else 0.5) * (1.0 - 0.8 * drive)
 
 ## Neuroticism: mood noise and the pass-out mood hit (0.5x..1.5x).
 func neuroticism_trait_mult() -> float:
@@ -273,6 +281,11 @@ func add_thought(id: String, subject: String = "") -> void:
 	if def.is_empty():
 		return
 	thoughts.add(id, subject, thought_weight(float(def["mood"])))
+	## Meals and nights also shape the slow Food/Rest conditions of morale.
+	if id.begins_with("ate_"):
+		morale_sys.note_meal(id)
+	elif id.begins_with("slept_") or id == "collapsed":
+		morale_sys.note_sleep(id)
 
 # ─── Utility helpers (shared by every activity's score()) ────────────────
 ## 0 while `value` ≥ `start`, 1 once `value` ≤ `full`, smoothstepped in
@@ -318,13 +331,18 @@ func work_score(job_type: String, urgency_mult: float = 1.0, base: float = JOB_B
 	if skill_key != "" and skills.has(skill_key):
 		skill_pref = lerp(0.9, 1.15, clampf((float(skills[skill_key]) - 0.6) / 1.4, 0.0, 1.0))
 	var willingness: float = 1.0 - (irritability / 100.0) * 0.5
+	var overdrive: float = 2.2 if crash != null and crash.mode == NPCCrashOut.Mode.OVERDRIVE else 1.0
 	return base * get_job_priority_weight(job_type) * urgency_mult * get_work_ethic_job_mult() \
-		* skill_pref * willingness
+		* skill_pref * willingness * overdrive
 
 ## How fast this resident gets physical work done (age, injuries, skill).
 ## Every job's work timer multiplies its delta by this.
 func get_work_speed_mult(skill_key: String = "") -> float:
 	var m: float = get_age_work_mult()
+	if crash != null and crash.mode == NPCCrashOut.Mode.OVERDRIVE:
+		m *= 1.35   ## overdrive: frantic pace
+	if social != null:
+		m *= 1.0 + 0.25 * social.drive()   ## pushed hard, they hurry
 	if medical != null:
 		m *= medical.get_medical_job_speed_multiplier()
 	if skill_key != "" and skills.has(skill_key):
@@ -333,19 +351,21 @@ func get_work_speed_mult(skill_key: String = "") -> float:
 		m *= 0.85
 	return m
 
-# ─── Mood (0..100, moves slowly) & irritability (fast, no bar) ────────────
-var mood: float = 100.0
-## Contented baseline mood when every need is comfortable, before thoughts.
-## Thoughts (NPCThoughts) push it up or down from there.
-const MOOD_CONTENT_BASELINE: float = 82.0
-const MOOD_CHANGE_PER_GAME_HOUR: float = 4.0
-const MOOD_CONTAGION_STRENGTH_PER_GAME_HOUR: float = 0.03
-const MOOD_DRIFT_MAX_PER_GAME_HOUR: float = 1.0
+# ─── Mood (0..100) & irritability (fast, no bar) ──────────────────────────
+## Displayed mood = MORALE (slow, NPCMorale — sustained bunker conditions)
+## + a capped share of FEELINGS (NPCThoughts — today's moodlets, including
+## hunger/thirst/exhaustion). Crash-outs read morale, not mood.
+## Sep 2026: replaces "needs average + thoughts + random drift", which
+## swung from content to miserable within a game day for no visible reason.
+var mood: float = 65.0
+const MOOD_FEELINGS_MIN: float = -25.0
+const MOOD_FEELINGS_MAX: float = 15.0
+const MOOD_FOLLOW_PER_GAME_HOUR: float = 10.0
 const MOOD_TICK_INTERVAL: float = 5.0   ## real seconds — periodic, not per-frame
 var _mood_tick_timer: float = 0.0
-var _mood_needs_delta: float = 0.0
-var _mood_contagion_delta: float = 0.0
-var _mood_drift_delta: float = 0.0
+
+var morale: float:
+	get: return morale_sys.morale if morale_sys != null else mood
 
 var irritability: float = 0.0
 const IRRITABILITY_NEED_WEIGHT: float = 1.2
@@ -371,14 +391,11 @@ func get_irritability_label() -> String:
 			label = IRRITABILITY_LABELS[i]
 	return label
 
-## Mood target from needs alone: the contented baseline while needs are
-## comfortable, sliding smoothly down as they fall (no cliff at 70).
-func _needs_mood_target() -> float:
-	var needs_avg: float = (energy + hunger + thirst) / 3.0
-	return clampf(MOOD_CONTENT_BASELINE - maxf(0.0, 75.0 - needs_avg) * 1.25, 0.0, 100.0)
+func get_feelings() -> float:
+	return clampf(thoughts.total(), MOOD_FEELINGS_MIN, MOOD_FEELINGS_MAX)
 
 func get_mood_target() -> float:
-	return clampf(_needs_mood_target() + thoughts.total(), 0.0, 100.0)
+	return clampf(morale_sys.morale + get_feelings(), 0.0, 100.0)
 
 func _tick_social_and_mood(delta: float) -> void:
 	_mood_tick_timer -= delta
@@ -392,36 +409,24 @@ func _tick_social_and_mood(delta: float) -> void:
 	thoughts.tick(h)
 	_update_condition_thoughts()
 	_tick_mood(h)
+	bonds.tick(h)
+	social.tick(h)
+	crash.tick(h)
 	_tick_irritability(h)
 	_tick_relax_day(h)
 	if gift_saturation > 0.0:
 		gift_saturation = maxf(0.0, gift_saturation - GIFT_SATURATION_DECAY_PER_GAME_HOUR * h)
-	_check_contagion_log()
 	_check_label_crossings()
 	_check_birthday()
 	if NPCDebug.enabled:
 		NPCDebug.log_relationship_tick(self)
 
 func _tick_mood(h: float) -> void:
-	var target: float = get_mood_target()
-	var rate: float = MOOD_CHANGE_PER_GAME_HOUR
-	if target > mood:
-		rate *= _mood_recovery_trait_mult()
 	var before: float = mood
-	mood = move_toward(mood, target, rate * h)
-	_mood_needs_delta = mood - before
-
-	before = mood
-	var contagion_target: float = _compute_weighted_contagion_target()
-	mood = clampf(mood + (contagion_target - mood) * MOOD_CONTAGION_STRENGTH_PER_GAME_HOUR * get_contagion_sociability_mult() * h, 0.0, 100.0)
-	_mood_contagion_delta = mood - before
-
-	before = mood
-	mood = clampf(mood + randf_range(-MOOD_DRIFT_MAX_PER_GAME_HOUR, MOOD_DRIFT_MAX_PER_GAME_HOUR) * neuroticism_trait_mult() * h, 0.0, 100.0)
-	_mood_drift_delta = mood - before
-
+	morale_sys.tick(h, thoughts.total())
+	mood = move_toward(mood, get_mood_target(), MOOD_FOLLOW_PER_GAME_HOUR * h)
 	if NPCDebug.enabled:
-		NPCDebug.log_mood(self, _mood_needs_delta, _mood_contagion_delta, _mood_drift_delta, mood)
+		NPCDebug.log_mood(self, mood - before, 0.0, 0.0, mood)
 
 func _tick_irritability(h: float) -> void:
 	var need_contrib: float = maxf(0.0, 50.0 - energy) + maxf(0.0, 50.0 - hunger) + maxf(0.0, 50.0 - thirst)
@@ -429,6 +434,8 @@ func _tick_irritability(h: float) -> void:
 	var trait_mult: float = _irritability_trait_mult()
 	_irritability_target = clampf(
 		(need_contrib * IRRITABILITY_NEED_WEIGHT + mood_contrib * IRRITABILITY_MOOD_WEIGHT) * trait_mult, 0.0, 100.0)
+	if social != null and social.is_cowed():
+		_irritability_target = minf(_irritability_target * 0.4, 40.0)   ## put in their place: no tantrums
 	irritability = move_toward(irritability, _irritability_target, IRRITABILITY_CHANGE_PER_GAME_HOUR * h)
 	if NPCDebug.enabled:
 		NPCDebug.log_irritability(self, need_contrib, mood_contrib, trait_mult, _irritability_target, irritability)
@@ -439,6 +446,12 @@ const LONELY_AFTER_HOURS: float = 30.0
 var _last_social_time: float = -1.0   ## NPCClock hours of the last real conversation
 
 func _update_condition_thoughts() -> void:
+	## Acute needs are FEELINGS (fast, visible, explained) — not morale.
+	thoughts.set_condition("starving", hunger < 15.0, thought_weight(-1.0))
+	thoughts.set_condition("hungry", hunger >= 15.0 and hunger < 35.0, thought_weight(-1.0))
+	thoughts.set_condition("parched", thirst < 15.0, thought_weight(-1.0))
+	thoughts.set_condition("thirsty", thirst >= 15.0 and thirst < 35.0, thought_weight(-1.0))
+	thoughts.set_condition("exhausted", energy < 15.0, thought_weight(-1.0))
 	thoughts.set_condition("cluttered", JobBoard.get_total_clutter_count() >= CLUTTER_UPSETS_AT, thought_weight(-1.0))
 	var hurting: bool = false
 	if medical != null:
@@ -487,6 +500,127 @@ func _adjust_relationship(target_id: String, delta: float) -> float:
 	return new_value - current
 
 ## F7 debug — exact delta, bypassing sociability.
+## Which resident (if any) is holding this item.
+static func holder_of(tree: SceneTree, item: Node) -> NPC:
+	for n: Node in tree.get_nodes_in_group("npc"):
+		if n is NPC and n.held_item == item:
+			return n
+	return null
+
+## Player-facing hooks (resident panel, InteractionSystem).
+## Returns false when the order is refused (mid crash-out: it runs its course).
+func on_player_command(activity: NPCActivity) -> bool:
+	if crash.blocks_commands():
+		social.last_refusal = "%s won't listen right now — they're crashing out." % npc_name
+		bark(NPCDialogue.bark_line("seething" if crash.mode == NPCCrashOut.Mode.HOSTILE else "sob"), true)
+		return false
+	if not social.on_player_command(activity):
+		bark(social.last_refusal, true)
+		return false
+	return true
+
+## Why the last order was refused ("" if it wasn't).
+func get_last_refusal() -> String:
+	return social.last_refusal
+
+## Resident panel: morale at a glance, with its reasons (NPCMorale).
+func get_morale_summary() -> Dictionary:
+	var reasons: Array[Dictionary] = []
+	for r: Dictionary in morale_sys.get_reasons().slice(0, 3):
+		reasons.append({"text": r["text"], "points": r["points"]})
+	var crash_text: String = ""
+	if crash.active():
+		crash_text = "Crashing out — %s" % crash._short()
+	return {"morale": morale_sys.morale, "band": morale_sys.get_band(), "trend": morale_sys.get_trend(),
+		"reasons": reasons, "crash": crash_text, "at_risk": crash.daily_risk() > 0.0 and not crash.active()}
+
+## Resident panel: the most significant remembered moments (biggest first).
+func get_memory_summaries(limit: int = 3) -> Array[Dictionary]:
+	var mems: Array[Dictionary] = bonds.get_memories()
+	mems.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return absf(a["amount"]) > absf(b["amount"]))
+	var out: Array[Dictionary] = []
+	for m: Dictionary in mems.slice(0, limit):
+		out.append({"text": m["text"], "amount": m["amount"], "about": m["name"]})
+	return out
+
+func is_crashing_out() -> bool:
+	return crash.active()
+
+## Debug / morale timeline test: would a crash-out start this step?
+func debug_roll_crash_out(h: float) -> bool:
+	return crash.roll(h)
+
+func on_player_worked(pos: Vector3) -> void:
+	social.on_player_worked(pos)
+
+# ─── Player treating this resident (Bandage / Antibiotics / Splint) ────────
+## Medical items declare NPC_TREATMENT; the player holding one near an
+## injured resident sees "[E] Bandage Mara's left arm" and E applies it to
+## the worst eligible injury (InteractionSystem), then the item spends its
+## own charge. The resident remembers who patched them up.
+const TREATMENTS: Dictionary = {
+	"bleeding":    {"targets": "get_eligible_bleeding_targets", "apply": "treat_bleeding", "prompt": "[E] Bandage %s's %s", "what": "my bleeding %s"},
+	"antibiotics": {"targets": "get_eligible_antibiotic_targets", "apply": "treat_open_wound_antibiotics", "prompt": "[E] Give %s antibiotics (%s wound)", "what": "the wound on my %s"},
+	"splint":      {"targets": "get_eligible_splint_targets", "apply": "apply_splint", "prompt": "[E] Splint %s's %s", "what": "my %s"},
+}
+var _last_treated_hours: float = -100.0
+
+func _treatment_target(item: Node) -> Dictionary:
+	if item == null or not is_instance_valid(item) or not ("NPC_TREATMENT" in item) or medical == null:
+		return {}
+	var def: Dictionary = TREATMENTS.get(String(item.NPC_TREATMENT), {})
+	if def.is_empty() or (item.has_method("has_charges_left") and not item.has_charges_left()):
+		return {}
+	var targets: Array = medical.call(String(def["targets"]))
+	if targets.is_empty():
+		return {}
+	return {"def": def, "target": targets[0]}   ## worst first (NPCMedical sorts by severity)
+
+## "" when this item can't help this resident right now.
+func treatment_prompt(item: Node) -> String:
+	var t: Dictionary = _treatment_target(item)
+	if t.is_empty():
+		return ""
+	return String(t["def"]["prompt"]) % [npc_name, String(t["target"]["label"]).to_lower()]
+
+func receive_treatment(item: Node) -> bool:
+	var t: Dictionary = _treatment_target(item)
+	if t.is_empty():
+		return false
+	var part: int = int(t["target"]["body_part"])
+	medical.call(String(t["def"]["apply"]), part)
+	var where: String = String(t["target"]["label"]).to_lower()
+	if item.has_method("spend_charge"):
+		item.spend_charge()
+	log_event("care", "Treated by you: %s" % (String(t["def"]["what"]) % where))
+	bark_event("thanks")
+	## Being cared for matters most the first time; repeat care still counts.
+	var repeat: bool = NPCClock.now() - _last_treated_hours < 12.0
+	_last_treated_hours = NPCClock.now()
+	on_treated_by_player(String(t["def"]["what"]) % where, repeat)
+	return true
+
+func on_treated_by_player(what: String = "my wounds", repeat: bool = false) -> void:
+	if repeat:
+		bonds.relate("player", 3.0, "took care of %s again" % what)
+		return
+	bonds.relate("player", 8.0, "patched up %s" % what, "You patched me up when I was hurt", true)
+	NPCBonds.witnessed(get_tree(), "player", self, 3.0, "took care of %s" % npc_name)
+
+## Carried out of danger, revived, defended from an attacker — ready to call.
+func on_rescued_by_player(what: String = "saved my life") -> void:
+	bonds.relate("player", 20.0, what, "You %s" % what, true)
+	NPCBonds.witnessed(get_tree(), "player", self, 6.0, "saved %s" % npc_name)
+
+func talk_choices() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for c: Dictionary in NPCSocial.TALK_CHOICES:
+		out.append({"id": c["id"], "label": c["label"], "tone": c["tone"], "why_not": social.talk_unavailable_reason(String(c["id"]))})
+	return out
+
+func talk_choice(choice: String) -> Dictionary:
+	return social.talk(choice)
+
 func debug_adjust_relationship(target_id: String, delta: float) -> void:
 	relationships[target_id] = clampf(get_relationship(target_id) + delta, RELATIONSHIP_MIN, RELATIONSHIP_MAX)
 
@@ -520,7 +654,7 @@ func _update_proximity(h: float) -> void:
 			and _can_see(other)
 		var exposure: float = float(_contagion_exposure.get(id, 0.0))
 		if together:
-			_adjust_relationship(id, gain)
+			bonds.relate(id, gain, "spent time with me")
 			exposure = minf(CONTAGION_EXPOSURE_MAX, exposure + CONTAGION_EXPOSURE_GAIN_PER_GAME_HOUR * h)
 		else:
 			exposure = maxf(0.0, exposure - CONTAGION_EXPOSURE_DECAY_PER_GAME_HOUR * h)
@@ -528,7 +662,7 @@ func _update_proximity(h: float) -> void:
 	var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D
 	if player != null and NPCItemUser.flat_distance(global_position, player.global_position) <= RELATIONSHIP_PROXIMITY_RANGE \
 			and _can_see(player):
-		_adjust_relationship("player", gain)
+		bonds.relate("player", gain, "spent time with me")
 
 ## Exposure-weighted average of other NPCs' moods (own mood if nobody's
 ## been around — a no-op target).
@@ -541,9 +675,14 @@ func _compute_weighted_contagion_target() -> float:
 		var exposure: float = float(_contagion_exposure.get(other.npc_id, 0.0))
 		if exposure <= 0.0:
 			continue
-		weighted_sum += float(other.mood) * exposure
+		weighted_sum += float(other.morale) * exposure
 		weight_total += exposure
-	return weighted_sum / weight_total if weight_total > 0.0 else mood
+	return weighted_sum / weight_total if weight_total > 0.0 else morale
+
+## Exposure-weighted morale of the people this resident spends time with
+## (NPCMorale pulls gently toward it — moods are contagious, slowly).
+func contagion_target() -> float:
+	return _compute_weighted_contagion_target()
 
 # ─── Action log ─────────────────────────────────────────────────────────────
 ## Player-facing, curated log of MEANINGFUL things this NPC did — not a
@@ -551,9 +690,7 @@ func _compute_weighted_contagion_target() -> float:
 signal action_logged
 
 const ACTION_LOG_MAX_LEN: int = 100
-const CONTAGION_LOG_THRESHOLD: float = 2.0
 var _action_log: Array[Dictionary] = []
-var _contagion_log_accum: float = 0.0
 var _last_irritability_label: String = ""
 var _last_player_relationship_label: String = "Neutral"
 
@@ -571,6 +708,13 @@ func log_action(text: String) -> Dictionary:
 	if _action_log.size() > ACTION_LOG_MAX_LEN:
 		_action_log.pop_front()
 	action_logged.emit()
+	return entry
+
+## A categorised log entry ("morale", "bond", "memory", "crash"...) — the UI
+## can colour/filter by kind; the text is always plain English.
+func log_event(kind: String, text: String) -> Dictionary:
+	var entry: Dictionary = log_action(text)
+	entry["kind"] = kind
 	return entry
 
 ## Newest-first.
@@ -598,12 +742,6 @@ func end_hostile_log() -> void:
 		_hostile_log_entry["text"] = "%s was HOSTILE for %ds" % [npc_name, int((Time.get_ticks_msec() - _hostile_start_msec) / 1000.0)]
 		_hostile_log_entry["is_live_hostile"] = false
 	_hostile_log_entry = {}
-
-func _check_contagion_log() -> void:
-	_contagion_log_accum += _mood_contagion_delta
-	if absf(_contagion_log_accum) >= CONTAGION_LOG_THRESHOLD:
-		log_action("Mood %s %+.0f%% (Mood Contagion)" % ["rose" if _contagion_log_accum > 0.0 else "fell", _contagion_log_accum])
-		_contagion_log_accum = 0.0
 
 func _check_label_crossings() -> void:
 	var irr_label: String = get_irritability_label()
@@ -662,17 +800,64 @@ func on_item_given(item: Node, giver_id: String = "player", giver_name: String =
 	if already_boosted:
 		log_action("%s gave %s to %s (fed only, no relationship change)" % [giver_name, item_name, npc_name])
 		return
-	var effective_bonus: float = GIVE_RELATIONSHIP_BONUS * lerp(1.0, GIFT_BONUS_FLOOR_MULT, gift_saturation)
-	var applied: float = _adjust_relationship(giver_id, effective_bonus)
+	## Context multiplies (see plans/NPC_MORALE_CRASHOUT_PLAN.md): water for
+	## someone parched, food in a shortage, a hot meal instead of a can.
+	var ctx: Dictionary = _gift_context(item)
+	var effective_bonus: float = GIVE_RELATIONSHIP_BONUS * float(ctx["mult"]) * lerp(1.0, GIFT_BONUS_FLOOR_MULT, gift_saturation)
+	var applied: float = bonds.relate(giver_id, effective_bonus, "gave me %s%s" % [ctx["what"], ctx["when"]])
 	gift_saturation = minf(GIFT_SATURATION_MAX, gift_saturation + GIFT_SATURATION_PER_GIFT)
+	NPCBonds.witnessed(get_tree(), giver_id, self, 3.0, "shared food with %s" % npc_name)
+	if giver_id == "player":
+		for other: Node in get_tree().get_nodes_in_group("npc"):
+			if other != self and other is NPC:
+				other.social.on_saw_player_feed(self)
 	add_thought("received_gift", giver_name if giver_id != "player" else "You")
 	if giver_id == "player":
 		bark_event("thanks")
 	else:
 		bark_event("thanks_friend", giver_name)
-	log_action("%s gave %s to %s (%+.1f relationship)" % [giver_name, item_name, npc_name, applied])
-	if NPCDebug.enabled:
-		NPCDebug.log_relationship_event(self, giver_id, effective_bonus, "received gift (saturation %.2f)" % gift_saturation)
+	if is_zero_approx(applied):
+		log_action("%s gave %s to %s" % [giver_name, item_name, npc_name])
+
+## What a gift meant: {mult, what ("a hot meal"), when (" when I was starving")}.
+func _gift_context(item: Node) -> Dictionary:
+	var mult: float = 1.0
+	var what: String = "something to eat"
+	var food: bool = NPCItemUser.is_edible(item)
+	if item is DishItem:
+		mult *= 1.3
+		what = "a hot meal"
+	elif NPCItemUser.is_drinkable_bottle(item):
+		what = "water"
+	elif item is FarmProduceItem:
+		what = "fresh food"
+	var need: float = hunger if food else thirst
+	var when: String = ""
+	if need < 15.0:
+		mult *= 2.0
+		when = " when I was starving" if food else " when I was parched"
+	elif need < 35.0:
+		mult *= 1.5
+		when = " when I was hungry" if food else " when I was thirsty"
+	if food and _food_is_scarce():
+		mult *= 1.5
+		when += (" while food was scarce" if when == "" else ", while food was scarce")
+	return {"mult": mult, "what": what, "when": when}
+
+## Fewer edible items (loose or stored) than residents.
+func _food_is_scarce() -> bool:
+	var n: int = 0
+	for it: Node in get_tree().get_nodes_in_group("pickup"):
+		if is_instance_valid(it) and NPCItemUser.is_edible(it):
+			n += 1
+	for shelf: Node in get_tree().get_nodes_in_group("shelving"):
+		if "slots" in shelf:
+			for stack in shelf.slots:
+				if stack is Array:
+					for it in stack:
+						if it != null and is_instance_valid(it) and NPCItemUser.is_edible(it):
+							n += 1
+	return n < get_tree().get_nodes_in_group("npc").size()
 
 ## Takeaway gate: genuinely hungry/thirsty AND holding food/water now.
 func is_consuming_from_need() -> bool:
@@ -692,12 +877,12 @@ func on_item_taken_by_player() -> void:
 		NPCItemUser.release_item(item)
 	if not was_need_triggered:
 		return
-	var applied: float = _adjust_relationship("player", -TAKEAWAY_RELATIONSHIP_PENALTY)
+	var starving: bool = hunger < 15.0 or thirst < 15.0
+	bonds.relate("player", -TAKEAWAY_RELATIONSHIP_PENALTY * (1.5 if starving else 1.0),
+		"took my %s while I was %s" % [item.get_display_name().to_lower(), "starving" if starving else "hungry"])
 	add_thought("food_taken")
 	bark_event("snatched")
-	log_action("Player took %s from %s (%+.1f relationship)" % [item.get_display_name(), npc_name, applied])
-	if NPCDebug.enabled:
-		NPCDebug.log_relationship_event(self, "player", -TAKEAWAY_RELATIONSHIP_PENALTY, "item taken mid-consumption")
+	NPCBonds.witnessed(get_tree(), "player", self, -5.0, "took %s's food" % npc_name)
 
 ## Called on the VICTIM of an NPC snatch.
 func on_item_snatched_by_npc(thief: NPC) -> void:
@@ -707,7 +892,8 @@ func on_item_snatched_by_npc(thief: NPC) -> void:
 		NPCItemUser.release_item(item)
 	add_thought("got_snatched", thief.npc_name)
 	bark_event("snatched")
-	log_action("%s snatched an item from %s" % [thief.npc_name, npc_name])
+	bonds.relate(thief.npc_id, -8.0, "snatched my food")
+	NPCBonds.witnessed(get_tree(), thief.npc_id, self, -4.0, "snatched food from %s" % npc_name)
 
 # ─── Snatch (hostile food/water grabs) ───────────────────────────────────
 const SNATCH_RELATIONSHIP_THRESHOLD: float = -50.0
@@ -756,7 +942,7 @@ func get_snatch_chance_toward(target_id: String) -> float:
 ## Deterministic eligibility (no roll) — lets Eat/Drink score > 0 when the
 ## only matching item is in a disliked person's hands.
 func is_player_snatch_eligible(need_filter: Callable) -> bool:
-	if get_relationship("player") > SNATCH_RELATIONSHIP_THRESHOLD:
+	if get_relationship("player") > SNATCH_RELATIONSHIP_THRESHOLD or social.is_cowed():
 		return false
 	var player: Node = get_tree().get_first_node_in_group("player")
 	if player == null or not player.has_method("get_held_item"):
@@ -914,7 +1100,7 @@ func find_talk_partner() -> Node:
 	return best
 
 func is_available_to_talk() -> bool:
-	if brain == null or brain.is_relaxing() or brain.is_talking() or brain.is_sleeping():
+	if brain == null or brain.is_relaxing() or brain.is_talking() or brain.is_sleeping() or crash.active():
 		return false
 	if is_talk_on_cooldown() or is_passed_out() or in_sit_sequence():
 		return false
@@ -947,10 +1133,10 @@ func resolve_conversation(partner: NPC) -> void:
 	for pair: Array in [[self, partner], [partner, self]]:
 		var a: NPC = pair[0]
 		var b: NPC = pair[1]
-		var applied: float = a._adjust_relationship(b.npc_id, magnitude if good else -magnitude)
+		a.bonds.relate(b.npc_id, magnitude if good else -magnitude,
+			"had a good talk with me" if good else "got into an argument with me")
 		a.add_thought("good_chat" if good else "bad_chat", b.npc_name)
 		a._last_social_time = NPCClock.now()
-		a.log_action("Chatted with %s — %s (%+.1f)" % [b.npc_name, "good talk" if good else "it got tense", applied])
 
 ## -1..1 — shared outlook (optimism) and energy (sociability) help; two
 ## irritable people grate on each other.
@@ -1057,6 +1243,14 @@ func gain_skill(key: String, amount: float = 0.01) -> void:
 func on_work_done(skill_key: String = "") -> void:
 	if skill_key != "":
 		gain_skill(skill_key)
+	## Working alongside someone slowly builds a bond (summed into the
+	## daily "Time together" line, not logged per task).
+	for other: Node in get_tree().get_nodes_in_group("npc"):
+		if other != self and other is NPC and other.brain != null and other.brain.current_activity() != null \
+				and other.brain.current_activity().is_work() \
+				and NPCItemUser.flat_distance(other.global_position, global_position) < 6.0:
+			bonds.relate(other.npc_id, 0.3, "worked alongside me")
+			other.bonds.relate(npc_id, 0.3, "worked alongside me")
 	if _trait("work_ethic") >= 0.5:
 		add_thought("productive")
 
@@ -1106,9 +1300,8 @@ func request_job_while_relaxing() -> bool:
 	_relax_job_request_count += 1
 	if _relax_job_request_count <= 1:
 		return false
-	var applied: float = _adjust_relationship("player", -3.0)
+	bonds.relate("player", -3.0, "pulled me off my break to work")
 	add_thought("break_interrupted")
-	log_action("Player interrupted %s's relaxation (%+.1f relationship)" % [npc_name, applied])
 	return true
 
 func get_relaxing_refusal_line() -> String:
@@ -1155,6 +1348,14 @@ func _ready() -> void:
 	nav_agent.path_max_distance = 3.0
 	nav_agent.radius = 0.4               ## matches BunkerNavMesh.agent_radius
 	nav_agent.avoidance_enabled = true   ## routes around heavy items' obstacles and other NPCs
+	## Godot's defaults suit big outdoor crowds. In a bunker room, weighing
+	## agents 50 m away (and a 1 s horizon against obstacles of 0 s) made
+	## residents slow down and swerve for people nowhere near them.
+	nav_agent.neighbor_distance = 5.0
+	nav_agent.max_neighbors = 12
+	nav_agent.time_horizon_agents = 1.5
+	nav_agent.time_horizon_obstacles = 1.0
+	nav_agent.avoidance_priority = AVOIDANCE_PRIORITY_STATIONARY
 	nav_agent.velocity_computed.connect(_on_velocity_computed)
 	add_child(nav_agent)
 
@@ -1176,6 +1377,12 @@ func _ready() -> void:
 	brain = NPCBrain.new()
 	brain.setup(self)
 	stuck.setup(self)
+	morale_sys.setup(self)
+	bonds.setup(self)
+	social.setup(self)
+	crash.setup(self)
+	if not morale_sys._loaded:
+		mood = morale_sys.morale   ## fresh resident; a loaded one keeps its saved mood
 	_mood_tick_timer = randf() * MOOD_TICK_INTERVAL   ## stagger across NPCs
 
 	medical = NPCMedical.new()
@@ -1200,15 +1407,27 @@ func _physics_process(delta: float) -> void:
 			if model != null and model.has_method("get_stand_end_position") else Vector3.INF
 		place_standing_at(body_pos if body_pos != Vector3.INF else _pending_stand_pos)
 
+	var prof: bool = NPCDebug.profile
+	var t: int = Time.get_ticks_usec() if prof else 0
+	if prof:
+		NPCDebug.prof_frames += 1
 	_validate_held_item()
 	_tick_needs(delta)
 	_tick_social_and_mood(delta)
+	if prof:
+		t = NPCDebug.prof_lap("needs+social", t)
+	_steered_this_frame = false
 	if brain != null:
 		brain.tick(delta)
+	if not _steered_this_frame:
+		_publish_stationary()   ## nobody walked us this frame — don't leave a stale velocity for others to dodge
+	if prof:
+		t = NPCDebug.prof_lap("brain+activity", t)
 
 	## While mid sit/lie sequence the model controller owns the position
 	## (eased approach → seat); gravity and move_and_slide would fight it.
 	if in_sit_sequence():
+		_publish_stationary()
 		return
 	if not is_on_floor():
 		velocity.y -= _gravity * delta
@@ -1216,8 +1435,14 @@ func _physics_process(delta: float) -> void:
 	if not _movement_locked:
 		var real: Vector3 = get_real_velocity()
 		_turn_toward_travel(Vector2(real.x, real.z), delta)
+	if prof:
+		t = NPCDebug.prof_lap("move_and_slide", t)
 	_handle_physics_pushes(delta)
+	if prof:
+		t = NPCDebug.prof_lap("physics_pushes", t)
 	stuck.tick(delta)
+	if prof:
+		NPCDebug.prof_lap("stuck_recovery", t)
 
 ## The item in hand must actually be in THIS NPC's hand. An item knocked
 ## out of the carry (a bump, a wall), consumed, freed, or grabbed by someone
@@ -1279,6 +1504,7 @@ const DOOR_GIVE_UP_SEC: float = 8.0
 var _door_lease: Dictionary = {}
 var _door_wait: float = 0.0
 var door_blocked: bool = false
+var _door_queued: bool = false
 
 func is_waiting_at_door() -> bool:
 	return _door_wait > 0.0
@@ -1289,6 +1515,10 @@ func _door_passage_allows(next_path_point: Vector3, delta: float) -> bool:
 		_door_wait = 0.0
 		return true
 	_door_wait += delta
+	if NPCDebug.enabled and int(_door_wait) != int(_door_wait - delta):
+		var dd: Node = get_tree().get_first_node_in_group("npc_bottleneck")
+		print("[door] t=%.1f %s waiting %.0fs lease=%s pos=%s door_open=%s info=%s anim=%s req=%s" % [Time.get_ticks_msec() / 1000.0, npc_name, _door_wait, _door_lease.keys(), global_position.snapped(Vector3.ONE * 0.01),
+			dd.is_open() if dd != null else "-", dd.get_npc_portal_info() if dd != null else {}, dd.get("_animating") if dd != null else "-", dd.get("_npc_open_requested") if dd != null else "-"])
 	if _door_wait >= DOOR_GIVE_UP_SEC:
 		_door_wait = 0.0
 		_release_door_passage()
@@ -1338,7 +1568,11 @@ func _door_passage_check(next_path_point: Vector3) -> bool:
 			best_door = door
 			best_direction = direction
 	if best_door == null:
+		if _door_queued:
+			_door_queued = false
+			NPC_DOOR_COORDINATOR.release_owner(self)   ## no longer crossing — leave the line
 		return true
+	_door_queued = true
 	if not bool(best_door.get_npc_portal_info().get("open", false)):
 		if best_door.has_method("request_npc_open"):
 			best_door.request_npc_open(self)
@@ -1354,6 +1588,7 @@ func _release_door_passage() -> void:
 		NPC_DOOR_COORDINATOR.release(_door_lease, self)
 	NPC_DOOR_COORDINATOR.release_owner(self)   ## also drops a queued request
 	_door_lease = {}
+	_door_queued = false
 
 ## The chair/bed this NPC occupies, mirroring Player.gd so the shared
 ## AdventurerModelController drives the same sit / lie-down animations.
@@ -1442,17 +1677,20 @@ func repath() -> void:
 ## Steer toward the next waypoint. Submits a PREFERRED velocity; avoidance
 ## answers in _on_velocity_computed() with the safe one to apply.
 func nav_steer(delta: float) -> void:
+	_steered_this_frame = true
 	_movement_locked = false
 	_last_steer_delta = delta
 	if nav_agent == null or nav_agent.is_navigation_finished():
 		if not _door_lease.is_empty():
 			_release_door_passage()
 		_door_wait = 0.0
+		_publish_stationary()
 		_decelerate(delta)
 		return
 	var next: Vector3 = nav_agent.get_next_path_position()   ## also refreshes a dirty path
 	if _at_path_end():
 		_finish_navigation()
+		_publish_stationary()
 		_decelerate(delta)
 		return
 	if not _door_passage_allows(next, delta):
@@ -1464,7 +1702,9 @@ func nav_steer(delta: float) -> void:
 		return
 	_requested_speed = move_speed * get_status_speed_multiplier()
 	nav_agent.max_speed = _requested_speed   ## avoidance may never return more than we asked for
+	nav_agent.avoidance_priority = AVOIDANCE_PRIORITY_MOVING
 	nav_agent.set_velocity(dir.normalized() * _requested_speed)
+	_published_moving = true
 
 func _on_velocity_computed(safe_velocity: Vector3) -> void:
 	if _movement_locked:
@@ -1472,6 +1712,7 @@ func _on_velocity_computed(safe_velocity: Vector3) -> void:
 	## Cap at the requested pace: with the agent's default max_speed (10 m/s),
 	## a retarget amid other agents could otherwise produce a brief surge.
 	var safe_xz: Vector2 = Vector2(safe_velocity.x, safe_velocity.z).limit_length(_requested_speed)
+	last_safe_speed = safe_xz.length()
 	safe_velocity.x = safe_xz.x
 	safe_velocity.z = safe_xz.y
 	var w: float = minf(acceleration * _last_steer_delta, 1.0)
@@ -1500,14 +1741,34 @@ func _decelerate(delta: float) -> void:
 	velocity.x = lerp(velocity.x, 0.0, w)
 	velocity.z = lerp(velocity.z, 0.0, w)
 
+## Avoidance only knows what each agent last PUBLISHED. A resident who
+## stopped without publishing a zero velocity kept "walking" in everyone
+## else's prediction, so neighbours slowed and swerved around a ghost.
+## Stationary residents also get right of way (walkers go around them).
+const AVOIDANCE_PRIORITY_MOVING: float = 0.5
+const AVOIDANCE_PRIORITY_STATIONARY: float = 1.0
+var _published_moving: bool = false
+var last_safe_speed: float = 0.0   ## debug: speed avoidance granted last frame
+var _steered_this_frame: bool = false
+
+func _publish_stationary() -> void:
+	if not _published_moving or nav_agent == null:
+		return
+	_published_moving = false
+	_requested_speed = 0.0
+	nav_agent.avoidance_priority = AVOIDANCE_PRIORITY_STATIONARY
+	nav_agent.set_velocity(Vector3.ZERO)
+
 ## Decelerate to a stop; raises the movement lock so a late avoidance
 ## callback can't overwrite the halt with a stale travel velocity.
 func halt_movement(delta: float) -> void:
+	_publish_stationary()
 	_movement_locked = true
 	_decelerate(delta)
 
 ## One-time hard stop (sitting down, lying down, talking).
 func lock_movement() -> void:
+	_publish_stationary()
 	_movement_locked = true
 	velocity.x = 0.0
 	velocity.z = 0.0
@@ -1516,9 +1777,17 @@ func lock_movement() -> void:
 func face_toward(world_pos: Vector3, weight: float) -> void:
 	var d: Vector3 = world_pos - global_position
 	d.y = 0.0
-	if d.length() < 0.05:
+	if d.length() < 0.4:
+		return   ## something underfoot: its bearing flips as we shift — don't chase it (spin)
+	var target_yaw: float = atan2(-d.x, -d.z)
+	if weight >= 0.999:
+		rotation.y = target_yaw   ## deliberate one-shot facing (arriving at a job)
 		return
-	rotation.y = lerp_angle(rotation.y, atan2(-d.x, -d.z), clampf(weight, 0.0, 1.0))
+	## Gradual facing is capped at a human turn rate so repeated re-facing
+	## (tracking someone walking around) can't whip the body around.
+	var diff: float = angle_difference(rotation.y, target_yaw) * clampf(weight, 0.0, 1.0)
+	var max_step: float = TURN_RATE * get_physics_process_delta_time() * 1.5
+	rotation.y += clampf(diff, -max_step, max_step)
 
 ## Travel speed the NPC should currently achieve (for stall detection).
 func get_expected_travel_speed() -> float:
@@ -1773,6 +2042,12 @@ func _update_bark(delta: float) -> void:
 		bark(NPCDialogue.greeting_bark(self))
 
 func _process(delta: float) -> void:
+	var t: int = Time.get_ticks_usec() if NPCDebug.profile else 0
+	_process_overhead(delta)
+	if NPCDebug.profile:
+		NPCDebug.prof_lap("overhead(_process)", t)
+
+func _process_overhead(delta: float) -> void:
 	var bubble: NPCSpeechBubble = _get_bubble()
 	bubble.set_sleeping(brain != null and (brain.is_sleeping() or is_passed_out()))
 	bubble.set_typing(_speaking)
@@ -1845,7 +2120,7 @@ func get_save_dict() -> Dictionary:
 	var log_out: Array = []
 	for e: Dictionary in _action_log:
 		log_out.append({"text": e.get("text", ""), "stamp_hours": e.get("stamp_hours", NPCClock.now()),
-			"game_time": e.get("game_time", "")})
+			"game_time": e.get("game_time", ""), "kind": e.get("kind", "")})
 	return {
 		"pos": {"x": global_position.x, "y": global_position.y, "z": global_position.z},
 		"rot_y": rotation.y,
@@ -1865,6 +2140,10 @@ func get_save_dict() -> Dictionary:
 		"snatch_cooldowns": _snatch_cooldown_from.duplicate(),
 		"snatch_pair_cooldowns": _npc_snatch_pair_cooldown.duplicate(),
 		"thoughts": thoughts.to_save(),
+		"morale": morale_sys.to_save(),
+		"bonds": bonds.to_save(),
+		"social": social.to_save(),
+		"crash": crash.to_save(),
 		"action_log": log_out,
 		"last_irritability_label": _last_irritability_label,
 		"last_player_rel_label": _last_player_relationship_label,
@@ -1918,6 +2197,10 @@ func apply_save_dict(d: Dictionary) -> void:
 	_snatch_cooldown_from = (d.get("snatch_cooldowns", {}) as Dictionary).duplicate()
 	_npc_snatch_pair_cooldown = (d.get("snatch_pair_cooldowns", {}) as Dictionary).duplicate()
 	thoughts.from_save(d.get("thoughts", []))
+	morale_sys.from_save(d.get("morale", {}))
+	bonds.from_save(d.get("bonds", {}))
+	social.from_save(d.get("social", {}))
+	crash.from_save(d.get("crash", {}))
 	_last_irritability_label = String(d.get("last_irritability_label", ""))
 	_last_player_relationship_label = String(d.get("last_player_rel_label", get_relationship_label("player")))
 	_action_log.clear()
@@ -1928,7 +2211,7 @@ func apply_save_dict(d: Dictionary) -> void:
 			var stamp: float = float(e.get("stamp_hours", now_h))
 			var age_sec: float = maxf(0.0, (now_h - stamp) * NPCClock.seconds_per_game_hour())
 			_action_log.append({"text": String(e.get("text", "")), "stamp_hours": stamp,
-				"game_time": String(e.get("game_time", "")),
+				"game_time": String(e.get("game_time", "")), "kind": String(e.get("kind", "")),
 				"fired_at_msec": now_msec - int(age_sec * 1000.0)})
 	_pending_medical_save = d.get("medical", [])
 	var gender: String = String(d.get("gender", ""))

@@ -36,14 +36,8 @@ func enter(npc: NPC) -> void:
 	npc.lock_movement()
 	npc.rotation = Vector3(_orig_rotation.x, _orig_rotation.y,
 		_orig_rotation.z + deg_to_rad(90.0))
-	## Mood hit on collapse — lower bound fixed at 1%, upper bound is
-	## 10% scaled by Neuroticism (baseline 10%, Neurotic 15%,
-	## Easygoing 5%). One-time, applied here at the moment of
-	## collapse, not repeated per-tick while passed out.
-	var mood_drop: float = randf_range(1.0, 10.0 * npc.neuroticism_trait_mult())
-	npc.mood = clampf(npc.mood - mood_drop, 0.0, 100.0)
-	if NPCDebug.enabled:
-		NPCDebug.log_mood_event(npc, -mood_drop, "passed out")
+	## The mood hit is the "collapsed" feeling (visible, explained, fades) and
+	## a bad night for the Rest condition — no hidden random mood drop.
 	npc.add_thought("collapsed")
 	npc.log_action("Passed out (0 energy)")
 

@@ -9,7 +9,7 @@ class_name WanderActivity
 ##     (chairs, beds, shelves, the stove...), or just somewhere random.
 ##   • Between legs they pause — and while paused they look at whoever is
 ##     nearby (turning to face the player walking up to them).
-##   • A stroll is 2–4 legs and then ENDS, handing control back to the brain
+##   • A stroll is 1–3 legs (3–8 s pauses between) and then ENDS, handing control back to the brain
 ##     so relaxing/chatting/chores get a natural look-in. (It used to be
 ##     endless and could only be displaced by a large score margin.)
 ## `leisurely` (RelaxActivity's stroll fallback): slower pace, longer pauses.
@@ -35,7 +35,7 @@ func label() -> String:
 	return "Taking a stroll" if leisurely else "Wandering"
 
 func enter(npc: NPC) -> void:
-	_legs_left = randi_range(2, 4)
+	_legs_left = randi_range(1, 3)
 	_walking = false
 	_idle_left = randf_range(0.5, 1.5)
 
@@ -82,8 +82,6 @@ func _pick_destination(npc: NPC) -> Vector3:
 		var n: Node = _random_member(npc, group)
 		if n != null:
 			options.append({"pos": _near((n as Node3D).global_position, 1.5), "w": 0.5})
-	if npc.home_bed != null and is_instance_valid(npc.home_bed) and npc.is_night_for_me() == false and randf() < 0.3:
-		options.append({"pos": _near((npc.home_bed as Node3D).global_position, 1.6), "w": 0.4})
 	var total: float = 0.0
 	for o: Dictionary in options:
 		total += float(o["w"])
@@ -132,7 +130,7 @@ static func _random_member(npc: NPC, group: String) -> Node:
 func _tick_look(npc: NPC, delta: float) -> void:
 	_look_timer -= delta
 	if _look_timer <= 0.0:
-		_look_timer = randf_range(0.6, 1.4)
+		_look_timer = randf_range(3.0, 5.0)   ## people don't re-pick who to watch every second
 		_look_target = null
 		var best_d: float = LOOK_RANGE
 		var player: Node3D = npc.get_tree().get_first_node_in_group("player") as Node3D
@@ -149,5 +147,7 @@ func _tick_look(npc: NPC, delta: float) -> void:
 				if d < best_d:
 					best_d = d
 					_look_target = other
-	if _look_target != null and is_instance_valid(_look_target):
-		npc.face_toward(_look_target.global_position, delta * 4.0)
+	## The HEAD follows passers-by (attention_target); the body only turns,
+	## gently, to face the player walking up.
+	if _look_target != null and is_instance_valid(_look_target) and _look_target.is_in_group("player"):
+		npc.face_toward(_look_target.global_position, delta * 1.5)

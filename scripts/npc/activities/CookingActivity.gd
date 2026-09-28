@@ -68,6 +68,7 @@ func accepts_held_item(_npc: NPC, item: Node) -> bool:
 
 func enter(npc: NPC) -> void:
 	_skipped = {}
+	_case_tries = 0
 	_finished = false
 	var opp: Dictionary = NPCJobQueries.cooking_opportunity(npc)
 	if opp.is_empty():
@@ -79,27 +80,78 @@ func enter(npc: NPC) -> void:
 		_finished = true
 		return
 	## Already carrying the right thing? Go straight to the stove.
-	if NPCItemUser.hands_full(npc) and ((_mode == "pot" and npc.held_item is CookingPot) \
-			or (_mode == "ingredient" and NPCItemUser.is_cookable_ingredient(npc.held_item))):
-		_go_to_stove(npc)
+	if NPCItemUser.hands_full(npc):
+		if _held_fits(npc):
+			_go_to_stove(npc)
+		else:
+			_handoff = PutAwayHeldItemActivity.new()   ## put it away first, then someone cooks
+			_finished = true
 		return
 	if _mode == "pot" or _mode == "ingredient":
 		_begin_fetch(npc)
 	else:
 		_go_to_stove(npc)
 
+## Does what's in hand fit the current step? (A water bottle only once the
+## pot already has food and no water.)
+func _held_fits(npc: NPC) -> bool:
+	var item: Node = npc.held_item
+	if _mode == "pot":
+		return item is CookingPot
+	if _mode != "ingredient":
+		return false
+	for f: Callable in _ingredient_filters():
+		if f.call(item):
+			return true
+	return false
+
+var _handoff: NPCActivity = null
+func take_handoff() -> NPCActivity:
+	var h: NPCActivity = _handoff
+	_handoff = null
+	return h
+
 func _fetch_filter() -> Callable:
 	return Callable(NPCItemUser, "is_cooking_pot") if _mode == "pot" else Callable(NPCItemUser, "is_cookable_ingredient")
 
+## Ingredient search order (Sep 2026): best available quality first —
+## fresh produce, then food cans (loose or from shelving/storage). One water
+## bottle may go in as a soup base once the pot already has food in it.
+func _ingredient_filters() -> Array[Callable]:
+	var out: Array[Callable] = [Callable(NPCItemUser, "is_fresh_produce"), Callable(NPCItemUser, "is_food_can")]
+	var pot: Node = _stove.pot_ref if _stove != null and is_instance_valid(_stove) else null
+	if pot != null and pot.count_filled() > 0 and _water_in_pot(pot) == 0:
+		out.append(Callable(NPCItemUser, "is_drinkable_bottle"))
+	return out
+
+static func _water_in_pot(pot: Node) -> int:
+	var n: int = 0
+	if "slots" in pot:
+		for entry in pot.slots:
+			if entry != null and String(entry.get("ingredient_key", "")) == "water_bottle":
+				n += 1
+	return n
+
 func _begin_fetch(npc: NPC) -> void:
 	_phase = "fetch"
-	var pick: Dictionary = NPCItemUser.find_fetch_target(npc, _fetch_filter())
+	var pick: Dictionary = {}
+	if _mode == "pot":
+		pick = NPCItemUser.find_fetch_target(npc, _fetch_filter())
+	else:
+		for f: Callable in _ingredient_filters():
+			pick = NPCItemUser.find_fetch_target(npc, f)
+			if not pick.is_empty():
+				break
 	_fetch_loose = pick.get("loose")
 	_fetch_shelf = pick.get("shelf", {})
 	var tgt: Node3D = _fetch_loose if _fetch_loose != null else (_fetch_shelf.get("shelf") as Node3D if not _fetch_shelf.is_empty() else null)
 	var claim_target: Node = _fetch_loose if _fetch_loose != null else _fetch_shelf.get("item")
 	if tgt == null or not NPCItemUser.claim_item(claim_target, npc):
-		_dbg(npc, "fetch found nothing (mode=%s, target=%s)" % [_mode, tgt])
+		## Last resort: open a stocked can case (or a water case for the
+		## soup base) — the same dispenser flow residents use to eat.
+		if _mode == "ingredient" and _start_case_fetch(npc):
+			return
+		_dbg(npc, "fetch found nothing (mode=%s)" % _mode)
 		## No more ingredients: cook with what's already in the pot.
 		if _mode == "ingredient":
 			_mode = "power"
@@ -108,6 +160,22 @@ func _begin_fetch(npc: NPC) -> void:
 			_finished = true
 		return
 	npc.set_nav_target(tgt.global_position)
+
+var _case_fetch: NPCCaseFetch = null
+var _case_tries: int = 0
+
+func _start_case_fetch(npc: NPC) -> bool:
+	if _case_tries >= 3:
+		return false
+	var pairs: Array = [[Callable(NPCItemUser, "is_stocked_can_case"), Callable(NPCItemUser, "is_food_can")]]
+	if Callable(NPCItemUser, "is_drinkable_bottle") in _ingredient_filters():
+		pairs.append([Callable(NPCItemUser, "is_stocked_water_case"), Callable(NPCItemUser, "is_drinkable_bottle")])
+	for pair: Array in pairs:
+		if not NPCItemUser.find_fetch_target(npc, pair[0]).is_empty():
+			_case_tries += 1
+			_case_fetch = NPCCaseFetch.new(pair[0], pair[1])
+			return true
+	return false
 
 func _go_to_stove(npc: NPC) -> void:
 	_phase = "travel"
@@ -141,11 +209,25 @@ func tick(npc: NPC, delta: float) -> void:
 			_tick_store(npc, delta)
 
 func _tick_fetch(npc: NPC, delta: float) -> void:
+	if _case_fetch != null:
+		if not _case_fetch.is_done():
+			_case_fetch.tick(npc, delta)
+			return
+		var item: RigidBody3D = null if _case_fetch.failed() else _case_fetch.get_ejected_item()
+		_case_fetch = null
+		if item != null and is_instance_valid(item):
+			_fetch_loose = item   ## already claimed by NPCCaseFetch
+			_fetch_shelf = {}
+			npc.set_nav_target(item.global_position)
+		else:
+			_begin_fetch(npc)
+		return
 	if NPCItemUser.hands_full(npc):
-		if _fetch_filter().call(npc.held_item):
+		if _held_fits(npc):
 			_go_to_stove(npc)
 		else:
-			NPCItemUser.drop_held(npc)
+			_handoff = PutAwayHeldItemActivity.new()   ## not usable here — put it away tidily
+			_finished = true
 		return
 	if _fetch_loose != null:
 		if not is_instance_valid(_fetch_loose) or (("is_held" in _fetch_loose) and _fetch_loose.is_held) or NPCItemUser.is_on_stove(_fetch_loose):
@@ -300,5 +382,8 @@ func debug_info() -> Dictionary:
 	}
 
 func exit(npc: NPC) -> void:
+	if _case_fetch != null:
+		_case_fetch.cleanup(npc)
+		_case_fetch = null
 	var detail: String = "mode=%s phase=%s" % [_mode, _phase]
 	on_session_exit(npc, "cooking", _finished, detail)

@@ -141,6 +141,9 @@ func _tick_bed(npc: NPC, delta: float, h: float) -> void:
 					_get_into_bed(npc)
 				else:
 					_finished = true   ## taken while we walked over
+					for other: Node in npc.get_tree().get_nodes_in_group("npc"):
+						if other != npc and other is NPC and other.sleeping_bed == _bed and not relax_mode:
+							npc.bonds.relate(other.npc_id, -1.5, "took the bed I was heading for")
 		Phase.IN_BED:
 			if relax_mode:
 				npc.energy = minf(npc.energy_cap, npc.energy + BED_REGEN_PER_GAME_HOUR * RELAX_REGEN_MULT * h)

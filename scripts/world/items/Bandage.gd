@@ -159,6 +159,14 @@ func apply_to_target(body_part: int) -> void:
 	if pm == null or not pm.has_method("treat_bleeding"):
 		return
 	pm.treat_bleeding(body_part)
+	spend_charge()
+
+## Treating a RESIDENT (NPC session, Sep 2026): NPC.receive_treatment()
+## reads what this item treats, applies it through NPCMedical, then spends
+## the charge here — same bookkeeping as treating yourself.
+const NPC_TREATMENT: String = "bleeding"
+
+func spend_charge() -> void:
 	_charges_left -= 1
 	charge_changed.emit()
 	if _charges_left <= 0:

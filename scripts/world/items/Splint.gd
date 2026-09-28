@@ -132,6 +132,12 @@ func apply_to_target(body_part: int) -> void:
 	if pm == null or not pm.has_method("apply_splint"):
 		return
 	pm.apply_splint(body_part)
+	spend_charge()
+
+## Treating a RESIDENT — see Bandage.NPC_TREATMENT / NPC.receive_treatment().
+const NPC_TREATMENT: String = "splint"
+
+func spend_charge() -> void:
 	_charges_left -= 1
 	charge_changed.emit()
 	if _charges_left <= 0:

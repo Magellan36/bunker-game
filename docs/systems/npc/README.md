@@ -140,10 +140,88 @@ Gardening: tray).
 
 ### Cooking rules
 Meal prep: someone cooks whenever ingredients are in reach and no cooked
-meal is waiting, sooner when anyone is getting hungry. Ingredients are only
+meal is waiting, sooner when anyone is getting hungry. Ingredients by
+quality: fresh produce, then food cans (loose or from shelving/storage),
+then a can from a stocked Can Case. One water bottle may be added as a soup
+base once the pot has food. Ingredients are only
 loaded into, and a stove only switched on for, a pot on a CONNECTED stove
 (`NPCJobQueries.stove_connected`). A pot may be set on an unplugged stove,
 ready for later.
+
+### Morale, relationships & crash-outs (Sep 2026)
+Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
+- **Morale** (`components/NPCMorale.gd`): slow, 0–100. It follows rolling
+  averages of eight bunker conditions (light, power, water quality, food
+  quality, rest, space, safety, company), each trait-weighted. Displayed
+  **mood** = morale + a capped share of feelings (thoughts, including
+  Hungry/Starving, Thirsty/Parched, Exhausted). There's no random drift. A
+  badly run bunker puts its first resident at crash-out risk around day
+  2.5 and produces the first crash-out on day ~3–4 (harness `morale`
+  scenario).
+- **Relationship ledger** (`components/NPCBonds.gd`): `relate(target,
+  amount, reason)` is the only way relationships change. Every change is
+  logged in plain words ("You gave me water when I was parched (+15.0)").
+  Big moments (|change| ≥ 5) become named memories: bad ones last 18 game
+  days, good ones 6. It also handles third-party effects (witnesses) and
+  shared grievances (alliances).
+- **Player conduct** (`components/NPCSocial.gd`): workload and orders,
+  pitching in, favouritism, hoarding, bed intrusion, daily leadership
+  blame; Talk choices (check in, encourage, joke, vent, insult, threaten)
+  with trait-dependent reception and daily cooldowns; promises (kept +7,
+  broken −9); taking sides in feuds. Ready hooks: `on_treated_by_player()`,
+  `on_rescued_by_player()`.
+- **Work drive & laziness** (NPCSocial): Work Ethic shapes autonomy.
+  Lazy residents score jobs about 0.2× and leisure 1.5×, so they ignore
+  ordinary chores (urgent work still moves them), and they refuse work
+  orders by chance ("Later.", "Do it yourself."). Harsh leadership PAYS in
+  the short term. Pressure is work drive: Threaten +65 (idle residents move
+  at once), Be firm +35, Insult +20 plus 24 h cowed (no tantrums or
+  snatching, and a hostile crash-out is bottled up as a breakdown). Kindness
+  motivates hard workers (Encourage up to +25) but barely moves the Lazy
+  (+3). Drive gives job scores ×(1 + 2.5·drive), leisure ×(1 − 0.8·drive),
+  no breaks above 0.4, work speed ×(1 + 0.25·drive), and makes orders more
+  likely to be accepted. It fades ~10/game hour, and firm/cruel pushes
+  build tolerance within a day. The bill is relationship, fear and 18-day
+  grudges, which is what feeds hostile crash-outs later. Harness `lazy`
+  scenario, lazy resident: 0% work on their own, ~1% after encouragement,
+  20–30% after a threat (0/5 orders refused).
+- **Treating residents**: hold a Bandage/Antibiotics/Splint near an injured
+  resident: "[E] Bandage Hana's left arm" treats the worst eligible injury
+  (`NPC.receive_treatment`), +8 and a memory the first time (+3 for repeat
+  care within 12 h).
+- **Crash-outs** (`components/NPCCrashOut.gd` + `CrashOutActivity`): risk
+  only below morale 25, trait-scaled, 36 h cooldown. HOSTILE (despises
+  someone): confront and rant, then sabotage (generator off, food thrown
+  away, things thrown); residents with the same grudge may join. OVERDRIVE
+  (likes the player): a frantic work binge, then burnout. BREAKDOWN: an
+  isolated wall, slumped and sobbing. It can't be talked down (orders are
+  refused). Aftermath: catharsis, a memory, and witness reactions.
+  `NPCCrashOut.attack_enabled` + `CrashOutActivity._attack()` are the combat
+  hook.
+- **Transparency**: `NPC.log_event(kind, text)` with kinds morale / bond /
+  memory / crash, colour-coded in the Activity Log. The Overview shows
+  Morale (number, band, trend and top reasons, or the crash-out state) and
+  Remembers (strongest memories).
+- Harness: `--scenario=morale` (a fast-forward week, bad/average/good
+  bunkers), `--verbs=<t>`, `--force=hostile|breakdown|overdrive`.
+
+### Free time: wander, lean, relax
+- `WanderActivity`: 1–3 legs with 3–8 s pauses. While paused the HEAD
+  glances at passers-by (re-picked every 3–5 s); the body turns only
+  toward the player.
+- `LeanActivity`: leans on a flat structural wall (knee and shoulder
+  raycasts agree, never furniture, with clear floor and elbow room),
+  20–50 game minutes, 0.4–1.2 h cooldown. Uses
+  `CharacterModel.begin_lean/end_lean` (docs/systems/player-model/ANIMATIONS.md).
+- Head look-at is NPC-only and subtle: weight 0.4, slow easing, and each
+  target is held at least 2.5 s.
+
+### Crowds and queues
+Avoidance is tuned for rooms (neighbour 5 m). Stopped residents publish a
+zero velocity and take stationary priority. When the hold-up is PEOPLE, the
+resident re-paths and waits rather than nudging or abandoning. Only an 8 s
+jam escalates. Doorway queue entries expire unless re-requested, since a
+stale "oldest waiter" used to deadlock the door.
 
 ### Doors
 `BunkerDoor` adds a NavigationLink through its opening, so routes may cross a

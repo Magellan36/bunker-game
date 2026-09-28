@@ -118,6 +118,9 @@ var _talk_to_button: Button = null
 
 var _dialogue_label: Label = null
 var _talk_topics_box: VBoxContainer = null
+var _talk_choices_box: VBoxContainer = null   ## NPC talk choices / promise / take sides (NPCSocial)
+var _overview_morale_value: Label = null
+var _overview_memories_value: Label = null
 var _request_feedback_panel: PanelContainer = null
 var _request_feedback_label: Label = null
 var _job_buttons: Array[Button] = []
@@ -628,6 +631,12 @@ func _build_at_a_glance(parent: Container) -> void:
 	box.add_child(HSeparator.new())
 	_overview_irritability_value = _build_fact_row(box, "mood", "Feeling", "Calm")
 	box.add_child(HSeparator.new())
+	## Morale & memories (NPC session, Sep 2026): the slow state that decides
+	## crash-outs, WHY it is where it is, and the moments they remember.
+	_overview_morale_value = _build_fact_row(box, "status", "Morale", "—")
+	box.add_child(HSeparator.new())
+	_overview_memories_value = _build_fact_row(box, "relationship", "Remembers", "Nothing in particular")
+	box.add_child(HSeparator.new())
 	_overview_last_action_value = _build_fact_row(box, "clock", "Last notable action", "Nothing notable yet")
 
 
@@ -672,6 +681,10 @@ func _build_talk(parent: VBoxContainer) -> void:
 	talk_again.custom_minimum_size.x = 170.0
 	talk_again.pressed.connect(_refresh_dialogue)
 	dialogue_row.add_child(talk_again)
+	C.section_header(parent, "SAY SOMETHING", "HOW YOU TREAT THEM MATTERS")
+	_talk_choices_box = VBoxContainer.new()
+	_talk_choices_box.add_theme_constant_override("separation", 6)
+	parent.add_child(_talk_choices_box)
 	C.section_header(parent, "ASK ABOUT", "CURRENT RESIDENTS")
 	_talk_topics_box = VBoxContainer.new()
 	_talk_topics_box.add_theme_constant_override("separation", 6)
@@ -932,6 +945,7 @@ func _update_overview_facts() -> void:
 	_overview_irritability_value.add_theme_color_override(
 		"font_color", S.GREEN if irritation == "" and mood_now >= 55.0 else (S.RED if mood_now < 30.0 else ENERGY_COLOR)
 	)
+	_update_morale_facts()
 	var entries: Array[Dictionary] = _get_action_log()
 	if entries.is_empty():
 		_overview_last_action_value.text = "Nothing notable yet"
@@ -942,6 +956,33 @@ func _update_overview_facts() -> void:
 			_format_log_age(int(latest.get("fired_at_msec", Time.get_ticks_msec()))),
 		]
 
+
+func _update_morale_facts() -> void:
+	if _overview_morale_value == null or not _npc.has_method("get_morale_summary"):
+		return
+	var m: Dictionary = _npc.call("get_morale_summary")
+	var arrow: String = ["↓", "→", "↑"][int(m.get("trend", 0)) + 1]
+	var text: String = "%d  %s %s" % [int(round(float(m["morale"]))), String(m["band"]), arrow]
+	var parts: Array[String] = []
+	for r: Dictionary in m.get("reasons", []):
+		parts.append("%s (%+.0f)" % [String(r["text"]), float(r["points"])])
+	if not parts.is_empty():
+		text += "  •  " + ", ".join(parts)
+	var color: Color = S.GREEN if float(m["morale"]) >= 50.0 else (ENERGY_COLOR if float(m["morale"]) >= 25.0 else S.RED)
+	if String(m.get("crash", "")) != "":
+		text = "%s  •  %s" % [String(m["crash"]).to_upper(), text]
+		color = S.RED
+	elif bool(m.get("at_risk", false)):
+		text = "AT RISK OF CRASHING OUT  •  " + text
+		color = S.RED
+	_overview_morale_value.text = text
+	_overview_morale_value.add_theme_color_override("font_color", color)
+	if _overview_memories_value != null and _npc.has_method("get_memory_summaries"):
+		var mems: Array = _npc.call("get_memory_summaries", 2)
+		var lines: Array[String] = []
+		for mem: Dictionary in mems:
+			lines.append("\"%s\" (%+.0f)" % [String(mem["text"]), float(mem["amount"])])
+		_overview_memories_value.text = "  •  ".join(lines) if not lines.is_empty() else "Nothing in particular"
 
 func _rebuild_traits() -> void:
 	_clear(_trait_row)
@@ -967,7 +1008,68 @@ func _rebuild_traits() -> void:
 		row.add_child(_label(word, 10, S.IVORY))
 
 
+## Relationship verbs (NPC session, Sep 2026): the resident's replies and
+## the relationship change they cause go to the dialogue card and the
+## resident's activity log. Options on cooldown show why they're unavailable.
+func _rebuild_talk_choices() -> void:
+	if _talk_choices_box == null:
+		return
+	_clear(_talk_choices_box)
+	if _npc == null or not is_instance_valid(_npc) or not _npc.has_method("talk_choices"):
+		return
+	var row: HBoxContainer = null
+	var i: int = 0
+	for c: Dictionary in _npc.call("talk_choices"):
+		if i % 3 == 0:
+			row = HBoxContainer.new()
+			row.add_theme_constant_override("separation", 7)
+			_talk_choices_box.add_child(row)
+		var why: String = String(c.get("why_not", ""))
+		var b: Button = _request_button(String(c["label"]), "talk", _on_talk_choice.bind(String(c["id"])))
+		b.disabled = why != ""
+		b.tooltip_text = why.capitalize() if why != "" else ""
+		row.add_child(b)
+		i += 1
+	var social: Object = _npc.get("social") as Object
+	if social == null:
+		return
+	var offer: Dictionary = social.call("promise_offer")
+	if not offer.is_empty():
+		var pb: Button = _request_button("Promise: \"%s\"" % String(offer["text"]), "relationship", _on_make_promise)
+		_talk_choices_box.add_child(pb)
+	for f: Dictionary in social.call("feuds"):
+		var sb: Button = _request_button("Take their side against %s" % String(f["name"]), "relationship", _on_take_side.bind(String(f["id"])))
+		sb.disabled = String(social.call("talk_unavailable_reason", "side_" + String(f["id"]))) != ""
+		_talk_choices_box.add_child(sb)
+
+func _on_talk_choice(choice: String) -> void:
+	if _npc == null or not is_instance_valid(_npc):
+		return
+	var result: Dictionary = _npc.call("talk_choice", choice)
+	if _dialogue_label != null and String(result.get("line", "")) != "":
+		_dialogue_label.text = String(result["line"])
+	_rebuild_talk_choices()
+
+func _on_make_promise() -> void:
+	var social: Object = _npc.get("social") as Object if _npc != null else null
+	if social == null:
+		return
+	var line: String = String(social.call("make_promise"))
+	if _dialogue_label != null and line != "":
+		_dialogue_label.text = line
+	_rebuild_talk_choices()
+
+func _on_take_side(other_id: String) -> void:
+	var social: Object = _npc.get("social") as Object if _npc != null else null
+	if social == null:
+		return
+	var line: String = String(social.call("take_side_against", other_id))
+	if _dialogue_label != null and line != "":
+		_dialogue_label.text = line
+	_rebuild_talk_choices()
+
 func _rebuild_talk_topics() -> void:
+	_rebuild_talk_choices()
 	if _talk_topics_box == null:
 		return
 	_clear(_talk_topics_box)
@@ -1018,8 +1120,13 @@ func _issue_command(activity: NPCActivity, action_desc: String, empty_desc: Stri
 	var brain: Object = _npc.get("brain") as Object
 	if brain == null or not brain.has_method("force_command"):
 		return
-	brain.call("force_command", activity)
 	var resident_name: String = String(_npc.get("npc_name"))
+	## Workload / consideration (NPCSocial); false = refused (crashing out).
+	if _npc.has_method("on_player_command") and _npc.call("on_player_command", activity) == false:
+		var why: String = String(_npc.call("get_last_refusal")) if _npc.has_method("get_last_refusal") else ""
+		_show_request_feedback("%s refused: %s" % [resident_name, why] if why != "" and not why.begins_with(resident_name) else why, false)
+		return
+	brain.call("force_command", activity)
 	if activity.done(_npc):
 		NotificationManager.feedback(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING,
 			"%s: %s" % [resident_name, empty_desc])
@@ -1229,7 +1336,7 @@ func _rebuild_log_rows() -> void:
 		return
 	for entry: Dictionary in _log_entries:
 		var hostile: bool = entry.get("is_live_hostile", false) == true
-		var color: Color = S.RED if hostile else S.BLUE
+		var color: Color = S.RED if hostile else _log_kind_color(entry)
 		var card: PanelContainer = _card(Color("141b1a"), color.darkened(0.55), 7)
 		card.tooltip_text = "At %s" % String(entry.get("game_time", "?"))
 		_log_rows_box.add_child(card)
@@ -1253,6 +1360,27 @@ func _rebuild_log_rows() -> void:
 		row.add_child(time_label)
 		_log_time_labels.append(time_label)
 
+
+## Log entry colour by kind (NPC.log_event): crash-outs red, remembered
+## moments brass, morale amber, relationship changes green/red by sign.
+func _log_kind_color(entry: Dictionary) -> Color:
+	match String(entry.get("kind", "")):
+		"crash":
+			return S.RED
+		"memory":
+			return S.BRASS.lightened(0.25)
+		"care":
+			return S.GREEN
+		"drive":
+			return S.BLUE.lightened(0.2)
+		"morale":
+			return ENERGY_COLOR
+		"bond":
+			var t: String = String(entry.get("text", ""))
+			if t.contains("(-"):
+				return S.RED
+			return S.GREEN if t.contains("(+") else S.BLUE
+	return S.BLUE
 
 func _refresh_log_timestamps() -> void:
 	for index: int in range(_log_time_labels.size()):

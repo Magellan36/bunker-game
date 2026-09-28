@@ -150,6 +150,7 @@ func _tick_dispenser(npc: NPC, delta: float) -> void:
 				if _target.has_method("_update_fill_visual"):
 					_target._update_fill_visual()
 				npc.thirst = minf(npc.thirst_cap, npc.thirst + HYDRATION * (ml / DRINK_ML))
+				npc.morale_sys.note_drink(float(_target.get("stored_water_quality") if _target.get("stored_water_quality") != null else 100.0))
 			if npc.thirst >= NPC.NEED_SATED or _target.current_fill_mL < DRINK_ML:
 				_after_drinking(npc)
 			else:
@@ -169,7 +170,9 @@ func _tick_bottle(npc: NPC, delta: float) -> void:
 		npc.halt_movement(delta)
 		_drinking -= delta
 		if _drinking <= 0.0:
+			var q: float = float(_target.stored_water_quality) if "stored_water_quality" in _target else 100.0
 			npc.thirst = minf(npc.thirst_cap, npc.thirst + _target.take_drink())
+			npc.morale_sys.note_drink(q)
 			if npc.thirst >= NPC.NEED_SATED or not NPCItemUser.is_drinkable_bottle(_target):
 				_after_drinking(npc)
 			else:

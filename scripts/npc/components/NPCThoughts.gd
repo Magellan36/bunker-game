@@ -41,6 +41,20 @@ const DEFS: Dictionary = {
 	"in_pain":           {"label": "I'm hurt",                         "mood": -4.0, "hours": 0.0,  "stack": 1},
 	"lonely":            {"label": "Haven't really talked to anyone",  "mood": -3.0, "hours": 0.0,  "stack": 1},
 	"crowded_beds":      {"label": "No bed to call my own",            "mood": -2.0, "hours": 0.0,  "stack": 1},
+	"encouraged":        {"label": "Someone had my back",              "mood": 3.0,  "hours": 5.0,  "stack": 1},
+	"laughed":           {"label": "Had a good laugh",                 "mood": 2.5,  "hours": 3.0,  "stack": 1},
+	"insulted":          {"label": "Got insulted",                     "mood": -5.0, "hours": 12.0, "stack": 1},
+	"threatened":        {"label": "Got threatened",                   "mood": -8.0, "hours": 18.0, "stack": 1},
+	"burned_out":        {"label": "Burned out",                       "mood": -4.0, "hours": 10.0, "stack": 1},
+	"vented_rage":       {"label": "Got it out of my system",          "mood": 2.0,  "hours": 8.0,  "stack": 1},
+	"cried_it_out":      {"label": "Cried it out",                     "mood": 3.0,  "hours": 8.0,  "stack": 1},
+	"under_pressure":    {"label": "Being pushed hard",                "mood": -3.0, "hours": 0.0,  "stack": 1},
+	"cowed":             {"label": "Put in my place",                  "mood": -2.0, "hours": 0.0,  "stack": 1},
+	"hungry":            {"label": "Hungry",                           "mood": -4.0, "hours": 0.0,  "stack": 1},
+	"starving":          {"label": "Starving",                         "mood": -12.0, "hours": 0.0, "stack": 1},
+	"thirsty":           {"label": "Thirsty",                          "mood": -4.0, "hours": 0.0,  "stack": 1},
+	"parched":           {"label": "Parched",                          "mood": -12.0, "hours": 0.0, "stack": 1},
+	"exhausted":         {"label": "Exhausted",                        "mood": -7.0, "hours": 0.0,  "stack": 1},
 }
 const FADE_HOURS: float = 2.0
 const MAX_THOUGHTS: int = 12

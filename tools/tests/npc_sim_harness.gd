@@ -22,7 +22,7 @@ extends Node
 ## (runs res://tools/tests/NPCSimHarness.tscn as the main scene so autoloads exist)
 ## Exit code 0 = no invariant violations, 1 = violations (report printed).
 
-const SCENARIOS: Array[String] = ["basic", "farm", "cook", "power", "stress", "scarcity", "door", "session", "all"]
+const SCENARIOS: Array[String] = ["basic", "farm", "cook", "power", "stress", "scarcity", "door", "session", "morale", "lazy", "all"]
 
 var _cfg: Dictionary = {
 	"scenario": "basic",
@@ -36,6 +36,10 @@ var _cfg: Dictionary = {
 	"cam": "",            ## "px,py,pz,lx,ly,lz" camera position + look-at for captures
 	"shots": "",          ## "t0:count:dt" — capture `count` frames starting at sim time t0, every dt seconds
 	"hour": -1.0,         ## start the clock at this hour of day
+	"follow": -1,          ## capture camera frames this resident (index) instead of --cam
+	"force": "",           ## at --bubbles time, force an activity on resident 0 (e.g. "lean")
+	"treat": -1.0,         ## at this sim time: injure resident 0 and treat them with real medical items
+	"verbs": -1.0,         ## at this sim time: exercise every talk choice / promise / order on resident 0
 	"bubbles": -1.0,       ## at this sim time: stage a chat + a nap in front of the capture camera
 	"saveload": -1.0,     ## at this sim time: save all NPCs, restore them, verify nothing was lost
 	"player_sleep": 0.0,  ## +1 / -1: at sim t=2 put the PLAYER into the first bed from that side (visual check)
@@ -87,7 +91,12 @@ func _ready() -> void:
 			"hour": _cfg["hour"] = float(v)
 			"saveload": _cfg["saveload"] = float(v)
 			"bubbles": _cfg["bubbles"] = float(v)
+			"verbs": _cfg["verbs"] = float(v)
+			"treat": _cfg["treat"] = float(v)
+			"follow": _cfg["follow"] = int(v)
+			"force": _cfg["force"] = v
 			"debug": NPCDebug.enabled = v != "0"
+			"profile": NPCDebug.profile = v != "0"
 			"player_sleep": _cfg["player_sleep"] = float(v)
 			"open_panel": _cfg["open_panel"] = float(v)
 	seed(int(_cfg["seed"]))
@@ -96,6 +105,11 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
+	if String(_cfg["scenario"]) == "morale" and _phase == 1:
+		_run_morale_timeline()
+		_phase = 3
+		get_tree().quit(0 if _violations.is_empty() else 1)
+		return
 	if _phase == 0:
 		if _t >= _setup_at:
 			_phase = -1   ## setup may await a physics frame (door scenario)
@@ -106,12 +120,14 @@ func _process(delta: float) -> void:
 		return
 	if _phase == 1:
 		_check_spin(delta)
-		if String(_cfg["scenario"]) == "session" and _sample_timer <= 0.0:
-			_check_session_cooking()
 		_sample_timer -= delta
 		if _sample_timer <= 0.0:
 			_sample_timer = SAMPLE_DT
 			_sample()
+			if String(_cfg["scenario"]) == "lazy":
+				_tick_lazy()
+			if String(_cfg["scenario"]) == "session":
+				_check_session_cooking()
 		if float(_cfg["scores"]) > 0.0:
 			_score_timer -= delta
 			if _score_timer <= 0.0:
@@ -132,6 +148,18 @@ func _process(delta: float) -> void:
 			var player: Node3D = get_tree().get_first_node_in_group("player")
 			player.global_position = first.global_position + Vector3(0.0, 0.0, 1.2)
 			first.on_interact()
+			var tm: Node = first.get("_talk_menu")
+			print("[harness] panel opened: %s visible=%s paused=%s" % [tm, tm.get("visible") if tm != null else "-", get_tree().paused])
+			if tm != null:
+				## Tour the tabs for captures: Talk at +0.5 s, Activity Log at +1.0 s.
+				get_tree().create_timer(0.5).timeout.connect(func() -> void: if is_instance_valid(tm): tm.call("_set_tab", 1, false))
+				get_tree().create_timer(1.0).timeout.connect(func() -> void: if is_instance_valid(tm): tm.call("_set_tab", 4, false))
+		if not _treat_done and float(_cfg["treat"]) >= 0.0 and _t - _setup_at >= float(_cfg["treat"]):
+			_treat_done = true
+			_exercise_treatment()
+		if not _verbs_done and float(_cfg["verbs"]) >= 0.0 and _t - _setup_at >= float(_cfg["verbs"]):
+			_verbs_done = true
+			_exercise_verbs()
 		if not _bubbles_staged and float(_cfg["bubbles"]) >= 0.0 and _t - _setup_at >= float(_cfg["bubbles"]):
 			_bubbles_staged = true
 			_stage_bubbles()
@@ -149,7 +177,7 @@ func _setup() -> void:
 	var objs: Array = []
 	var items: Array = []   ## [scene_path_or_kind, Vector3, extra]
 	var gen_fuel: float = -1.0
-	var want_all: bool = sc == "all" or sc == "session"
+	var want_all: bool = sc == "all" or sc == "session" or sc == "lazy"
 
 	## Room is x ∈ [-12, 3], z ∈ [5, 12] (1 m cells). Research station sits
 	## around the middle — keep furniture on the edges.
@@ -171,6 +199,10 @@ func _setup() -> void:
 		objs.append(_obj(3, Vector3(2.5, 0.5, 6.0), 90.0))          ## shelving
 		objs.append(_obj(36, Vector3(2.5, 0.5, 8.5), 0.0))          ## trash can
 		objs.append(_obj(33, Vector3(-6.0, 0.5, 11.6), 0.0))        ## dresser
+	if sc == "lazy":   ## extra storage so tidying stays available all run
+		for x: float in [1.0, -1.5]:
+			objs.append(_obj(3, Vector3(x, 0.5, 5.5), 0.0))
+		objs.append(_obj(3, Vector3(-11.4, 0.5, 6.8), 90.0))
 	if sc in ["farm"] or want_all:
 		objs.append(_obj(22, Vector3(-7.0, 0.5, 6.0), 0.0))         ## double tray
 		objs.append(_obj(21, Vector3(-4.5, 0.5, 6.0), 0.0))         ## single tray
@@ -196,6 +228,8 @@ func _setup() -> void:
 			food_count = 10; water_count = 10; clutter = 20
 		"scarcity":
 			food_count = 1; water_count = 1; clutter = 2
+		"lazy":
+			clutter = 18   ## plenty of obvious chores lying around
 	for i in food_count:
 		items.append(["res://scenes/world/FoodCan.tscn", _rand_floor_pos()])
 	for i in water_count:
@@ -241,7 +275,10 @@ func _setup() -> void:
 		var npc: Node3D = npc_scene.instantiate()
 		_world.add_child(npc)
 		npc.global_position = _rand_floor_pos() + Vector3(0.0, 1.0, 0.0)
-		if sc == "session":
+		if sc == "lazy":
+			npc.hunger = 95.0; npc.thirst = 95.0; npc.energy = 95.0
+			npc.personality["work_ethic"] = [0.08, 0.92, 0.5, 0.5][i % 4]   ## Lazy, Hard Worker, Steady, Steady
+		elif sc == "session":
 			npc.hunger = randf_range(82.0, 100.0)   ## well fed: cooking must still happen
 			npc.thirst = randf_range(60.0, 100.0)
 			npc.energy = randf_range(55.0, 100.0)
@@ -263,6 +300,140 @@ func _setup() -> void:
 		sc, int(_cfg["npcs"]), float(_cfg["minutes"]), int(_cfg["seed"]), objs.size(), items.size()])
 	for g in ["chair", "bed", "shelving", "trash_receptacle", "generator", "farming_tray", "stove", "pickup"]:
 		print("[harness]   group %s = %d" % [g, get_tree().get_nodes_in_group(g).size()])
+
+## ─── Lazy resident loop ──────────────────────────────────────────────────
+## Resident 0 is Lazy, 1 a Hard Worker. Measures their work vs leisure time
+## per phase, then plays out Brannon's loop on the lazy one: orders get
+## refused -> kindness (encourage) barely helps -> a threat gets them working.
+var _lazy_share: Dictionary = {}   ## phase -> npc name -> {work, leisure}
+var _lazy_done: Dictionary = {}
+
+func _lazy_phase() -> String:
+	var st: float = _t - _setup_at
+	if st < 150.0: return "1 on their own"
+	if st < 240.0: return "2 after encourage"
+	return "3 after threaten"
+
+func _tick_lazy() -> void:
+	var st: float = _t - _setup_at
+	var npcs: Array = get_tree().get_nodes_in_group("npc")
+	if npcs.size() < 2:
+		return
+	var lazy: NPC = npcs[0]
+	for mark: float in [146.0, 236.0]:
+		if st >= mark and not _lazy_done.has("clutter%d" % int(mark)):
+			_lazy_done["clutter%d" % int(mark)] = true
+			for i: int in 14:   ## fresh obvious chores for the next phase
+				FarmingShopHelper.spawn_scene_settled(_world, "res://scenes/world/TestCrate.tscn", _rand_floor_pos())
+	if st >= 148.0 and not _lazy_done.has("orders"):
+		_lazy_done["orders"] = true
+		var refused: int = 0
+		for i: int in 5:
+			if not lazy.on_player_command(CommandCleaningActivity.new()):
+				refused += 1
+		print("[lazy] %s (Lazy) refused %d/5 work orders; last: \"%s\"" % [lazy.npc_name, refused, lazy.get_last_refusal()])
+		var r: Dictionary = lazy.talk_choice("encourage")
+		print("[lazy] encourage -> %s drive=%.2f" % [r.get("line", ""), lazy.social.drive()])
+	if st >= 238.0 and not _lazy_done.has("threat"):
+		_lazy_done["threat"] = true
+		var r: Dictionary = lazy.talk_choice("threaten")
+		print("[lazy] threaten -> %s drive=%.2f rel=%.0f" % [r.get("line", ""), lazy.social.drive(), lazy.get_relationship("player")])
+		var refused: int = 0
+		print("[lazy] acceptance after threat: %.2f (fear %.0f)" % [lazy.social.order_acceptance(), lazy.social.fear])
+		for i: int in 5:
+			if not lazy.on_player_command(CommandCleaningActivity.new()):
+				refused += 1
+		print("[lazy] after the threat, refused %d/5 orders" % refused)
+	var ph: String = _lazy_phase()
+	for n: NPC in npcs.slice(0, 2):
+		var cur: NPCActivity = n.brain.current_activity()
+		if cur == null or cur.is_need() or n.brain.is_sleeping():
+			continue
+		var bucket: Dictionary = _lazy_share.get(ph, {})
+		var row: Dictionary = bucket.get(n.npc_name, {"work": 0.0, "leisure": 0.0})
+		row["work" if cur.is_work() else "leisure"] = float(row["work" if cur.is_work() else "leisure"]) + SAMPLE_DT
+		bucket[n.npc_name] = row
+		_lazy_share[ph] = bucket
+
+func _report_lazy() -> void:
+	var npcs: Array = get_tree().get_nodes_in_group("npc")
+	for ph: String in ["1 on their own", "2 after encourage", "3 after threaten"]:
+		var parts: Array[String] = []
+		for n: NPC in npcs.slice(0, 2):
+			var row: Dictionary = _lazy_share.get(ph, {}).get(n.npc_name, {"work": 0.0, "leisure": 0.0})
+			var tot: float = maxf(0.01, float(row["work"]) + float(row["leisure"]))
+			parts.append("%s (%s) works %d%%" % [n.npc_name, "Lazy" if n.social.is_lazy() else "Hard Worker", int(100.0 * float(row["work"]) / tot)])
+		print("[lazy] %-18s %s" % [ph, " | ".join(parts)])
+
+## ─── Morale timeline (fast-forward, no physics) ─────────────────────────
+## Drives NPCMorale (and crash-out risk) hour by hour for a week under three
+## synthetic bunkers and checks the design targets: a badly run bunker puts
+## residents at crash-out risk in ~3-5 days; a good one never does.
+const MORALE_BUNKERS: Dictionary = {
+	"bad":     {"light": -1.0, "power": -1.0, "space": -0.6, "safety": 0.0, "company": 0.0, "meal": "ate_cold_can", "water_q": 35.0, "sleep": "slept_on_floor"},
+	"average": {"light": 0.2,  "power": 0.1,  "space": 0.0,  "safety": 0.2, "company": 0.1, "meal": "ate_cold_can", "water_q": 70.0, "sleep": "slept_in_bed"},
+	"good":    {"light": 0.5,  "power": 0.3,  "space": 0.3,  "safety": 0.2, "company": 0.3, "meal": "ate_hot_meal", "water_q": 95.0, "sleep": "slept_in_bed"},
+}
+
+func _run_morale_timeline() -> void:
+	var npcs: Array = get_tree().get_nodes_in_group("npc")
+	for n: NPC in npcs:
+		n.set_physics_process(false)
+		n.set_process(false)
+		n.hunger = 70.0; n.thirst = 70.0; n.energy = 70.0
+	for bunker: String in MORALE_BUNKERS.keys():
+		var cfg: Dictionary = MORALE_BUNKERS[bunker]
+		var first_risk: Array[float] = []
+		var first_crash: Array[float] = []
+		var end_morale: Array[float] = []
+		for n: NPC in npcs:
+			n.randomize_personality()
+			n.morale_sys = NPCMorale.new()
+			n.morale_sys.setup(n)
+			n.morale_sys.sample_override = {"light": cfg["light"], "power": cfg["power"], "space": cfg["space"],
+				"safety": cfg["safety"], "company": cfg["company"]}
+			var risk_at: float = -1.0
+			var crash_at: float = -1.0
+			for step: int in 7 * 24 * 4:   ## a week in 15-minute steps
+				var hour: float = step * 0.25
+				var hod: float = fmod(hour, 24.0)
+				if is_equal_approx(fmod(hod, 8.0), 0.0):
+					n.morale_sys.note_meal(String(cfg["meal"]))
+				if is_equal_approx(fmod(hod, 6.0), 0.0):
+					n.morale_sys.note_drink(float(cfg["water_q"]))
+				if is_equal_approx(hod, 7.0):
+					n.morale_sys.note_sleep(String(cfg["sleep"]))
+				n.morale_sys.tick(0.25, 0.0)
+				if risk_at < 0.0 and n.morale_sys.morale < NPCMorale.CRASH_RISK_BELOW:
+					risk_at = hour / 24.0
+				if crash_at < 0.0 and n.has_method("debug_roll_crash_out") and n.debug_roll_crash_out(0.25):
+					crash_at = hour / 24.0
+			first_risk.append(risk_at)
+			first_crash.append(crash_at)
+			end_morale.append(n.morale_sys.morale)
+		print("[morale] %-8s end morale %s | crash-risk from day %s | first crash day %s" % [bunker,
+			_fmt_list(end_morale), _fmt_list(first_risk), _fmt_list(first_crash)])
+		var risked: Array = first_risk.filter(func(d): return d >= 0.0)
+		if bunker == "good" and not risked.is_empty():
+			_flag("morale_timeline", npcs[0], "good bunker reached crash-out risk: %s" % str(first_risk))
+		if bunker == "bad":
+			## Design: the FIRST resident is at risk after ~2-4 days, most of
+			## them within the week; traits spread the rest.
+			var earliest: float = risked.min() if not risked.is_empty() else -1.0
+			if earliest < 2.0 or earliest > 4.0:
+				_flag("morale_timeline", npcs[0], "bad bunker: first resident at crash-out risk on day %.1f (want 2-4)" % earliest, "bad-first")
+			if risked.size() * 2 < first_risk.size():
+				_flag("morale_timeline", npcs[0], "bad bunker: only %d/%d residents at risk within a week" % [risked.size(), first_risk.size()], "bad-most")
+			var crashed: Array = first_crash.filter(func(d): return d >= 0.0)
+			if crashed.is_empty() or crashed.min() < 2.8 or crashed.min() > 5.5:
+				_flag("morale_timeline", npcs[0], "bad bunker: first crash-out on day %.1f (want 3-5)" % crashed.min(), "bad-crash")
+	_report()
+
+static func _fmt_list(a: Array) -> String:
+	var parts: Array[String] = []
+	for v in a:
+		parts.append("-" if float(v) < 0.0 else "%.1f" % float(v))
+	return "[" + ", ".join(parts) + "]"
 
 ## Session scenario: the stove nearest the generator is wired to it; the
 ## other stays unplugged (a pot may go on it, but nobody may cook on it).
@@ -296,8 +467,13 @@ func _check_session_cooking() -> void:
 		var pot: Node = st.pot_ref
 		if pot == null or not is_instance_valid(pot):
 			continue
-		if not st.npc_can_power_on() and pot.count_filled() > 0:
+		## Flag only ingredients ADDED while unconnected (a stove that loses
+		## power with a loaded pot — e.g. the generator shut off — is fine).
+		var filled: int = pot.count_filled()
+		var last: int = int(st.get_meta("_harness_filled", 0))
+		if not st.npc_can_power_on() and filled > last:
 			_flag("cook_unwired", get_tree().get_nodes_in_group("npc")[0], "ingredients put in a pot on an UNCONNECTED stove", str(st.get_instance_id()))
+		st.set_meta("_harness_filled", filled)
 	if _first_cook_t < 0.0:
 		for n: Node in get_tree().get_nodes_in_group("npc"):
 			if _act_class(n) == "CookingActivity":
@@ -332,7 +508,7 @@ func _check_spin(delta: float) -> void:
 		if float(tr["spin_t"]) >= SPIN_WINDOW:
 			var moved: float = NPCItemUser.flat_distance(npc.global_position, tr["spin_pos"])
 			var turns: float = maxf(float(tr["spin_acc"]), float(tr["spin_macc"])) / TAU
-			if (absf(float(tr["spin_net"])) / TAU > 1.5 or turns > 2.5) and moved < 1.0:
+			if (absf(float(tr["spin_net"])) / TAU > 1.5 or turns > 3.0) and moved < 1.0:
 				_flag("spinning", npc, "turned %.1f times (net %.1f) in %.0fs while moving %.2fm (model %.1f) locked %d/%d frames pos=%s" % [
 					turns, float(tr["spin_net"]) / TAU, SPIN_WINDOW, moved, float(tr["spin_macc"]) / TAU,
 					int(tr["spin_locked"]), int(tr["spin_frames"]), npc.global_position],
@@ -340,11 +516,87 @@ func _check_spin(delta: float) -> void:
 			tr["spin_acc"] = 0.0; tr["spin_macc"] = 0.0; tr["spin_t"] = 0.0; tr["spin_pos"] = npc.global_position
 			tr["spin_net"] = 0.0; tr["spin_locked"] = 0; tr["spin_frames"] = 0
 
+var _treat_done: bool = false
+func _exercise_treatment() -> void:
+	var n: NPC = get_tree().get_nodes_in_group("npc")[0]
+	n.medical.spawn_bleeding(MedicalCondition.BodyPart.LEFT_ARM)
+	n.medical.spawn_fractured(MedicalCondition.BodyPart.RIGHT_LEG)
+	for path: String in ["res://scenes/world/Bandage.tscn", "res://scenes/world/Splint.tscn"]:
+		var item: Node = FarmingShopHelper.spawn_scene_settled(_world, path, n.global_position + Vector3(1, 0.5, 0))
+		if item == null:
+			print("[treat] could not spawn %s" % path)
+			continue
+		var before: float = n.get_relationship("player")
+		var prompt: String = n.treatment_prompt(item)
+		var ok: bool = n.receive_treatment(item)
+		print("[treat] %s prompt='%s' applied=%s rel %+.1f -> %+.1f charges_left=%s" % [path.get_file(), prompt, ok, before,
+			n.get_relationship("player"), item.get("_charges_left") if is_instance_valid(item) else "used up"])
+	print("[treat] second bandage prompt (nothing left to bandage): '%s'" % n.treatment_prompt(
+		FarmingShopHelper.spawn_scene_settled(_world, "res://scenes/world/Bandage.tscn", n.global_position + Vector3(1, 0.5, 0))))
+	print("[treat] log: %s" % str(n.get_action_log().slice(0, 5).map(func(e): return e["text"])))
+
+var _verbs_done: bool = false
+func _exercise_verbs() -> void:
+	var n: NPC = get_tree().get_nodes_in_group("npc")[0]
+	var before: float = n.get_relationship("player")
+	for c: Dictionary in n.talk_choices():
+		var r: Dictionary = n.talk_choice(String(c["id"]))
+		print("[verbs] %-9s -> %+.1f  %s" % [c["id"], float(r.get("delta", 0.0)), r.get("line", "")])
+	print("[verbs] repeat check_in -> %s" % str(n.talk_choice("check_in")))
+	n.morale_sys.values["light"] = -0.9
+	print("[verbs] promise offer: %s -> %s" % [n.social.promise_offer(), n.social.make_promise()])
+	n.energy = 10.0
+	n.on_player_command(CommandCleaningActivity.new())
+	n.on_player_command(CommandRestActivity.new())
+	n.morale_sys.values["light"] = 0.2
+	n.social.tick(0.1)
+	print("[verbs] relationship %.1f -> %.1f, memories: %s" % [before, n.get_relationship("player"), n.bonds.get_memories().map(func(m): return m["text"])])
+	var lines: Array = n.get_action_log().slice(0, 14).map(func(e): return e["text"])
+	print("[verbs] log:\n  " + "\n  ".join(lines))
+
 ## Bubble demo: two residents chat at (-3.4, 8.6), a third naps in the
 ## first bed — framed by --cam=-3.4,2.6,5.6,-3.4,1.6,8.6 or similar.
 var _bubbles_staged: bool = false
 func _stage_bubbles() -> void:
 	var npcs: Array = get_tree().get_nodes_in_group("npc")
+	if String(_cfg["force"]) in ["hostile", "breakdown", "overdrive"] and not npcs.is_empty():
+		var c: NPC = npcs[0]
+		c.morale_sys.morale = 12.0
+		var mode: NPCCrashOut.Mode = NPCCrashOut.Mode.BREAKDOWN
+		if String(_cfg["force"]) == "hostile":
+			c.relationships["player"] = -70.0
+			c.crash.target_id = "player"
+			mode = NPCCrashOut.Mode.HOSTILE
+			## a second resident who also despises the player, close to breaking — may join
+			if npcs.size() > 1:
+				var b: NPC = npcs[1]
+				b.relationships["player"] = -60.0
+				b.relationships[c.npc_id] = 40.0
+				b.morale_sys.morale = 30.0
+		elif String(_cfg["force"]) == "overdrive":
+			c.relationships["player"] = 70.0
+			mode = NPCCrashOut.Mode.OVERDRIVE
+		c.crash.begin(mode)
+		print("[harness] forced %s crash-out on %s" % [_cfg["force"], c.npc_name])
+		await get_tree().create_timer(6.0).timeout
+		print("[harness] order while crashing accepted? %s" % c.on_player_command(CommandCleaningActivity.new()))
+		return
+	if String(_cfg["force"]) == "lean" and not npcs.is_empty():
+		var l: NPC = npcs[0]
+		if NPCItemUser.hands_full(l):
+			NPCItemUser.drop_held(l)
+		for attempt: int in 15:
+			if NPCItemUser.hands_full(l):
+				NPCItemUser.drop_held(l)
+			l.remove_meta("_lean_cooldown_until") if l.has_meta("_lean_cooldown_until") else null
+			l.brain.force_command(LeanActivity.new())
+			await get_tree().physics_frame
+			if l.brain.current_activity() is LeanActivity and not l.brain.current_activity().done(l):
+				print("[harness] forced lean on %s (try %d)" % [l.npc_name, attempt])
+				return
+			await get_tree().create_timer(1.0).timeout
+		print("[harness] forced lean FAILED")
+		return
 	if npcs.size() < 3:
 		return
 	var a: NPC = npcs[0]
@@ -386,7 +638,7 @@ func _rand_floor_pos() -> Vector3:
 	return Vector3(x, 1.0, z)
 
 # ─── Sampling / invariants ────────────────────────────────────────────────
-const STATIONARY_OK: Array[String] = [
+const STATIONARY_OK: Array[String] = ["LeanActivity", "CrashOutActivity", 
 	"SitActivity", "LieActivity", "RelaxActivity", "RelaxSitActivity", "RelaxLieActivity",
 	"PassedOutActivity", "TalkActivity", "WanderActivity", "ForgetfulWanderActivity",
 	"SleepActivity", "", "Idle",
@@ -610,6 +862,8 @@ func _npc_fingerprint(npc: Node) -> Dictionary:
 	d["gender"] = String(npc.get_meta("_adventurer_random_gender", ""))
 	d["log"] = npc.get_action_log().size()
 	d["medical"] = npc.medical.active_conditions.size() if npc.medical != null else 0
+	d["morale"] = snappedf(npc.morale_sys.morale, 0.01)
+	d["memories"] = npc.bonds.memories.size()
 	return d
 
 ## Order-independent, rounding-tolerant dictionary fingerprint (JSON
@@ -712,6 +966,15 @@ func _tick_capture() -> void:
 	if st >= _next_shot_t:
 		if _capture_cam != null:
 			_capture_cam.current = true
+			var fi: int = int(_cfg["follow"])
+			var npcs: Array = get_tree().get_nodes_in_group("npc")
+			if fi >= 0 and fi < npcs.size():
+				## Three-quarter view in front of the resident.
+				var n: Node3D = npcs[fi]
+				var fwd: Vector3 = -n.global_transform.basis.z
+				var eye: Vector3 = n.global_position + fwd * 2.6 + n.global_transform.basis.x * 1.2 + Vector3.UP * 1.1
+				_capture_cam.global_position = eye
+				_capture_cam.look_at(n.global_position + Vector3.UP * 0.6)
 		RenderingServer.render_loop_enabled = true
 		_render_warm += 1
 		if _render_warm < 3:
@@ -754,6 +1017,38 @@ func _report() -> void:
 			npc.npc_name, npc.hunger, npc.thirst, npc.energy, npc.mood, npc.health,
 			(npc.held_item.name if npc.held_item != null and is_instance_valid(npc.held_item) else "-"),
 			npc.brain.current_label() if npc.brain != null else "?"])
+	## Refinement metrics.
+	var short: Dictionary = {}
+	var total_recov: Array[String] = []
+	for id in _track.keys():
+		var tr: Dictionary = _track[id]
+		for e: Dictionary in tr["entries"]:
+			if float(e["dur"]) < 1.5:
+				short[e["act"]] = int(short.get(e["act"], 0)) + 1
+		var n = tr["npc"]
+		if is_instance_valid(n):
+			total_recov.append("%s:%d" % [n.npc_name, n.stuck.recoveries])
+	print("Short (<1.5s) activity entries: %s" % str(short))
+	print("Stuck recoveries: %s" % " ".join(total_recov))
+	var causes: Dictionary = {}
+	for id in _track.keys():
+		var n = _track[id]["npc"]
+		if is_instance_valid(n):
+			for k in n.stuck.cause_counts.keys():
+				causes[k] = int(causes.get(k, 0)) + int(n.stuck.cause_counts[k])
+	var ck: Array = causes.keys()
+	ck.sort_custom(func(a, b): return int(causes[a]) > int(causes[b]))
+	for k in ck.slice(0, 12):
+		print("  stuck: %4d  %s" % [int(causes[k]), k])
+	if NPCDebug.profile and NPCDebug.prof_frames > 0:
+		var sum: int = 0
+		for k in NPCDebug.prof_usec.keys():
+			sum += int(NPCDebug.prof_usec[k])
+		print("NPC CPU per NPC-frame: %.1f us total" % [float(sum) / NPCDebug.prof_frames])
+		var keys: Array = NPCDebug.prof_usec.keys()
+		keys.sort_custom(func(a, b): return int(NPCDebug.prof_usec[a]) > int(NPCDebug.prof_usec[b]))
+		for k in keys:
+			print("  %-20s %6.1f us" % [k, float(NPCDebug.prof_usec[k]) / NPCDebug.prof_frames])
 	var bad: int = 0
 	for k in _violations.keys():
 		var arr: Array = _violations[k]
@@ -767,6 +1062,8 @@ func _report() -> void:
 			for e: Dictionary in n._action_log:
 				lines.append(String(e.get("text", "")))
 			print("[harness] %s actions: %s" % [n.npc_name, " | ".join(lines.slice(maxi(0, lines.size() - 25)))])
+	if String(_cfg["scenario"]) == "lazy":
+		_report_lazy()
 	if String(_cfg["scenario"]) == "session":
 		print("[harness] first cooking decision: %s" % ("%.1fs" % _first_cook_t if _first_cook_t >= 0.0 else "NEVER"))
 		for st: Node in get_tree().get_nodes_in_group("stove"):

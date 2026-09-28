@@ -124,6 +124,14 @@ const BARKS: Dictionary = {
 	"tidy":          ["There. Better.", "Why is there always junk everywhere..."],
 	"hungry":        ["I'm starving...", "Need to find something to eat."],
 	"thirsty":       ["So thirsty...", "Water. I need water."],
+	"refuse_work":   ["Later.", "Can't be bothered right now.", "Do it yourself.", "Yeah, in a bit.", "Not now, I'm busy doing nothing.", "Why me?"],
+	"strained":      ["I can't take much more of this.", "Something's gotta give down here.", "I'm hanging by a thread.", "How long can we keep living like this?"],
+	"crash_hostile": ["That's IT. I'm DONE.", "I've had ENOUGH!", "You want to see me snap? Here it is!"],
+	"crash_overdrive": ["No. No more. I'm fixing this. All of it.", "Nobody else is going to hold this place together.", "Move. I've got work to do."],
+	"crash_breakdown": ["I can't... I can't do this anymore.", "Just... leave me alone.", "Why is this happening..."],
+	"seething":      ["Unbelievable.", "Every. Single. Day.", "Don't talk to me.", "I swear..."],
+	"sob":           ["*sobbing*", "I want to go home...", "*shaking*", "Make it stop..."],
+	"sabotage":      ["There! Happy now?!", "Let it all fall apart!", "Who cares anymore?!"],
 }
 
 ## Conversation snippets (TalkActivity turn-taking). About half the time a
@@ -161,6 +169,47 @@ const CHAT_ABOUT: Dictionary = {
 	"productive": ["Got a lot done today.", "Keeping busy helps."],
 	"relaxed": ["Took a proper break. Needed it."],
 }
+
+## Hostile crash-out rants, aimed at whoever they're furious at.
+const RANT_AT_PLAYER: Array[String] = [
+	"This is YOUR fault!", "You did this to us!", "You call this leading?!",
+	"Look at this place! LOOK at it!", "I trusted you!", "You don't care about any of us!",
+]
+const RANT_AT_RESIDENT: Array[String] = [
+	"I can't stand you, %s!", "Everything's worse with you around, %s!", "Stay away from me, %s!",
+	"You think I didn't notice, %s?!", "I'm sick of you, %s!",
+]
+
+static func rant_line(npc: NPC, target_id: String) -> String:
+	if target_id == "player":
+		return _pick(RANT_AT_PLAYER)
+	var who: String = npc.bonds.display_name(target_id)
+	return _pick(RANT_AT_RESIDENT) % who
+
+## Replies to the player's Talk choices (NPCSocial.talk). Keyed by outcome.
+const TALK_REPLIES: Dictionary = {
+	"check_in":       ["\"I'm alright. Thanks for asking.\"", "\"Hanging in there.\"", "\"Not bad, all things considered.\""],
+	"check_in_low":   ["\"Honestly? Not great. ...Thanks for asking.\"", "\"It means a lot that you noticed.\"", "\"I've been better. It helps to talk.\""],
+	"encourage_good": ["\"...Yeah. Yeah, you're right. We'll get through this.\"", "\"Thanks. I needed that.\""],
+	"encourage_flat": ["\"Sure. If you say so.\"", "\"Easy for you to say.\""],
+	"joke_good":      ["\"Ha! Okay, that was good.\"", "\"You're an idiot. ...That was funny though.\""],
+	"joke_bad":       ["\"Really? Now?\"", "\"Not in the mood.\"", "\"...Was that supposed to be funny?\""],
+	"vent_hard":      ["\"Right?! I thought it was just me.\"", "\"Finally, someone says it.\""],
+	"vent":           ["\"Yeah, it's not perfect.\"", "\"Could be worse, I guess.\""],
+	"insult":         ["\"Wow. Noted.\"", "\"You know what? Forget you.\"", "\"Say that again. I dare you.\""],
+	"threaten":       ["\"...Okay. Okay. I'm going.\"", "\"Fine! FINE. I'm going.\"", "\"Alright, alright — I'm on it.\""],
+	"encourage_lazy": ["\"Yeah, yeah. Sure.\"", "\"Mm. Nice speech.\"", "\"Thanks. ...So, anyway.\""],
+	"firm_lazy":      ["\"Ugh. Fine.\"", "\"Alright, alright. Don't get your shorts in a twist.\"", "\"...Fine. Going.\""],
+	"firm_worker":    ["\"I'm already on it.\"", "\"You don't need to tell me twice.\"", "\"Seriously? I never stop.\""],
+	"promise":        ["\"You mean it? ...Alright. I'll hold you to that.\"", "\"I'll believe it when I see it.\""],
+	"side":           ["\"Thank you. Seriously.\"", "\"Good to know someone's on my side.\""],
+}
+
+static func talk_reply(npc: NPC, outcome: String) -> String:
+	var pool: Array = TALK_REPLIES.get(outcome, [])
+	if pool.is_empty():
+		return greeting(npc)
+	return _pick(pool)
 
 static func chat_line(npc: NPC, replying: bool) -> String:
 	if replying and randf() < 0.45:

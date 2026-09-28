@@ -215,11 +215,13 @@ model.is_leaning() -> bool   # true once settled in the loop
   two-bone IK holds it, and it releases when the clip lifts the foot. Standing
   still with a foot pinned more than 12 cm from the idle stance triggers a
   small lifted **recovery step**. Off on the bed and while dying.
-- **Look-at.** Neck and head (40/60 split) turn toward what the character is
-  about to use: the player's interaction-prompt focus
-  (`InteractionSystem.look_focus`), or an NPC activity's
-  `attention_target(npc)`. Clamped to ~60° at 0.7 weight, only within 3.5 m
-  and ~110° of facing, eased in/out, and only while free or seated.
+- **Look-at (NPC-only since 2026-09-28).** Neck and head (40/60 split) turn
+  toward an NPC activity's `attention_target(npc)`. The player's head no
+  longer follows interaction focus. It is subtle by design: 0.4 weight
+  (about 25°), slow easing (`NPC_LOOK_FOLLOW_RATE` 1.6, fade 1.2), and each
+  target is held at least 2.5 s so the head doesn't flick between objects.
+  It works only within 3.5 m and ~110° of facing, and only while free,
+  seated or leaning.
 - **Lean.** Spine banks into turns (`yaw rate × speed`) and tips with
   acceleration. Subtle: max ~7° / ~5°.
 - **Pillow head support.** Neck + head nod up 9° + 9° while asleep (the sleep
