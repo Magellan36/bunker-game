@@ -104,6 +104,9 @@ var _medical_submenu_highlight: int  = 0      ## controller-only — currently h
 var _medical_submenu_highlight_hex: String = "#4dadff"
 
 func _ready() -> void:
+	var weapons: Node = preload("res://scripts/weapons/WeaponController.gd").new()
+	weapons.name = "WeaponController"
+	add_child(weapons)
 	hold_point.position = Vector3(0.0, hold_height, -1.0)
 	_world_root = get_tree().get_first_node_in_group("world")
 	detect_area.body_entered.connect(_on_body_entered)
@@ -2218,3 +2221,13 @@ func drop_in_place() -> void:
 	## comment for why this is needed.
 	if is_instance_valid(dropped_item):
 		_tracked_bodies[dropped_item] = true
+
+
+## Shared weapon input gate; keeps item scripts independent of UI ownership.
+func can_use_weapon() -> bool:
+	return is_instance_valid(player) and not build_mode_active and not _medical_submenu_open \
+		and _active_job.is_empty() and not player._movement_locked and not player._job_locked \
+		and not player.is_dead() and not player.is_animation_locked() \
+		and player.seated_chair == null and player.sleeping_bed == null \
+		and not _shelf_ui_open() and not _basket_ui_open() and not _research_ui_open() \
+		and not _npc_ui_open() and not _any_controller_ui_open()
