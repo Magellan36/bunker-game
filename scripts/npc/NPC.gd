@@ -1200,11 +1200,19 @@ func _physics_process(delta: float) -> void:
 			if model != null and model.has_method("get_stand_end_position") else Vector3.INF
 		place_standing_at(body_pos if body_pos != Vector3.INF else _pending_stand_pos)
 
+	var prof: bool = NPCDebug.profile
+	var t: int = Time.get_ticks_usec() if prof else 0
+	if prof:
+		NPCDebug.prof_frames += 1
 	_validate_held_item()
 	_tick_needs(delta)
 	_tick_social_and_mood(delta)
+	if prof:
+		t = NPCDebug.prof_lap("needs+social", t)
 	if brain != null:
 		brain.tick(delta)
+	if prof:
+		t = NPCDebug.prof_lap("brain+activity", t)
 
 	## While mid sit/lie sequence the model controller owns the position
 	## (eased approach → seat); gravity and move_and_slide would fight it.
@@ -1216,8 +1224,14 @@ func _physics_process(delta: float) -> void:
 	if not _movement_locked:
 		var real: Vector3 = get_real_velocity()
 		_turn_toward_travel(Vector2(real.x, real.z), delta)
+	if prof:
+		t = NPCDebug.prof_lap("move_and_slide", t)
 	_handle_physics_pushes(delta)
+	if prof:
+		t = NPCDebug.prof_lap("physics_pushes", t)
 	stuck.tick(delta)
+	if prof:
+		NPCDebug.prof_lap("stuck_recovery", t)
 
 ## The item in hand must actually be in THIS NPC's hand. An item knocked
 ## out of the carry (a bump, a wall), consumed, freed, or grabbed by someone
@@ -1773,6 +1787,12 @@ func _update_bark(delta: float) -> void:
 		bark(NPCDialogue.greeting_bark(self))
 
 func _process(delta: float) -> void:
+	var t: int = Time.get_ticks_usec() if NPCDebug.profile else 0
+	_process_overhead(delta)
+	if NPCDebug.profile:
+		NPCDebug.prof_lap("overhead(_process)", t)
+
+func _process_overhead(delta: float) -> void:
 	var bubble: NPCSpeechBubble = _get_bubble()
 	bubble.set_sleeping(brain != null and (brain.is_sleeping() or is_passed_out()))
 	bubble.set_typing(_speaking)

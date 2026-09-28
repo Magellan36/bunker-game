@@ -15,6 +15,17 @@ static var enabled: bool = false
 ## overlay, not shipping UI — flip to false for release builds/captures.
 static var show_nameplates: bool = true
 
+## Lightweight per-section CPU profile of NPC frames (sim harness --profile).
+## Off by default: the only cost when off is one bool check per section.
+static var profile: bool = false
+static var prof_usec: Dictionary = {}   ## section -> total microseconds
+static var prof_frames: int = 0
+
+static func prof_lap(section: String, since_usec: int) -> int:
+	var now: int = Time.get_ticks_usec()
+	prof_usec[section] = int(prof_usec.get(section, 0)) + (now - since_usec)
+	return now
+
 static func _fmt(npc: Node) -> String:
 	if npc != null and "npc_name" in npc:
 		return "[NPC:%s]" % npc.npc_name

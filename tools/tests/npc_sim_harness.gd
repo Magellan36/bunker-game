@@ -88,6 +88,7 @@ func _ready() -> void:
 			"saveload": _cfg["saveload"] = float(v)
 			"bubbles": _cfg["bubbles"] = float(v)
 			"debug": NPCDebug.enabled = v != "0"
+			"profile": NPCDebug.profile = v != "0"
 			"player_sleep": _cfg["player_sleep"] = float(v)
 			"open_panel": _cfg["open_panel"] = float(v)
 	seed(int(_cfg["seed"]))
@@ -754,6 +755,28 @@ func _report() -> void:
 			npc.npc_name, npc.hunger, npc.thirst, npc.energy, npc.mood, npc.health,
 			(npc.held_item.name if npc.held_item != null and is_instance_valid(npc.held_item) else "-"),
 			npc.brain.current_label() if npc.brain != null else "?"])
+	## Refinement metrics.
+	var short: Dictionary = {}
+	var total_recov: Array[String] = []
+	for id in _track.keys():
+		var tr: Dictionary = _track[id]
+		for e: Dictionary in tr["entries"]:
+			if float(e["dur"]) < 1.5:
+				short[e["act"]] = int(short.get(e["act"], 0)) + 1
+		var n = tr["npc"]
+		if is_instance_valid(n):
+			total_recov.append("%s:%d" % [n.npc_name, n.stuck.recoveries])
+	print("Short (<1.5s) activity entries: %s" % str(short))
+	print("Stuck recoveries: %s" % " ".join(total_recov))
+	if NPCDebug.profile and NPCDebug.prof_frames > 0:
+		var sum: int = 0
+		for k in NPCDebug.prof_usec.keys():
+			sum += int(NPCDebug.prof_usec[k])
+		print("NPC CPU per NPC-frame: %.1f us total" % [float(sum) / NPCDebug.prof_frames])
+		var keys: Array = NPCDebug.prof_usec.keys()
+		keys.sort_custom(func(a, b): return int(NPCDebug.prof_usec[a]) > int(NPCDebug.prof_usec[b]))
+		for k in keys:
+			print("  %-20s %6.1f us" % [k, float(NPCDebug.prof_usec[k]) / NPCDebug.prof_frames])
 	var bad: int = 0
 	for k in _violations.keys():
 		var arr: Array = _violations[k]
