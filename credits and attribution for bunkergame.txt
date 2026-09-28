@@ -64,4 +64,8 @@ LowPoly Apocalyptic Buildings by Maik Hoffmann (Majadroid) -- https://majadroid.
 Building textures from cc0textures.com (ambientCG) -- License: CC0
 ambientCG ground materials Ground062S, Ground067, Ground073, Ground111 -- https://ambientcg.com -- License: CC0
 Destroyed building by Daniyal Malik -- https://sketchfab.com/daniyalmalik
-SurvivalWood shacks
+SurvivalWood shack
+Destroyed City Assets (columns, debris, rocks, road slab)
+
+(Poly Haven: main menu clutter, CC0)
+Industrial storage cart, lantern, ammo box, cardboard box, cash register, cheese box, concrete cat statue, exterior aircon unit, Namaqualand boulders, old military compressor, old military crate, old tyre, plastic jerrycan, plastic monobloc chair, moss rock set, signal flashlight, stone fire pit, television, utility boxes, vintage flashlight, vintage spacecraft instrument, wheelchair, wooden military crate -- https://polyhaven.com -- License: CC0

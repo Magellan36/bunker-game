@@ -28,6 +28,9 @@ SCENES = [
     ROOT / "scenes/world/menu_backdrop/MenuBackdrop.tscn",
     ROOT / "scenes/ui/main_menu/MainMenu.tscn",
     ROOT / "scenes/world/menu_backdrop/MenuTerrain.tscn",
+    ROOT / "scenes/world/menu_backdrop/MenuClutter.tscn",
+    ROOT / "scenes/world/menu_backdrop/entrance_cart.tscn",
+    *sorted((ROOT / "scenes/world/menu_backdrop/ruins").glob("*.tscn")),
 ]
 BACKDROP = SCENES[0]
 MANIFEST = ROOT / "assets/menu_backdrop/provenance.json"

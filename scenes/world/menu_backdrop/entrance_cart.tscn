@@ -1,0 +1,10 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/clutter/industrial_storage_cart/industrial_storage_cart.gltf" id="1_cart"]
+
+[node name="EntranceCart" type="Node3D"]
+
+[node name="Cart" parent="." instance=ExtResource("1_cart")]
+
+[node name="industrial_storage_cart_001" parent="Cart" index="0"]
+cast_shadow = 0

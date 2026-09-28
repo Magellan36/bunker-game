@@ -1,0 +1,10 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+[resource]
+resource_name = "lantern_glass_lit"
+transparency = 1
+shading_mode = 0
+albedo_color = Color(1, 0.72, 0.42, 0.85)
+emission_enabled = true
+emission = Color(1, 0.63, 0.32, 1)
+emission_energy_multiplier = 3.0

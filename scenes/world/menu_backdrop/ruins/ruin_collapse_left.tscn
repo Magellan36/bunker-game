@@ -1,0 +1,28 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/destroyed/column_2/column_2.gltf" id="1"]
+[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/destroyed/column_3/column_3.gltf" id="2"]
+[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/destroyed/debris/debris.gltf" id="3"]
+[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/destroyed/road_slab/road_slab.gltf" id="4"]
+[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/destroyed/rocks/rocks.gltf" id="5"]
+[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/destroyed/wreckage_2/wreckage_2.gltf" id="6"]
+
+[node name="ruin_collapse_left" type="Node3D"]
+
+[node name="wreckage_2_0" parent="." instance=ExtResource("6")]
+transform = Transform3D(0.17101, 0.00000, 0.46985, 0.00000, 0.55000, -0.00000, -0.46985, 0.00000, 0.17101, 0, -0.6, 0)
+
+[node name="column_3_1" parent="." instance=ExtResource("2")]
+transform = Transform3D(0.84265, 0.00000, 0.70707, 0.00000, 0.80000, -0.00000, -0.70707, 0.00000, 0.84265, -1.6, 0, 0.8)
+
+[node name="column_2_2" parent="." instance=ExtResource("1")]
+transform = Transform3D(1.12763, -0.40942, -0.02863, 0.00000, 0.08371, -1.19708, 0.41042, 1.12488, 0.07866, 2.8, 0.9, -1.5)
+
+[node name="debris_3" parent="." instance=ExtResource("3")]
+transform = Transform3D(1.25570, 0.00000, 0.33646, 0.00000, 1.00000, -0.00000, -0.33646, 0.00000, 1.25570, 0.5, 0, 3.2)
+
+[node name="rocks_4" parent="." instance=ExtResource("5")]
+transform = Transform3D(0.00000, 0.00000, 1.20000, 0.00000, 1.00000, -0.00000, -1.20000, 0.00000, 0.00000, -3.8, 0, -2.4)
+
+[node name="road_slab_5" parent="." instance=ExtResource("4")]
+transform = Transform3D(0.92812, -0.14700, -0.34202, 0.15643, 0.98769, -0.00000, 0.33781, -0.05350, 0.93969, 3.6, 0.2, 2.9)

@@ -6,16 +6,27 @@
 [ext_resource type="Script" path="res://scripts/world/menu_backdrop/WindAmbience.gd" id="4_wind"]
 [ext_resource type="Script" path="res://scripts/world/menu_backdrop/BackdropAssetSlot.gd" id="5_slot"]
 [ext_resource type="Script" path="res://scripts/world/menu_backdrop/FlickerLamp.gd" id="6_lamp"]
-[ext_resource type="PackedScene" path="res://assets/models/industrial_wall_lamp.glb" id="7_lamp_model"]
+[ext_resource type="PackedScene" path="res://scenes/world/menu_backdrop/entrance_cart.tscn" id="7_cart"]
+[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/clutter/lantern/lantern.gltf" id="7_lantern"]
+[ext_resource type="Material" path="res://assets/models/menu_backdrop/materials/lantern_glass_lit.tres" id="7_glass"]
 [ext_resource type="PackedScene" path="res://scenes/world/menu_backdrop/MenuTerrain.tscn" id="8_terrain"]
+[ext_resource type="PackedScene" path="res://scenes/world/menu_backdrop/MenuClutter.tscn" id="9_clutter"]
 [ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/ruin_malik_facade.glb" id="b00_ruin_malik_facade"]
 [ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/shack_low.glb" id="b01_shack_low"]
-[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/shack_high.glb" id="b02_shack_high"]
 [ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/tower_majadroid_07.glb" id="b03_tower_majadroid_07"]
 [ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/tower_majadroid_04.glb" id="b04_tower_majadroid_04"]
 [ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/tower_majadroid_03.glb" id="b05_tower_majadroid_03"]
 [ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/tower_majadroid_05.glb" id="b06_tower_majadroid_05"]
-[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/tower_majadroid_base.glb" id="b07_tower_majadroid_base"]
+[ext_resource type="PackedScene" path="res://scenes/world/menu_backdrop/ruins/rubble_left.tscn" id="r_rubble_left"]
+[ext_resource type="PackedScene" path="res://scenes/world/menu_backdrop/ruins/rubble_right.tscn" id="r_rubble_right"]
+[ext_resource type="PackedScene" path="res://scenes/world/menu_backdrop/ruins/ruin_leaning_03.tscn" id="r_ruin_leaning_03"]
+[ext_resource type="PackedScene" path="res://scenes/world/menu_backdrop/ruins/ruin_collapse_right.tscn" id="r_ruin_collapse_right"]
+[ext_resource type="PackedScene" path="res://scenes/world/menu_backdrop/ruins/ruin_collapse_left.tscn" id="r_ruin_collapse_left"]
+[ext_resource type="PackedScene" path="res://scenes/world/menu_backdrop/ruins/far_pancake.tscn" id="r_far_pancake"]
+[ext_resource type="PackedScene" path="res://scenes/world/menu_backdrop/ruins/far_tower_05.tscn" id="r_far_tower_05"]
+[ext_resource type="PackedScene" path="res://scenes/world/menu_backdrop/ruins/far_tower_06.tscn" id="r_far_tower_06"]
+[ext_resource type="PackedScene" path="res://scenes/world/menu_backdrop/ruins/far_tower_01.tscn" id="r_far_tower_01"]
+[ext_resource type="PackedScene" path="res://scenes/world/menu_backdrop/ruins/far_tower_02.tscn" id="r_far_tower_02"]
 [ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/tower_majadroid_02.glb" id="b08_tower_majadroid_02"]
 [ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/tower_majadroid_06.glb" id="b09_tower_majadroid_06"]
 [ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/tower_majadroid_01.glb" id="b10_tower_majadroid_01"]
@@ -181,6 +192,8 @@ visibility_aabb = AABB(-60, -20, -60, 120, 40, 120)
 process_material = SubResource("ash_process")
 draw_pass_1 = SubResource("ash_quad")
 
+[node name="Clutter" parent="." instance=ExtResource("9_clutter")]
+
 [node name="Slots" type="Node3D" parent="."]
 
 [node name="RightFlank" type="Node3D" parent="Slots"]
@@ -211,6 +224,7 @@ brief = "Nearest ruin, cropped by the right frame edge. Highest detail: exposed 
 position = Vector3(120, 0, -320)
 rotation = Vector3(0, 0.872665, 0)
 script = ExtResource("5_slot")
+cast_shadows = false
 asset_scene = ExtResource("b03_tower_majadroid_07")
 greybox_size = Vector3(18, 64, 18)
 greybox_broken = true
@@ -233,19 +247,11 @@ greybox_size = Vector3(10, 4.5, 12)
 greybox_broken = true
 brief = "Behind the menu text: a survivor's low shack, dark and low-contrast."
 
-[node name="RuinLeft2" type="Node3D" parent="Slots/LeftFlank"]
-position = Vector3(-15, 0, -33)
-rotation = Vector3(0, -0.244346, 0)
-script = ExtResource("5_slot")
-asset_scene = ExtResource("b02_shack_high")
-greybox_size = Vector3(12, 8, 14)
-greybox_broken = true
-brief = "A lone raised shack further up the street; small, reads in fog."
-
 [node name="RuinCentreFar" type="Node3D" parent="Slots/Distance"]
 position = Vector3(-14, 0, -290)
 rotation = Vector3(0, -0.174533, 0)
 script = ExtResource("5_slot")
+cast_shadows = false
 asset_scene = ExtResource("b04_tower_majadroid_04")
 greybox_size = Vector3(26, 34, 18)
 greybox_broken = true
@@ -255,6 +261,7 @@ brief = "Terminates the street's vanishing point; heavily fogged."
 position = Vector3(-235, 0, -320)
 rotation = Vector3(0, 0.558505, 0)
 script = ExtResource("5_slot")
+cast_shadows = false
 asset_scene = ExtResource("b05_tower_majadroid_03")
 greybox_size = Vector3(46, 40, 30)
 greybox_broken = true
@@ -264,6 +271,7 @@ brief = "Far skyline, left: kept lower so it never fights the menu."
 position = Vector3(-150, 0, -405)
 rotation = Vector3(0, -0.366519, 0)
 script = ExtResource("5_slot")
+cast_shadows = false
 asset_scene = ExtResource("b06_tower_majadroid_05")
 greybox_size = Vector3(40, 72, 30)
 greybox_broken = true
@@ -273,15 +281,17 @@ brief = "Far skyline, left: deep in the fog."
 position = Vector3(-70, 0, -430)
 rotation = Vector3(0, 0.209440, 0)
 script = ExtResource("5_slot")
-asset_scene = ExtResource("b07_tower_majadroid_base")
+cast_shadows = false
+asset_scene = ExtResource("r_ruin_leaning_03")
 greybox_size = Vector3(52, 28, 30)
 greybox_broken = true
-brief = "Far skyline: the one intact block, barely visible."
+brief = "Far skyline: tower 03 mirrored, leaning and sunk into its rubble (replaced the plain intact block)."
 
 [node name="Skyline4" type="Node3D" parent="Slots/Distance"]
 position = Vector3(40, 0, -380)
 rotation = Vector3(0, -0.610865, 0)
 script = ExtResource("5_slot")
+cast_shadows = false
 asset_scene = ExtResource("b08_tower_majadroid_02")
 greybox_size = Vector3(38, 56, 30)
 greybox_broken = true
@@ -291,6 +301,7 @@ brief = "Far skyline, centre-right."
 position = Vector3(175, 0, -420)
 rotation = Vector3(0, 0.314159, 0)
 script = ExtResource("5_slot")
+cast_shadows = false
 asset_scene = ExtResource("b09_tower_majadroid_06")
 greybox_size = Vector3(34, 88, 30)
 greybox_broken = true
@@ -300,10 +311,68 @@ brief = "Far skyline, right: the widest block."
 position = Vector3(245, 0, -330)
 rotation = Vector3(0, -0.488692, 0)
 script = ExtResource("5_slot")
+cast_shadows = false
 asset_scene = ExtResource("b10_tower_majadroid_01")
 greybox_size = Vector3(50, 36, 30)
 greybox_broken = true
 brief = "Far skyline, right edge."
+
+[node name="CollapseRight" type="Node3D" parent="Slots/RightFlank"]
+position = Vector3(26, 0, -52)
+rotation = Vector3(0, -0.209440, 0)
+script = ExtResource("5_slot")
+asset_scene = ExtResource("r_ruin_collapse_right")
+greybox_broken = false
+brief = "Mid-ground collapsed frame: Destroyed City columns scaled to ~9 m, a leaning floor slab, fallen fire stairs, debris."
+
+[node name="CollapseLeft" type="Node3D" parent="Slots/LeftFlank"]
+position = Vector3(-30, 0, -66)
+rotation = Vector3(0, 0.349066, 0)
+script = ExtResource("5_slot")
+asset_scene = ExtResource("r_ruin_collapse_left")
+greybox_broken = false
+brief = "Low collapsed remains behind the menu text; keep quiet."
+
+[node name="FarPancake" type="Node3D" parent="Slots/Distance"]
+position = Vector3(-300, 0, -500)
+rotation = Vector3(0, 0.139626, 0)
+script = ExtResource("5_slot")
+cast_shadows = false
+asset_scene = ExtResource("r_far_pancake")
+greybox_broken = false
+brief = "Far band: a pancaked block of stacked floor slabs with column stumps."
+
+[node name="FarTower05" type="Node3D" parent="Slots/Distance"]
+position = Vector3(60, 0, -545)
+script = ExtResource("5_slot")
+cast_shadows = false
+asset_scene = ExtResource("r_far_tower_05")
+greybox_broken = false
+brief = "Far band: tower 05 mirrored, buried to its upper floors."
+
+[node name="FarTower06" type="Node3D" parent="Slots/Distance"]
+position = Vector3(330, 0, -500)
+script = ExtResource("5_slot")
+cast_shadows = false
+asset_scene = ExtResource("r_far_tower_06")
+greybox_broken = false
+brief = "Far band: tower 06 mirrored, turned and leaning back."
+
+[node name="FarTower01" type="Node3D" parent="Slots/Distance"]
+position = Vector3(-175, 0, -560)
+script = ExtResource("5_slot")
+cast_shadows = false
+asset_scene = ExtResource("r_far_tower_01")
+greybox_broken = false
+brief = "Far band: tower 01 mirrored, tilting."
+
+[node name="FarTower02" type="Node3D" parent="Slots/Distance"]
+position = Vector3(205, 0, -560)
+script = ExtResource("5_slot")
+cast_shadows = false
+asset_scene = ExtResource("r_far_tower_02")
+greybox_broken = false
+brief = "Far band: tower 02 mirrored, only its top storeys above the rubble."
 
 [node name="WreckedCar" type="Node3D" parent="Slots/Foreground"]
 position = Vector3(-2.5, 0, -17)
@@ -316,30 +385,38 @@ brief = "Burnt-out car, glass gone, sitting on its rims. Ash on the roof."
 [node name="RubbleLeft" type="Node3D" parent="Slots/Foreground"]
 position = Vector3(-8.5, 0, -6)
 script = ExtResource("5_slot")
+asset_scene = ExtResource("r_rubble_left")
 greybox_size = Vector3(5, 1.1, 4)
 greybox_broken = false
-brief = "Concrete rubble pile with rebar; frames the lower-left corner."
+brief = "Concrete debris, rocks, a road slab and a tyre framing the lower-left corner."
 
 [node name="RubbleRight" type="Node3D" parent="Slots/Foreground"]
 position = Vector3(8, 0, -3.5)
 script = ExtResource("5_slot")
+asset_scene = ExtResource("r_rubble_right")
 greybox_size = Vector3(3.6, 0.8, 3)
 greybox_broken = false
-brief = "Small rubble and debris near the bunker entrance."
+brief = "Rocks and debris by the entrance, a jerrycan on its side."
 
 [node name="BunkerEntrance" type="Node3D" parent="Slots/Foreground"]
 position = Vector3(4.2, 0, -5.5)
 rotation = Vector3(0, -0.244346, 0)
 script = ExtResource("5_slot")
-greybox_size = Vector3(2.8, 1.5, 3.2)
+asset_scene = ExtResource("7_cart")
+greybox_size = Vector3(1.6, 1.38, 1.1)
 greybox_broken = false
-brief = "THE STORY BEAT: the bunker's surface entrance (concrete pillbox, steel hatch). Its warm lamp is the only warm light in the scene - it is 'home'."
+brief = "THE STORY BEAT: an industrial storage cart by the bunker entrance with a lantern on its top tray. The lantern is the only warm light in the scene - it is 'home'."
 
-[node name="EntranceLamp" parent="Slots/Foreground/BunkerEntrance" instance=ExtResource("7_lamp_model")]
-position = Vector3(0, 1.25, 1.62)
+[node name="EntranceLantern" parent="Slots/Foreground/BunkerEntrance" instance=ExtResource("7_lantern")]
+position = Vector3(0.38, 1.29, 0.12)
+rotation = Vector3(0, 0.4, 0)
+
+[node name="lantern" parent="Slots/Foreground/BunkerEntrance/EntranceLantern" index="0"]
+cast_shadow = 0
+surface_material_override/1 = ExtResource("7_glass")
 
 [node name="EntranceLight" type="OmniLight3D" parent="Slots/Foreground/BunkerEntrance"]
-position = Vector3(0, 1.1, 2)
+position = Vector3(0.38, 1.385, 0.12)
 light_color = Color(1, 0.63, 0.32, 1)
 light_energy = 2.6
 light_volumetric_fog_energy = 2.2
@@ -347,3 +424,4 @@ shadow_enabled = true
 omni_range = 9.0
 omni_attenuation = 1.4
 script = ExtResource("6_lamp")
+glow_material = ExtResource("7_glass")

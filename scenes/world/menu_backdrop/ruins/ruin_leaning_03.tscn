@@ -1,0 +1,16 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/tower_majadroid_03.glb" id="1"]
+[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/destroyed/wreckage_1/wreckage_1.gltf" id="2"]
+[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/destroyed/wreckage_3/wreckage_3.gltf" id="3"]
+
+[node name="ruin_leaning_03" type="Node3D"]
+
+[node name="tower_03_0" parent="." instance=ExtResource("1")]
+transform = Transform3D(0.86273, 0.07548, 0.50000, -0.08716, 0.99619, -0.00000, 0.49810, 0.04358, -0.86603, 0, -7, 0)
+
+[node name="wreckage_1_1" parent="." instance=ExtResource("2")]
+transform = Transform3D(2.07846, 0.00000, 1.20000, 0.00000, 2.20000, -0.00000, -1.20000, 0.00000, 2.07846, 4, -0.5, 6)
+
+[node name="wreckage_3_2" parent="." instance=ExtResource("3")]
+transform = Transform3D(1.60000, 0.00000, 0.00000, 0.00000, 1.80000, -0.00000, 0.00000, 0.00000, 1.60000, -20, -0.3, -8)

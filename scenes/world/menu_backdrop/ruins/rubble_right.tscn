@@ -1,0 +1,16 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/destroyed/debris/debris.gltf" id="1"]
+[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/clutter/jerrycan/jerrycan.gltf" id="2"]
+[ext_resource type="PackedScene" path="res://assets/models/menu_backdrop/destroyed/rocks/rocks.gltf" id="3"]
+
+[node name="rubble_right" type="Node3D"]
+
+[node name="rocks_0" parent="." instance=ExtResource("3")]
+transform = Transform3D(0.86603, -0.00000, -0.50000, 0.00000, 0.80000, -0.00000, 0.50000, 0.00000, 0.86603, 0, 0, 0)
+
+[node name="debris_1" parent="." instance=ExtResource("1")]
+transform = Transform3D(-0.65778, 0.00000, -0.23941, 0.00000, 0.60000, -0.00000, 0.23941, -0.00000, -0.65778, -1.1, 0, -0.6)
+
+[node name="jerrycan_2" parent="." instance=ExtResource("2")]
+transform = Transform3D(0.00000, -0.76604, 0.64279, 1.00000, 0.00000, -0.00000, -0.00000, 0.64279, 0.76604, 0.9, 0.12, 0.7)

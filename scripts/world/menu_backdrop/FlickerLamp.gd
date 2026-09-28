@@ -1,13 +1,17 @@
 extends Light3D
 ## FlickerLamp.gd (Sep 2026)
-## The one warm light on the surface: the lamp over the bunker entrance. A
-## gentle current waver plus an occasional brown-out stutter. Reduced motion
-## keeps only the gentle waver.
+## The one warm light on the surface: the lantern on the storage cart by the
+## bunker entrance. A gentle waver plus an occasional stutter. Reduced motion
+## keeps only the gentle waver. `glow_material` (the lantern glass) brightens
+## and dims with the light so the source itself reads as lit.
 
 @export var waver_amount: float = 0.07
 @export var waver_speed: float = 2.2
 @export var stutter_interval: Vector2 = Vector2(6.0, 15.0)
 @export var stutter_depth: float = 0.6
+@export var glow_material: StandardMaterial3D
+
+var _base_glow: float = 1.0
 
 var _base_energy: float = 1.0
 var _clock: float = 0.0
@@ -19,6 +23,8 @@ var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
 func _ready() -> void:
 	_base_energy = light_energy
+	if glow_material != null:
+		_base_glow = glow_material.emission_energy_multiplier
 	_rng.randomize()
 	_noise.frequency = 1.0
 	_noise.seed = 3
@@ -40,3 +46,5 @@ func _process(delta: float) -> void:
 			if _stutter_age > 0.6:
 				_stutter_age = -1.0
 	light_energy = _base_energy * level
+	if glow_material != null:
+		glow_material.emission_energy_multiplier = _base_glow * level

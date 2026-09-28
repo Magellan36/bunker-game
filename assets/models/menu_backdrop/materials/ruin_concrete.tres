@@ -1,0 +1,13 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/models/menu_backdrop/materials/concrete_031.jpg" id="1_tex"]
+
+[resource]
+resource_name = "ruin_concrete"
+albedo_color = Color(0.62, 0.61, 0.57, 1)
+albedo_texture = ExtResource("1_tex")
+roughness = 0.95
+uv1_scale = Vector3(0.35, 0.35, 0.35)
+uv1_triplanar = true
+uv1_world_triplanar = true
+texture_filter = 5

@@ -3,14 +3,6 @@
   "policy": "Every non-code asset referenced by the main menu or its surface backdrop (models, textures, skies, audio, fonts) must have a human author and a licence recorded here before release. AI-generated content is not permitted. Checked by tools/tests/check_menu_backdrop_slots.py --release.",
   "assets": [
     {
-      "path": "res://assets/models/industrial_wall_lamp.glb",
-      "use": "Warm lamp over the bunker entrance (BunkerEntrance slot)",
-      "author": "CONFIRM: Poly Haven artist (see Poly Haven asset page)",
-      "source": "https://polyhaven.com",
-      "license": "CC0",
-      "ai_generated": false
-    },
-    {
       "path": "res://assets/models/menu_backdrop/tower_majadroid_07.glb",
       "use": "SkylineTower (focal snapped high-rise) — Blender export of the pack's object, modifiers applied, origin at ground",
       "author": "Maik Hoffmann (Majadroid); textures by cc0textures.com (now ambientCG), billboard texture by Majadroid",
@@ -37,14 +29,6 @@
     {
       "path": "res://assets/models/menu_backdrop/tower_majadroid_05.glb",
       "use": "Skyline2 — Blender export of the pack's object, modifiers applied, origin at ground",
-      "author": "Maik Hoffmann (Majadroid); textures by cc0textures.com (now ambientCG), billboard texture by Majadroid",
-      "source": "LowPoly Apocalyptic Buildings by Majadroid — https://majadroid.itch.io/ / https://opengameart.org/users/majadroid (local copy: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU BUILDINGS/LowPoly-Apocalyptic-Buildings-By-Majadroid)",
-      "license": "CC0 (per the pack's INFO.txt; attribution appreciated, credited in the credits file)",
-      "ai_generated": false
-    },
-    {
-      "path": "res://assets/models/menu_backdrop/tower_majadroid_base.glb",
-      "use": "Skyline3 — Blender export of the pack's object, modifiers applied, origin at ground",
       "author": "Maik Hoffmann (Majadroid); textures by cc0textures.com (now ambientCG), billboard texture by Majadroid",
       "source": "LowPoly Apocalyptic Buildings by Majadroid — https://majadroid.itch.io/ / https://opengameart.org/users/majadroid (local copy: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU BUILDINGS/LowPoly-Apocalyptic-Buildings-By-Majadroid)",
       "license": "CC0 (per the pack's INFO.txt; attribution appreciated, credited in the credits file)",
@@ -85,14 +69,6 @@
     {
       "path": "res://assets/models/menu_backdrop/shack_low.glb",
       "use": "RuinLeft1 — low shack behind the menu (textures downscaled 2K→1K on export)",
-      "author": "CONFIRM: author of the 'SurvivalWood' Unity package",
-      "source": "SurvivalWood (Survival.unitypackage), local copy: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU BUILDINGS/SurvivalWood",
-      "license": "CONFIRM: licence of the SurvivalWood package",
-      "ai_generated": false
-    },
-    {
-      "path": "res://assets/models/menu_backdrop/shack_high.glb",
-      "use": "RuinLeft2 — raised shack (textures downscaled 2K→1K on export)",
       "author": "CONFIRM: author of the 'SurvivalWood' Unity package",
       "source": "SurvivalWood (Survival.unitypackage), local copy: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU BUILDINGS/SurvivalWood",
       "license": "CONFIRM: licence of the SurvivalWood package",
@@ -219,6 +195,486 @@
       "use": "Ground slot content: the baked terrain mesh + menu_ground.gdshader material with the four ambientCG sets and an engine NoiseTexture2D",
       "author": "Bunker Game project (scene wiring only; every referenced texture/mesh has its own entry)",
       "source": "Project scene",
+      "license": "Project-owned",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/ammo_box/ammo_box.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/ammo_box)",
+      "source": "https://polyhaven.com/a/ammo_box (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/ammo_box_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/cardboard_box/cardboard_box.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/cardboard_box_01)",
+      "source": "https://polyhaven.com/a/cardboard_box_01 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/cardboard_box_01_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/cash_register/cash_register.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/CashRegister_01)",
+      "source": "https://polyhaven.com/a/CashRegister_01 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/CashRegister_01_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/cheese_box/cheese_box.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/CheeseBox_01)",
+      "source": "https://polyhaven.com/a/CheeseBox_01 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/CheeseBox_01_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/concrete_cat_statue/concrete_cat_statue.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/concrete_cat_statue)",
+      "source": "https://polyhaven.com/a/concrete_cat_statue (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/concrete_cat_statue_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/aircon_unit/aircon_unit.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/exterior_aircon_unit)",
+      "source": "https://polyhaven.com/a/exterior_aircon_unit (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/exterior_aircon_unit_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/industrial_storage_cart/industrial_storage_cart.gltf",
+      "use": "Main-menu clutter — entrance cart (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/industrial_storage_cart)",
+      "source": "https://polyhaven.com/a/industrial_storage_cart (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/industrial_storage_cart_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/lantern/lantern.gltf",
+      "use": "Main-menu clutter — entrance lantern (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/Lantern_01)",
+      "source": "https://polyhaven.com/a/Lantern_01 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/Lantern_01_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/boulder_03/boulder_03.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/namaqualand_boulder_03)",
+      "source": "https://polyhaven.com/a/namaqualand_boulder_03 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/namaqualand_boulder_03_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/boulder_05/boulder_05.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/namaqualand_boulder_05)",
+      "source": "https://polyhaven.com/a/namaqualand_boulder_05 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/namaqualand_boulder_05_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/military_compressor/military_compressor.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/old_military_compressor)",
+      "source": "https://polyhaven.com/a/old_military_compressor (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/old_military_compressor_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/military_crate/military_crate.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/old_military_crate)",
+      "source": "https://polyhaven.com/a/old_military_crate (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/old_military_crate_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/tyre/tyre.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/old_tyre)",
+      "source": "https://polyhaven.com/a/old_tyre (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/old_tyre_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/jerrycan/jerrycan.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/plastic_jerrycan)",
+      "source": "https://polyhaven.com/a/plastic_jerrycan (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/plastic_jerrycan_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/monobloc_chair/monobloc_chair.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/plastic_monobloc_chair_01)",
+      "source": "https://polyhaven.com/a/plastic_monobloc_chair_01 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/plastic_monobloc_chair_01_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/signal_flashlight/signal_flashlight.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/signal_flashlight)",
+      "source": "https://polyhaven.com/a/signal_flashlight (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/signal_flashlight_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/fire_pit/fire_pit.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/stone_fire_pit)",
+      "source": "https://polyhaven.com/a/stone_fire_pit (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/stone_fire_pit_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/television/television.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/Television_01)",
+      "source": "https://polyhaven.com/a/Television_01 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/Television_01_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/utility_box_01/utility_box_01.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/utility_box_01)",
+      "source": "https://polyhaven.com/a/utility_box_01 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/utility_box_01_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/utility_box_02/utility_box_02.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/utility_box_02)",
+      "source": "https://polyhaven.com/a/utility_box_02 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/utility_box_02_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/vintage_flashlight/vintage_flashlight.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/vintage_flashlight)",
+      "source": "https://polyhaven.com/a/vintage_flashlight (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/vintage_flashlight_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/spacecraft_instrument/spacecraft_instrument.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/vintage_spacecraft_instrument)",
+      "source": "https://polyhaven.com/a/vintage_spacecraft_instrument (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/vintage_spacecraft_instrument_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/wheelchair/wheelchair.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/wheelchair_01)",
+      "source": "https://polyhaven.com/a/wheelchair_01 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/wheelchair_01_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/wooden_crate/wooden_crate.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/wooden_military_crate)",
+      "source": "https://polyhaven.com/a/wooden_military_crate (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/wooden_military_crate_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/moss_rock_01/moss_rock_01.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/rock_moss_set_01)",
+      "source": "https://polyhaven.com/a/rock_moss_set_01 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/rock_moss_set_01_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/moss_rock_02/moss_rock_02.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/rock_moss_set_01)",
+      "source": "https://polyhaven.com/a/rock_moss_set_01 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/rock_moss_set_01_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/moss_rock_03/moss_rock_03.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/rock_moss_set_01)",
+      "source": "https://polyhaven.com/a/rock_moss_set_01 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/rock_moss_set_01_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/moss_rock_04/moss_rock_04.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/rock_moss_set_01)",
+      "source": "https://polyhaven.com/a/rock_moss_set_01 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/rock_moss_set_01_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/moss_rock_05/moss_rock_05.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/rock_moss_set_01)",
+      "source": "https://polyhaven.com/a/rock_moss_set_01 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/rock_moss_set_01_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/clutter/moss_rock_06/moss_rock_06.gltf",
+      "use": "Main-menu clutter (glTF + its textures in the same folder)",
+      "author": "Poly Haven (artist credited on https://polyhaven.com/a/rock_moss_set_01)",
+      "source": "https://polyhaven.com/a/rock_moss_set_01 (local zip: /mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU CLUTTER/rock_moss_set_01_1k.blend.zip), exported by tools/menu_backdrop/export_clutter.py",
+      "license": "CC0 (all Poly Haven assets)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/destroyed/column_1/column_1.gltf",
+      "use": "Ruin piece (Destroyed_City_Assets.fbx), textured with the ruin_* materials",
+      "author": "CONFIRM: author of Destroyed_City_Assets.fbx (no credit file in the folder)",
+      "source": "/mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU BUILDINGS/Destroyed_City_Assets.fbx",
+      "license": "CONFIRM: licence of Destroyed_City_Assets.fbx",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/destroyed/column_2/column_2.gltf",
+      "use": "Ruin piece (Destroyed_City_Assets.fbx), textured with the ruin_* materials",
+      "author": "CONFIRM: author of Destroyed_City_Assets.fbx (no credit file in the folder)",
+      "source": "/mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU BUILDINGS/Destroyed_City_Assets.fbx",
+      "license": "CONFIRM: licence of Destroyed_City_Assets.fbx",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/destroyed/column_3/column_3.gltf",
+      "use": "Ruin piece (Destroyed_City_Assets.fbx), textured with the ruin_* materials",
+      "author": "CONFIRM: author of Destroyed_City_Assets.fbx (no credit file in the folder)",
+      "source": "/mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU BUILDINGS/Destroyed_City_Assets.fbx",
+      "license": "CONFIRM: licence of Destroyed_City_Assets.fbx",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/destroyed/debris/debris.gltf",
+      "use": "Ruin piece (Destroyed_City_Assets.fbx), textured with the ruin_* materials",
+      "author": "CONFIRM: author of Destroyed_City_Assets.fbx (no credit file in the folder)",
+      "source": "/mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU BUILDINGS/Destroyed_City_Assets.fbx",
+      "license": "CONFIRM: licence of Destroyed_City_Assets.fbx",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/destroyed/rocks/rocks.gltf",
+      "use": "Ruin piece (Destroyed_City_Assets.fbx), textured with the ruin_* materials",
+      "author": "CONFIRM: author of Destroyed_City_Assets.fbx (no credit file in the folder)",
+      "source": "/mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU BUILDINGS/Destroyed_City_Assets.fbx",
+      "license": "CONFIRM: licence of Destroyed_City_Assets.fbx",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/destroyed/road_slab/road_slab.gltf",
+      "use": "Ruin piece (Destroyed_City_Assets.fbx), textured with the ruin_* materials",
+      "author": "CONFIRM: author of Destroyed_City_Assets.fbx (no credit file in the folder)",
+      "source": "/mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU BUILDINGS/Destroyed_City_Assets.fbx",
+      "license": "CONFIRM: licence of Destroyed_City_Assets.fbx",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/destroyed/floor_slab/floor_slab.gltf",
+      "use": "Ruin piece: Majadroid 'Single Floor'",
+      "author": "Maik Hoffmann (Majadroid); texture by cc0textures.com (ambientCG)",
+      "source": "LowPoly Apocalyptic Buildings by Majadroid — https://majadroid.itch.io/",
+      "license": "CC0 (per the pack's INFO.txt)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/destroyed/wreckage_1/wreckage_1.gltf",
+      "use": "Ruin piece: Majadroid 'Wreckage 1'",
+      "author": "Maik Hoffmann (Majadroid); texture by cc0textures.com (ambientCG)",
+      "source": "LowPoly Apocalyptic Buildings by Majadroid — https://majadroid.itch.io/",
+      "license": "CC0 (per the pack's INFO.txt)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/destroyed/wreckage_2/wreckage_2.gltf",
+      "use": "Ruin piece: Majadroid 'Wreckage 2'",
+      "author": "Maik Hoffmann (Majadroid); texture by cc0textures.com (ambientCG)",
+      "source": "LowPoly Apocalyptic Buildings by Majadroid — https://majadroid.itch.io/",
+      "license": "CC0 (per the pack's INFO.txt)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/destroyed/wreckage_3/wreckage_3.gltf",
+      "use": "Ruin piece: Majadroid 'Wreckage 3'",
+      "author": "Maik Hoffmann (Majadroid); texture by cc0textures.com (ambientCG)",
+      "source": "LowPoly Apocalyptic Buildings by Majadroid — https://majadroid.itch.io/",
+      "license": "CC0 (per the pack's INFO.txt)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/destroyed/fire_stairs/fire_stairs.gltf",
+      "use": "Ruin piece: Majadroid 'FireStairs'",
+      "author": "Maik Hoffmann (Majadroid); texture by cc0textures.com (ambientCG)",
+      "source": "LowPoly Apocalyptic Buildings by Majadroid — https://majadroid.itch.io/",
+      "license": "CC0 (per the pack's INFO.txt)",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/materials/concrete_031.jpg",
+      "use": "Triplanar texture for the ruin_* materials",
+      "author": "cc0textures.com (now ambientCG), shipped in the Majadroid pack",
+      "source": "LowPoly-Apocalyptic-Buildings-By-Majadroid/textures/Concrete031_1K_Color.jpg",
+      "license": "CC0",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/materials/concrete_026.jpg",
+      "use": "Triplanar texture for the ruin_* materials",
+      "author": "cc0textures.com (now ambientCG), shipped in the Majadroid pack",
+      "source": "LowPoly-Apocalyptic-Buildings-By-Majadroid/textures/Concrete026_1K_Color.jpg",
+      "license": "CC0",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/materials/rust_006.jpg",
+      "use": "Triplanar texture for the ruin_* materials",
+      "author": "cc0textures.com (now ambientCG), shipped in the Majadroid pack",
+      "source": "LowPoly-Apocalyptic-Buildings-By-Majadroid/textures/Rust006_1K_Color.jpg",
+      "license": "CC0",
+      "ai_generated": false
+    },
+    {
+      "path": "res://scenes/world/menu_backdrop/MenuClutter.tscn",
+      "use": "Project scene (arrangement only; every referenced model has its own entry)",
+      "author": "Bunker Game project — scattered by tools/menu_backdrop/bake_menu_clutter.gd",
+      "source": "Project scene",
+      "license": "Project-owned",
+      "ai_generated": false
+    },
+    {
+      "path": "res://scenes/world/menu_backdrop/entrance_cart.tscn",
+      "use": "Project scene (arrangement only; every referenced model has its own entry)",
+      "author": "Bunker Game project",
+      "source": "Project scene",
+      "license": "Project-owned",
+      "ai_generated": false
+    },
+    {
+      "path": "res://scenes/world/menu_backdrop/ruins/far_pancake.tscn",
+      "use": "Project scene (arrangement only; every referenced model has its own entry)",
+      "author": "Bunker Game project — layout in tools/menu_backdrop/make_ruin_scenes.py",
+      "source": "Project scene",
+      "license": "Project-owned",
+      "ai_generated": false
+    },
+    {
+      "path": "res://scenes/world/menu_backdrop/ruins/far_tower_01.tscn",
+      "use": "Project scene (arrangement only; every referenced model has its own entry)",
+      "author": "Bunker Game project — layout in tools/menu_backdrop/make_ruin_scenes.py",
+      "source": "Project scene",
+      "license": "Project-owned",
+      "ai_generated": false
+    },
+    {
+      "path": "res://scenes/world/menu_backdrop/ruins/far_tower_02.tscn",
+      "use": "Project scene (arrangement only; every referenced model has its own entry)",
+      "author": "Bunker Game project — layout in tools/menu_backdrop/make_ruin_scenes.py",
+      "source": "Project scene",
+      "license": "Project-owned",
+      "ai_generated": false
+    },
+    {
+      "path": "res://scenes/world/menu_backdrop/ruins/far_tower_05.tscn",
+      "use": "Project scene (arrangement only; every referenced model has its own entry)",
+      "author": "Bunker Game project — layout in tools/menu_backdrop/make_ruin_scenes.py",
+      "source": "Project scene",
+      "license": "Project-owned",
+      "ai_generated": false
+    },
+    {
+      "path": "res://scenes/world/menu_backdrop/ruins/far_tower_06.tscn",
+      "use": "Project scene (arrangement only; every referenced model has its own entry)",
+      "author": "Bunker Game project — layout in tools/menu_backdrop/make_ruin_scenes.py",
+      "source": "Project scene",
+      "license": "Project-owned",
+      "ai_generated": false
+    },
+    {
+      "path": "res://scenes/world/menu_backdrop/ruins/rubble_left.tscn",
+      "use": "Project scene (arrangement only; every referenced model has its own entry)",
+      "author": "Bunker Game project — layout in tools/menu_backdrop/make_ruin_scenes.py",
+      "source": "Project scene",
+      "license": "Project-owned",
+      "ai_generated": false
+    },
+    {
+      "path": "res://scenes/world/menu_backdrop/ruins/rubble_right.tscn",
+      "use": "Project scene (arrangement only; every referenced model has its own entry)",
+      "author": "Bunker Game project — layout in tools/menu_backdrop/make_ruin_scenes.py",
+      "source": "Project scene",
+      "license": "Project-owned",
+      "ai_generated": false
+    },
+    {
+      "path": "res://scenes/world/menu_backdrop/ruins/ruin_collapse_left.tscn",
+      "use": "Project scene (arrangement only; every referenced model has its own entry)",
+      "author": "Bunker Game project — layout in tools/menu_backdrop/make_ruin_scenes.py",
+      "source": "Project scene",
+      "license": "Project-owned",
+      "ai_generated": false
+    },
+    {
+      "path": "res://scenes/world/menu_backdrop/ruins/ruin_collapse_right.tscn",
+      "use": "Project scene (arrangement only; every referenced model has its own entry)",
+      "author": "Bunker Game project — layout in tools/menu_backdrop/make_ruin_scenes.py",
+      "source": "Project scene",
+      "license": "Project-owned",
+      "ai_generated": false
+    },
+    {
+      "path": "res://scenes/world/menu_backdrop/ruins/ruin_leaning_03.tscn",
+      "use": "Project scene (arrangement only; every referenced model has its own entry)",
+      "author": "Bunker Game project — layout in tools/menu_backdrop/make_ruin_scenes.py",
+      "source": "Project scene",
+      "license": "Project-owned",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/materials/lantern_glass_lit.tres",
+      "use": "Warm emissive glass for the entrance lantern (flickers with the light via FlickerLamp.glow_material)",
+      "author": "Bunker Game project (material settings only)",
+      "source": "Project resource",
+      "license": "Project-owned",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/materials/ruin_concrete.tres",
+      "use": "Triplanar concrete for the Destroyed City pieces (texture: concrete_031.jpg)",
+      "author": "Bunker Game project (material settings only)",
+      "source": "Project resource",
+      "license": "Project-owned",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/materials/ruin_concrete_dark.tres",
+      "use": "Darker triplanar concrete for the Destroyed City pieces (texture: concrete_026.jpg)",
+      "author": "Bunker Game project (material settings only)",
+      "source": "Project resource",
+      "license": "Project-owned",
+      "ai_generated": false
+    },
+    {
+      "path": "res://assets/models/menu_backdrop/materials/ruin_rust.tres",
+      "use": "Triplanar rust for rebar on the Destroyed City pieces (texture: rust_006.jpg)",
+      "author": "Bunker Game project (material settings only)",
+      "source": "Project resource",
       "license": "Project-owned",
       "ai_generated": false
     }

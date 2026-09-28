@@ -32,6 +32,12 @@ static var _greybox_material: StandardMaterial3D = null
 	set(value):
 		greybox_broken = value
 		_rebuild()
+## Distant silhouettes gain nothing from casting shadows (fog hides them)
+## but still cost shadow-map draws; switch off for far slots.
+@export var cast_shadows: bool = true:
+	set(value):
+		cast_shadows = value
+		_rebuild()
 ## Art brief for whoever builds the replacement (shown in the Inspector).
 @export_multiline var brief: String = ""
 
@@ -63,6 +69,9 @@ func _rebuild() -> void:
 		push_warning("[MenuBackdrop] Slot %s has no asset; shipping it empty." % name)
 		return
 	_spawned.name = "SlotContent"
+	if not cast_shadows:
+		for geometry: Node in _spawned.find_children("*", "GeometryInstance3D", true, false):
+			(geometry as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_spawned, false, Node.INTERNAL_MODE_BACK)
 
 

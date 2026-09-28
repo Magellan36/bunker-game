@@ -57,9 +57,12 @@ void sample_set(sampler2D albedo_tex, sampler2D normal_tex, sampler2D ord_tex, v
 	vec2 uv = xz / tile;
 	// Rotated ~37° so the two tiling grids never line up.
 	vec2 uv_macro = mat2(vec2(0.799, 0.602), vec2(-0.602, 0.799)) * xz / (tile / macro_ratio) + vec2(0.37, 0.71);
+	// Colour carries the anti-tiling; normal/AO/roughness/height stay at the
+	// set's own scale (16 samples per pixel instead of 24 — the terrain covers
+	// most of the screen).
 	albedo = mix(texture(albedo_tex, uv).rgb, texture(albedo_tex, uv_macro).rgb, macro_mix);
-	nrm = mix(texture(normal_tex, uv).rgb, texture(normal_tex, uv_macro).rgb, macro_mix * 0.6);
-	ord = mix(texture(ord_tex, uv).rgb, texture(ord_tex, uv_macro).rgb, macro_mix);
+	nrm = texture(normal_tex, uv).rgb;
+	ord = texture(ord_tex, uv).rgb;
 }
 
 void fragment() {

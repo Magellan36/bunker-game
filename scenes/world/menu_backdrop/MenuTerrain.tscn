@@ -45,5 +45,6 @@ shader_parameter/brick_ord = ExtResource("brick_ord")
 shader_parameter/weave_noise = SubResource("weave_noise")
 
 [node name="MenuTerrain" type="MeshInstance3D"]
+cast_shadow = 0
 mesh = ExtResource("mesh")
 material_override = SubResource("ground_material")

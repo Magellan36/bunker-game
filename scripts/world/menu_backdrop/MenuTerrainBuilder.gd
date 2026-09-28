@@ -17,9 +17,9 @@ extends RefCounted
 ##   B = brick rubble (around ruins, crater rims), A = pad (level ground).
 
 ## Terrain extent in world metres (camera sits at about x -1.5, z 9).
-const X_HALF: float = 440.0
+const X_HALF: float = 560.0
 const Z_NEAR: float = 26.0
-const Z_FAR: float = -540.0
+const Z_FAR: float = -700.0
 ## Grid resolution; spacing is densest near the street and the camera.
 const COLUMNS: int = 256
 const ROWS: int = 256

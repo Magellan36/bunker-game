@@ -33,10 +33,10 @@ the way a real camera would.
 | `assets/shaders/surface_feed_grain.gdshader` | Grain + vignette over the 3D view only. |
 | `scenes/world/menu_backdrop/MenuBackdrop.tscn` | The surface scene: environment, lights, camera rig, storm, wind, ash, **asset slots**. |
 | `scripts/world/menu_backdrop/MenuBackdrop.gd` | Backdrop root and its small public API (below). |
-| `scripts/world/menu_backdrop/MenuCameraRig.gd` | Opening dolly, slow drift, pointer parallax, exit push-in. **No screen shake** (user decision, Sep 2026); `drift_degrees = 0` locks the camera. |
+| `scripts/world/menu_backdrop/MenuCameraRig.gd` | Opening dolly, pointer parallax, exit push-in. **No screen shake and no idle drift** (user decision, Sep 2026: the old noise drift read as shake and was removed). |
 | `scripts/world/menu_backdrop/LightningStorm.gd` | Strike timing, flash envelope, sky/fog/ambient lift, re-exposure, thunder delay by distance. |
 | `scripts/world/menu_backdrop/WindAmbience.gd` | Wind bed + gust layer; `gust` also drives ash speed and the feed readout's wind value. |
-| `scripts/world/menu_backdrop/FlickerLamp.gd` | Waver and brown-out stutter for the entrance lamp. |
+| `scripts/world/menu_backdrop/FlickerLamp.gd` | Waver and stutter for the entrance lantern's light; drives the glass glow (`glow_material`). |
 | `scripts/world/menu_backdrop/BackdropAssetSlot.gd` | One placement for one real asset; greybox in editor/debug only. |
 | `assets/menu_backdrop/provenance.json` | Author/source/licence for every non-code asset the menu uses. |
 | `tools/tests/main_menu_ui_smoke.gd` | Headless structure/behaviour smoke. |
@@ -102,44 +102,93 @@ grain amount, UI sounds.
 
 ## Scene map (top-down, metres; camera at x −1.5, z +9 looking −Z)
 
-Buildings pass (2026-09-27): 11 building slots filled with unique models (no
-model is used twice), 4 building slots removed so the street reads sparser,
-and the large Majadroid blocks pushed deep into the fog. Non-building slots
-(ground, car, pole, rubble, bunker entrance) are still greybox placeholders.
+Buildings pass (2026-09-27): unique hero and skyline models, a sparser
+street, the big Majadroid blocks deep in the fog. Clutter pass (same day):
+the entrance is an industrial storage cart with a lantern on it (the only
+warm light), two collapsed-structure ruins in the mid-ground, a second
+skyline band 500–560 m out, the plain intact block replaced, the raised
+shack removed, and ~160 pieces of thrown debris scattered across the whole
+view. Only WreckedCar and LeaningPole are still greybox (no models yet).
 
 ```
  z      LEFT FLANK (low, dark: behind the menu)     RIGHT FLANK (carries the frame)
--430      Skyline3 (base, 87 m)
+-560    FarTower01 (x −175)                FarTower05 (x 60)      FarTower02 (x 205)
+-500  FarPancake (x −300)                                                FarTower06 (x 330)
+-430      Skyline3 (leaning 03 ruin)
 -420                                                   Skyline5 (06, 92 m, x 175)
 -405   Skyline2 (05, 72 m, x −150)
 -380                                    Skyline4 (02, 86 m, x 40)
 -330                                                          Skyline6 (01, 86 m, x 245)
 -320  Skyline1 (03, 66 m, x −235)                  SkylineTower ★ (07, 129 m, x 120)
 -290            RuinCentreFar (04, 58 m, street vanishing point)
- -33  RuinLeft2 (raised shack)
- -24                                          LeaningPole (diagonal)
- -17                WreckedCar
+ -66  CollapseLeft (low)
+ -52                                                    CollapseRight (columns, slab, stairs)
+ -24                                          LeaningPole (diagonal, greybox)
+ -17                WreckedCar (greybox)
  -15  RuinLeft1 (low shack)                                  HeroFacadeRight (Malik ruin, 18 m, cropped)
-  -6  RubbleLeft                     BunkerEntrance ☼ (warm lamp)  RubbleRight
+  -6  RubbleLeft                     BunkerEntrance ☼ (cart + lantern)  RubbleRight
   +9                    ▲ camera
+       + MenuClutter: thrown debris 11–480 m out (see below)
 ```
 
-| Slot | Model (`assets/models/menu_backdrop/`) | Source |
+| Slot | Content | Source |
 |---|---|---|
 | HeroFacadeRight | `ruin_malik_facade.glb` (6k tris, 2K) | Daniyal Malik, Sketchfab |
-| RuinLeft1 / RuinLeft2 | `shack_low.glb` / `shack_high.glb` (1K) | SurvivalWood package |
-| SkylineTower, RuinCentreFar, Skyline1–6 | `tower_majadroid_07/04/03/05/base/02/06/01.glb` (4–45k tris, 1K) | Majadroid, CC0 |
+| RuinLeft1 | `shack_low.glb` (1K) | SurvivalWood package |
+| SkylineTower, RuinCentreFar, Skyline1/2/4/5/6 | `tower_majadroid_07/04/03/05/02/06/01.glb` | Majadroid, CC0 |
+| Skyline3, FarPancake, FarTower01/02/05/06 | `scenes/world/menu_backdrop/ruins/*.tscn`: mirrored, turned, leaning or half-buried towers on wreckage mounds; a pancake of floor slabs | Majadroid, CC0 |
+| CollapseRight / CollapseLeft | `ruins/ruin_collapse_*.tscn`: Destroyed City columns (scaled), debris, rocks, road slabs, a Majadroid floor slab and fire stairs | Destroyed City Assets + Majadroid |
+| RubbleLeft / RubbleRight | `ruins/rubble_*.tscn` | as above, plus Poly Haven tyre / jerrycan |
+| BunkerEntrance | `entrance_cart.tscn` (the cart, shadow casting off so the lantern pool reaches the ground) + `EntranceLantern` + `EntranceLight` | Poly Haven, CC0 |
+
+Distant slots set `cast_shadows = false` (BackdropAssetSlot): fogged
+silhouettes gain nothing from shadows but cost shadow-map draws.
+
+**The lantern light** (`EntranceLight`) is the old wall lamp's light,
+unchanged (colour, energy 2.6, range 9, attenuation 1.4, shadows,
+volumetric fog 2.2), moved to the lantern's glass on the cart's top tray.
+`FlickerLamp.glow_material` makes the glass (`lantern_glass_lit.tres`)
+brighten and dim with it; the lantern mesh casts no shadow so its own frame
+doesn't block the light.
+
+**Clutter** (`MenuClutter.tscn`, baked by
+`tools/menu_backdrop/bake_menu_clutter.gd`, fixed seed): Poly Haven props
+and Destroyed City pieces thrown by the blast — upright with a lean, on
+their sides, upside down, or tilted and half-buried, resting on the baked
+terrain and following its slope. Small props sit 11–48 m out, medium
+12–130 m, boulders and ruin pieces up to ~480 m (scaled up with distance so
+they still read). 60% land in debris fields stretched along the blast
+direction. It keeps clear of slot footprints, most of the near street, and
+the area behind the menu text. Tune `ITEMS` (weights, allowed poses) and
+`BANDS` (count, distance, scale), then re-run it.
 
 Composition intent: the street leads the eye from the menu into the fog; the
 snapped tower sits on the right-third line with its broken notch turned to
-camera; the entrance lamp is the only warm value, low right. Keep the left
+camera; the lantern is the only warm value, low right. Keep the left
 flank low and low-contrast so the menu text never fights architecture.
 Lightning comes from behind the right-hand skyline (backlit silhouettes).
 
-Re-exporting: the models were exported from the source packs in
-`/mnt/storage/Bunker Game/models/NEW MODELS/MAIN MENU BUILDINGS/` with
-Blender (one object per `.glb`, modifiers and transforms applied, origin at
-ground contact bottom-centre, textures capped at 2K hero / 1K others).
+Rebuilding after changes (in order):
+1. `blender -b --factory-startup --python tools/menu_backdrop/export_buildings.py`
+   (buildings; Blender 4.x is fine).
+2. `~/blender-5.1.2-linux-x64/blender -b --factory-startup --python tools/menu_backdrop/export_clutter.py -- <dir with each clutter .blend.zip unzipped into <name>/>`
+   (clutter + ruin pieces as glTF with JPEG textures; several Poly Haven
+   files need Blender 5.1+).
+3. `python3 tools/menu_backdrop/make_ruin_scenes.py` (ruin layouts).
+4. `godot --headless --path . --script res://tools/menu_terrain/bake_menu_terrain.gd`
+   (terrain pads follow the slots).
+5. `godot --headless --path . --script res://tools/menu_backdrop/bake_menu_clutter.gd`.
+
+Import settings: every texture under `assets/models/menu_backdrop/` is VRAM
+compressed with mipmaps (normal maps flagged). Lossless textures made the
+backdrop take 4.3 s to load; it now loads in about 1.6 s on a background
+thread. The Destroyed City pieces have no textures of their own; their
+materials are remapped in each `.gltf.import` to `materials/ruin_*.tres`
+(triplanar CC0 concrete/rust from the Majadroid pack).
+
+Performance (RX 580, 1080p, volumetric fog on): about 57 fps with
+everything. The terrain doesn't cast shadows and its shader uses 16
+texture samples per pixel.
 
 ## Terrain (Ground slot)
 
@@ -187,7 +236,7 @@ Budgets (the menu is one static view; spend where the camera looks):
 
 | Tier | Slots | Triangles | Textures |
 |---|---|---|---|
-| Hero | HeroFacadeRight, BunkerEntrance, WreckedCar, RubbleLeft/Right | 30–80k | 2K, 2–3 materials |
+| Hero | HeroFacadeRight, WreckedCar | 30–80k | 2K, 2–3 materials |
 | Mid | RuinLeft1–2, LeaningPole | 2–25k | 1K or shared trims |
 | Distance | SkylineTower, RuinCentreFar, Skyline1–6 | 4–45k (fogged) | 1K |
 | Ground | Ground | tiling | 2K tiling set + a few decals |
@@ -231,6 +280,14 @@ textures, audio, voice, narrative/marketing text).
   terrain *shape* is produced by project code from hand-written rules plus the
   engine's FastNoiseLite: deterministic procedural generation, not a
   generative-AI model. The same is true of the weave noise (`NoiseTexture2D`).
+- Clutter (Sep 2026): 24 Poly Haven models (CC0; Poly Haven credits a human
+  artist on every asset page), the Destroyed City Assets pack (author and
+  licence unknown, marked CONFIRM so the release gate stays closed) and
+  Majadroid ruin pieces (CC0). Placement is rule-based code with a fixed
+  seed, not generative AI. The Majadroid billboards were not used: their
+  texture shows real brand names ("Sunpower", "OCP"). Towers 03 and 06 carry
+  small billboards in that texture, illegible at 300+ m in fog; swap that
+  material before release if in doubt.
 - No images, models, textures or sounds were produced by generative AI. Everything visible is
   rendered at runtime by engine features (lights, fog, particles, gradients,
   text) configured in code. The greybox blocks exist only in the editor and

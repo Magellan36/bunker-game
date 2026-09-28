@@ -2,8 +2,9 @@ extends Node3D
 ## MenuCameraRig.gd (Sep 2026)
 ## Cinematic camera for the main-menu surface view. The authored transform in
 ## MenuBackdrop.tscn is the rest pose; everything here is a small, smoothed
-## offset from it: an opening dolly, slow drift, pointer parallax and a
-## push-in when the player leaves the menu. Deliberately no screen shake.
+## offset from it: an opening dolly, pointer parallax and a push-in when the
+## player leaves the menu. No screen shake and no idle drift (Sep 2026: the
+## old noise "drift" read as handheld shake, so it was removed).
 ## Reduced motion (UIMotion) collapses all of it to the static rest pose.
 
 @export var camera: Camera3D
@@ -11,9 +12,6 @@ extends Node3D
 @export var parallax_degrees: Vector2 = Vector2(1.4, 0.8)
 ## Lateral camera shift at the screen edge, metres.
 @export var parallax_shift: float = 0.16
-## Slow, smooth sway (not shake). Set to 0 for a locked-off camera.
-@export var drift_degrees: float = 0.35
-@export var drift_speed: float = 0.05
 ## The opening shot starts this far behind the rest pose and settles forward.
 @export var intro_dolly: float = 3.0
 @export var intro_duration: float = 8.0
@@ -25,19 +23,14 @@ var _rest: Transform3D
 var _rest_fov: float = 50.0
 var _pointer: Vector2 = Vector2.ZERO
 var _pointer_smoothed: Vector2 = Vector2.ZERO
-var _clock: float = 0.0
 var _intro: float = 0.0
 var _exit: float = 0.0
-var _noise: FastNoiseLite = FastNoiseLite.new()
 
 
 func _ready() -> void:
 	_rest = transform
 	if camera != null:
 		_rest_fov = camera.fov
-	_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	_noise.frequency = 1.0
-	_noise.seed = 7
 	if UIMotion.reduced():
 		_intro = 1.0
 	_apply()
@@ -58,7 +51,6 @@ func play_exit(seconds: float) -> void:
 
 
 func _process(delta: float) -> void:
-	_clock += delta
 	if _intro < 1.0:
 		_intro = minf(1.0, _intro + delta / maxf(intro_duration, 0.01))
 	var target := Vector2.ZERO if UIMotion.reduced() else _pointer
@@ -67,13 +59,8 @@ func _process(delta: float) -> void:
 
 
 func _apply() -> void:
-	var reduced := UIMotion.reduced()
 	var yaw := -_pointer_smoothed.x * parallax_degrees.x
 	var pitch := -_pointer_smoothed.y * parallax_degrees.y
-	if not reduced:
-		var slow := _clock * drift_speed * 20.0
-		yaw += _noise.get_noise_2d(slow, 0.0) * drift_degrees
-		pitch += _noise.get_noise_2d(0.0, slow + 40.0) * drift_degrees * 0.6
 	var intro_ease := 1.0 - pow(1.0 - _intro, 3.0)
 	var exit_ease := _exit
 	var offset := Vector3(_pointer_smoothed.x * parallax_shift, 0.0, 0.0)
