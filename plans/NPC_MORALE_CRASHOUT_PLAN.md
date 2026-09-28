@@ -1,6 +1,6 @@
 # NPC morale, relationships & crash-outs — design plan (Sep 2026)
 
-Status: **proposal for review**. Nothing here is implemented yet. It
+Status: **approved direction; implementation starting with phases 1–2**. It
 comes from Brannon's brief (2026-09-28) plus an audit of the current code.
 
 ## The brief, in one paragraph
@@ -111,6 +111,95 @@ which feeds their own relationships and morale.
   sabotage/threats.
 - Light-level sampling at a position (lighting system).
 - Water-quality and food-quality hooks on consumption (most exist).
+
+## Decisions (Brannon, 2026-09-28)
+
+1. First crash-out in a badly run bunker: **3–5 in-game days** (longer for
+   resilient residents).
+2. Being killed by a resident is a **game over**.
+3. Mood and relationship **numbers stay visible**, alongside words and reasons.
+4. Crash-outs **can't be talked down**. Like RimWorld mental breaks, they
+   run their course.
+5. Relationship verbs: delegated to me (below).
+
+## Relationship verbs (proposal)
+
+Principles:
+- **Memorable, not grindy.** A few meaningful moments beat spam. Repeating
+  the same kind of act gives diminishing returns (gift saturation already
+  works this way).
+- **Context multiplies.** The same act means more when it matters: water
+  for someone parched, food during a shortage, a kind word on their worst day.
+- **Negativity bias.** Hurts are remembered longer than kindnesses (bad
+  memories decay about 3× slower), so cruelty has lasting consequences.
+- **Everything is logged** with its reason and amount, and big moments
+  become named memories shown on the panel ("Remembers: you shared your last
+  can (+8)").
+- Magnitudes: *small* ±0.5–2, *medium* ±3–6, *large* ±8–15, *defining* ±20+.
+
+### Already in the game (kept, routed through the ledger)
+| Act | Effect |
+|---|---|
+| Time spent near them | small +, slow |
+| Giving food/water | medium +, **×2 when they're in real need, ×1.5 during a shortage**, diminishing if repeated |
+| Taking food from their hands while hungry | medium − |
+| Pulling them off a break for a job | small − (existing −3) |
+
+### Care — the strongest positive levers
+| Act | Effect |
+|---|---|
+| Treating their injury or illness (medical system) | large + ("You patched me up") |
+| Giving them a bed of their own, or letting them keep it | medium +; **sleeping in their bed yourself** is small − |
+| Serving a hot meal you cooked | medium + (more than a can) |
+| "Take a rest" when they're exhausted | small + (considerate) |
+| Rescuing them: carrying them when passed out, pulling them from danger | defining + |
+
+### Leadership & fairness — how you run the bunker
+| Act | Effect |
+|---|---|
+| **Workload.** Orders are tracked per day. Reasonable orders are neutral; ordering someone who is exhausted, starving or already overworked is small −; a pattern of it builds "you work us to death" | small − each, becomes a memory |
+| **Working alongside them.** The player visibly does chores (refuelling, cleaning, farming) near residents | small +, "pulls their weight" |
+| **Favouritism.** Feeding or gifting one resident while another goes hungry | small − with the neglected one ("you feed them but not me") |
+| **Hoarding.** Carrying or stockpiling food while residents starve | medium − with the hungry residents |
+| **Blame.** Sustained bad conditions slowly erode their relationship with the player as the leader. Visible effort to fix things (repairs, restoring power) cancels it | small −/day, with reasons |
+
+### Talk — new dialogue choices (Talk tab)
+| Act | Effect |
+|---|---|
+| **Check in** (once per day) | small +; **medium +** if their mood is low ("you listened") |
+| **Encourage / Joke / Complain together** | reception depends on traits and mood: a joke lands with sociable people and falls flat with a miserable neurotic one |
+| **Insult / Threaten** | medium to large −; threats add fear (feeds a hostile crash-out *or* compliance) |
+| **Promise** to fix what's bothering them (the dark, dirty water, no beds). The promise becomes a tracked task | **kept** within ~2 days: medium +; **broken**: medium −, "you said you'd fix the lights" |
+| **Take sides** in a feud between two residents | + with one, − with the other |
+
+### Physical (with the combat system)
+| Act | Effect |
+|---|---|
+| Shoving or pushing past roughly | small − |
+| Hitting, pointing a weapon | large −, fear |
+| Hurting their friend, in front of them | − for the victim **and** their friends (third-party effect) |
+| Defending them from a crashed-out attacker | defining + |
+
+### Between residents (so feuds and alliances emerge)
+| Act | Effect |
+|---|---|
+| Chats (existing, compatibility-based) | ± small |
+| Working the same job together | small + |
+| Competing for a bed or the last food | small −; the loser remembers |
+| Snatching food (existing) | medium − |
+| **Third-party effects:** seeing someone help or hurt their friend, or being targeted in a crash-out | ± scaled by how close they are to the victim |
+| **Shared grievance:** two residents who both hate the same person bond over it | small + between them; this is how two of them end up ganging up on the player |
+
+### Why these fit the game
+- Most verbs grow out of systems that already exist (medical, beds, food,
+  jobs, cooking, the talk panel), so they read naturally and cost little
+  new UI.
+- Leadership verbs make **planning the bunker a relationship act**, which
+  ties the two halves of the game together. A player who neglects the
+  bunker but treats people kindly still gets blame, softened. A cruel
+  player in a great bunker still makes enemies.
+- Promises give the player a concrete way to repair things by fixing the
+  problem a resident raised, not by grinding gifts.
 
 ## Proposed build order
 
