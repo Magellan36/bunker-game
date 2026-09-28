@@ -200,12 +200,39 @@ const TRAIT_WORDS: Dictionary = {
 	"optimism":    {"low": "Pessimistic", "mid": "Realistic",     "high": "Optimistic"},
 }
 
+## Passions (Sep 2026): some residents love one kind of work, stored as
+## personality["passion"]. It pulls them toward that job whatever their
+## work ethic: a Lazy Gourmand barely lifts a finger except to cook; a
+## Hard-Working one works constantly, cooking first.
+const PASSIONS: Dictionary = {"COOKING": "Gourmand", "GARDENING": "Gardener"}
+const PASSION_JOBS: Dictionary = {"COOKING": ["COOKING"], "GARDENING": ["GARDENING", "HARVEST"]}
+const PASSION_CHANCE: float = 0.3
+const PASSION_MULT: float = 1.7
+
 func randomize_personality() -> void:
 	personality = {}
 	for k: String in PERSONALITY_TRAIT_KEYS:
 		if randf() >= TRAIT_PRESENCE_CHANCE:
 			continue
 		personality[k] = randf_range(0.0, TRAIT_BAND_LOW) if randf() < 0.5 else randf_range(TRAIT_BAND_HIGH, 1.0)
+	if randf() < PASSION_CHANCE:
+		personality["passion"] = PASSIONS.keys().pick_random()
+
+func get_passion() -> String:
+	return String(personality.get("passion", ""))
+
+func is_passion_job(job_type: String) -> bool:
+	return job_type in (PASSION_JOBS.get(get_passion(), []) as Array)
+
+## Someone else who loves this job is up and about (not asleep, passed out
+## or crashing out), so the rest leave it to them.
+func _passion_holder_free(job_type: String) -> bool:
+	for other: Node in get_tree().get_nodes_in_group("npc"):
+		if other != self and other is NPC and (other as NPC).is_passion_job(job_type) \
+				and not other.is_passed_out() and (other.crash == null or not other.crash.active()) \
+				and (other.brain == null or not other.brain.is_sleeping()):
+			return true
+	return false
 
 func _trait(key: String) -> float:
 	return float(personality.get(key, 0.5))
@@ -229,6 +256,8 @@ func get_personality_words() -> Array[String]:
 		var w: String = get_trait_word(k)
 		if w != "":
 			out.append(w)
+	if PASSIONS.has(get_passion()):
+		out.append(String(PASSIONS[get_passion()]))
 	return out
 
 func has_irritable_trait() -> bool:
@@ -250,14 +279,44 @@ func _sociability_trait_mult() -> float:
 func get_contagion_sociability_mult() -> float:
 	return lerp(0.67, 1.33, _trait("sociability"))
 
-## Work Ethic: ±30% on job scores, mirrored on idle activities.
-## Work Ethic shapes autonomy strongly (Sep 2026): the Lazy (~0.2x on jobs,
-## ~1.5x on leisure) skip ordinary chores for downtime and only move for
-## genuinely urgent work; Hard Workers (~1.3x) seek jobs out. Player
-## pressure (NPCSocial.drive) overrides it for a few hours.
-func get_work_ethic_job_mult() -> float:
+## Work Ethic shapes autonomy (Sep 2026). Steady residents take jobs as
+## they come; Hard Workers (1.3x) seek them out. The Lazy still work, just
+## noticeably less and on their own terms:
+##   - ordinary medium chores sometimes, when the mood takes them (a slow
+##     per-resident swing in motivation over the day);
+##   - small jobs (a light tidy-up) basically never, and big emergencies
+##     half-expecting someone else to deal with it;
+##   - never job-hunting: far-off jobs lose appeal fast (JobActivity);
+##   - short stints (a cleaning session is half as long), then they knock
+##     off for a couple of hours ("did my bit").
+## A passion job (Gourmand → cooking, Gardener → farming) ignores all that
+## and gets PASSION_MULT on top. Player pressure (NPCSocial.drive)
+## overrides it for a few hours.
+const LAZY_MOTIVATION_PERIOD_H: float = 7.0
+const LAZY_BREAK_AFTER_WORK_H: float = 2.5
+var _last_work_done_at: float = -100.0
+
+## 0 = not lazy at all (Steady and up) .. 1 = thoroughly Lazy.
+func get_sloth() -> float:
+	return 1.0 - smoothstep(0.15, 0.5, _trait("work_ethic"))
+
+func get_work_ethic_job_mult(raw: float = JOB_BASE_SCORE, job_type: String = "") -> float:
 	var drive: float = social.drive() if social != null else 0.0
-	return lerp(0.2, 1.3, social.ethic() if social != null else 0.5) * (1.0 + 2.5 * drive)
+	var m: float = lerpf(1.0, 1.3, smoothstep(0.5, 0.9, _trait("work_ethic")))
+	if job_type != "" and is_passion_job(job_type):
+		return m * PASSION_MULT * (1.0 + 2.5 * drive)
+	var sloth: float = get_sloth() * (1.0 - drive)   ## pushed hard, the excuses run out
+	if sloth > 0.0:
+		m *= 1.0 - 0.45 * sloth
+		m *= 1.0 - 0.6 * sloth * (1.0 - smoothstep(8.0, 15.0, raw))   ## small jobs: not worth getting up for
+		m *= 1.0 - 0.3 * sloth * smoothstep(35.0, 55.0, raw)          ## emergencies: someone else will
+		## Motivation comes and goes (phase differs per resident).
+		var phase: float = float(hash(npc_id) % 1000) / 1000.0 * TAU
+		m *= 1.0 + 0.35 * sloth * sin(NPCClock.now() * TAU / LAZY_MOTIVATION_PERIOD_H + phase)
+		## Did my bit — a break before the next one.
+		var since: float = NPCClock.now() - _last_work_done_at
+		m *= 1.0 - 0.7 * sloth * (1.0 - clampf(since / LAZY_BREAK_AFTER_WORK_H, 0.0, 1.0))
+	return m * (1.0 + 2.5 * drive)
 
 func get_work_ethic_passive_mult() -> float:
 	if crash != null and crash.mode == NPCCrashOut.Mode.OVERDRIVE:
@@ -332,8 +391,10 @@ func work_score(job_type: String, urgency_mult: float = 1.0, base: float = JOB_B
 		skill_pref = lerp(0.9, 1.15, clampf((float(skills[skill_key]) - 0.6) / 1.4, 0.0, 1.0))
 	var willingness: float = 1.0 - (irritability / 100.0) * 0.5
 	var overdrive: float = 2.2 if crash != null and crash.mode == NPCCrashOut.Mode.OVERDRIVE else 1.0
-	return base * get_job_priority_weight(job_type) * urgency_mult * get_work_ethic_job_mult() \
-		* skill_pref * willingness * overdrive
+	var raw: float = base * get_job_priority_weight(job_type) * urgency_mult
+	if not is_passion_job(job_type) and _passion_holder_free(job_type):
+		raw *= 0.6   ## "that's Ruth's thing" — leave it to the Gourmand/Gardener
+	return raw * get_work_ethic_job_mult(raw, job_type) * skill_pref * willingness * overdrive
 
 ## How fast this resident gets physical work done (age, injuries, skill).
 ## Every job's work timer multiplies its delta by this.
@@ -1241,6 +1302,7 @@ func gain_skill(key: String, amount: float = 0.01) -> void:
 ## Called by jobs when a unit of work lands — grows the skill and, for
 ## residents who take pride in work, lifts the mood a little.
 func on_work_done(skill_key: String = "") -> void:
+	_last_work_done_at = NPCClock.now()
 	if skill_key != "":
 		gain_skill(skill_key)
 	## Working alongside someone slowly builds a bond (summed into the
