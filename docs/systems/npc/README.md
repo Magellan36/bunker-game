@@ -140,10 +140,31 @@ Gardening: tray).
 
 ### Cooking rules
 Meal prep: someone cooks whenever ingredients are in reach and no cooked
-meal is waiting, sooner when anyone is getting hungry. Ingredients are only
+meal is waiting, sooner when anyone is getting hungry. Ingredients by
+quality: fresh produce, then food cans (loose or from shelving/storage),
+then a can from a stocked Can Case. One water bottle may be added as a soup
+base once the pot has food. Ingredients are only
 loaded into, and a stove only switched on for, a pot on a CONNECTED stove
 (`NPCJobQueries.stove_connected`). A pot may be set on an unplugged stove,
 ready for later.
+
+### Free time: wander, lean, relax
+- `WanderActivity`: 1–3 legs with 3–8 s pauses. While paused the HEAD
+  glances at passers-by (re-picked every 3–5 s); the body turns only
+  toward the player.
+- `LeanActivity`: leans on a flat structural wall (knee and shoulder
+  raycasts agree, never furniture, with clear floor and elbow room),
+  20–50 game minutes, 0.4–1.2 h cooldown. Uses
+  `CharacterModel.begin_lean/end_lean` (docs/systems/player-model/ANIMATIONS.md).
+- Head look-at is NPC-only and subtle: weight 0.4, slow easing, and each
+  target is held at least 2.5 s.
+
+### Crowds and queues
+Avoidance is tuned for rooms (neighbour 5 m). Stopped residents publish a
+zero velocity and take stationary priority. When the hold-up is PEOPLE, the
+resident re-paths and waits rather than nudging or abandoning. Only an 8 s
+jam escalates. Doorway queue entries expire unless re-requested, since a
+stale "oldest waiter" used to deadlock the door.
 
 ### Doors
 `BunkerDoor` adds a NavigationLink through its opening, so routes may cross a
