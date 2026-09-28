@@ -19,7 +19,8 @@ func label() -> String:
 	return "Relaxing" if _inner == null else "Relaxing (%s)" % _inner.label()
 
 func score(npc: NPC) -> float:
-	if npc.get_relax_time_remaining_today() <= 0.0 or npc.is_relax_on_cooldown() or npc.is_night_for_me():
+	if npc.get_relax_time_remaining_today() <= 0.0 or npc.is_relax_on_cooldown() or npc.is_night_for_me() \
+			or npc.crash.active():
 		return 0.0
 	return BASE_SCORE * npc.get_work_ethic_passive_mult()
 

@@ -160,6 +160,8 @@ func grudge_against(target_id: String) -> float:
 func display_name(target_id: String) -> String:
 	if target_id == "player":
 		return "You"
+	if target_id == "self":
+		return "Myself"
 	for other: Node in _npc.get_tree().get_nodes_in_group("npc"):
 		if other is NPC and String(other.npc_id) == target_id:
 			return String(other.npc_name)

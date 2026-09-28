@@ -339,7 +339,7 @@ func _run_morale_timeline() -> void:
 			if risked.size() * 2 < first_risk.size():
 				_flag("morale_timeline", npcs[0], "bad bunker: only %d/%d residents at risk within a week" % [risked.size(), first_risk.size()], "bad-most")
 			var crashed: Array = first_crash.filter(func(d): return d >= 0.0)
-			if not crashed.is_empty() and (crashed.min() < 2.5 or crashed.min() > 5.5):
+			if crashed.is_empty() or crashed.min() < 2.8 or crashed.min() > 5.5:
 				_flag("morale_timeline", npcs[0], "bad bunker: first crash-out on day %.1f (want 3-5)" % crashed.min(), "bad-crash")
 	_report()
 
@@ -381,8 +381,13 @@ func _check_session_cooking() -> void:
 		var pot: Node = st.pot_ref
 		if pot == null or not is_instance_valid(pot):
 			continue
-		if not st.npc_can_power_on() and pot.count_filled() > 0:
+		## Flag only ingredients ADDED while unconnected (a stove that loses
+		## power with a loaded pot — e.g. the generator shut off — is fine).
+		var filled: int = pot.count_filled()
+		var last: int = int(st.get_meta("_harness_filled", 0))
+		if not st.npc_can_power_on() and filled > last:
 			_flag("cook_unwired", get_tree().get_nodes_in_group("npc")[0], "ingredients put in a pot on an UNCONNECTED stove", str(st.get_instance_id()))
+		st.set_meta("_harness_filled", filled)
 	if _first_cook_t < 0.0:
 		for n: Node in get_tree().get_nodes_in_group("npc"):
 			if _act_class(n) == "CookingActivity":
@@ -449,6 +454,28 @@ func _exercise_verbs() -> void:
 var _bubbles_staged: bool = false
 func _stage_bubbles() -> void:
 	var npcs: Array = get_tree().get_nodes_in_group("npc")
+	if String(_cfg["force"]) in ["hostile", "breakdown", "overdrive"] and not npcs.is_empty():
+		var c: NPC = npcs[0]
+		c.morale_sys.morale = 12.0
+		var mode: NPCCrashOut.Mode = NPCCrashOut.Mode.BREAKDOWN
+		if String(_cfg["force"]) == "hostile":
+			c.relationships["player"] = -70.0
+			c.crash.target_id = "player"
+			mode = NPCCrashOut.Mode.HOSTILE
+			## a second resident who also despises the player, close to breaking — may join
+			if npcs.size() > 1:
+				var b: NPC = npcs[1]
+				b.relationships["player"] = -60.0
+				b.relationships[c.npc_id] = 40.0
+				b.morale_sys.morale = 30.0
+		elif String(_cfg["force"]) == "overdrive":
+			c.relationships["player"] = 70.0
+			mode = NPCCrashOut.Mode.OVERDRIVE
+		c.crash.begin(mode)
+		print("[harness] forced %s crash-out on %s" % [_cfg["force"], c.npc_name])
+		await get_tree().create_timer(6.0).timeout
+		print("[harness] order while crashing accepted? %s" % c.on_player_command(CommandCleaningActivity.new()))
+		return
 	if String(_cfg["force"]) == "lean" and not npcs.is_empty():
 		var l: NPC = npcs[0]
 		if NPCItemUser.hands_full(l):
@@ -506,7 +533,7 @@ func _rand_floor_pos() -> Vector3:
 	return Vector3(x, 1.0, z)
 
 # ─── Sampling / invariants ────────────────────────────────────────────────
-const STATIONARY_OK: Array[String] = ["LeanActivity", 
+const STATIONARY_OK: Array[String] = ["LeanActivity", "CrashOutActivity", 
 	"SitActivity", "LieActivity", "RelaxActivity", "RelaxSitActivity", "RelaxLieActivity",
 	"PassedOutActivity", "TalkActivity", "WanderActivity", "ForgetfulWanderActivity",
 	"SleepActivity", "", "Idle",

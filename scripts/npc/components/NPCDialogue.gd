@@ -124,6 +124,13 @@ const BARKS: Dictionary = {
 	"tidy":          ["There. Better.", "Why is there always junk everywhere..."],
 	"hungry":        ["I'm starving...", "Need to find something to eat."],
 	"thirsty":       ["So thirsty...", "Water. I need water."],
+	"strained":      ["I can't take much more of this.", "Something's gotta give down here.", "I'm hanging by a thread.", "How long can we keep living like this?"],
+	"crash_hostile": ["That's IT. I'm DONE.", "I've had ENOUGH!", "You want to see me snap? Here it is!"],
+	"crash_overdrive": ["No. No more. I'm fixing this. All of it.", "Nobody else is going to hold this place together.", "Move. I've got work to do."],
+	"crash_breakdown": ["I can't... I can't do this anymore.", "Just... leave me alone.", "Why is this happening..."],
+	"seething":      ["Unbelievable.", "Every. Single. Day.", "Don't talk to me.", "I swear..."],
+	"sob":           ["*sobbing*", "I want to go home...", "*shaking*", "Make it stop..."],
+	"sabotage":      ["There! Happy now?!", "Let it all fall apart!", "Who cares anymore?!"],
 }
 
 ## Conversation snippets (TalkActivity turn-taking). About half the time a
@@ -161,6 +168,22 @@ const CHAT_ABOUT: Dictionary = {
 	"productive": ["Got a lot done today.", "Keeping busy helps."],
 	"relaxed": ["Took a proper break. Needed it."],
 }
+
+## Hostile crash-out rants, aimed at whoever they're furious at.
+const RANT_AT_PLAYER: Array[String] = [
+	"This is YOUR fault!", "You did this to us!", "You call this leading?!",
+	"Look at this place! LOOK at it!", "I trusted you!", "You don't care about any of us!",
+]
+const RANT_AT_RESIDENT: Array[String] = [
+	"I can't stand you, %s!", "Everything's worse with you around, %s!", "Stay away from me, %s!",
+	"You think I didn't notice, %s?!", "I'm sick of you, %s!",
+]
+
+static func rant_line(npc: NPC, target_id: String) -> String:
+	if target_id == "player":
+		return _pick(RANT_AT_PLAYER)
+	var who: String = npc.bonds.display_name(target_id)
+	return _pick(RANT_AT_RESIDENT) % who
 
 ## Replies to the player's Talk choices (NPCSocial.talk). Keyed by outcome.
 const TALK_REPLIES: Dictionary = {

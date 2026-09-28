@@ -176,6 +176,8 @@ func _player_has_food() -> bool:
 func talk_unavailable_reason(choice: String) -> String:
 	if _npc.brain != null and _npc.brain.is_sleeping():
 		return "asleep"
+	if _npc.crash != null and _npc.crash.active():
+		return "crashing out"
 	var last: float = float(_talk_last.get(choice, -1000.0))
 	if NPCClock.now() - last < TALK_COOLDOWN_HOURS:
 		return "already did that today"

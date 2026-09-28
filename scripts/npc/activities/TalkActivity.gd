@@ -61,6 +61,8 @@ func end_session() -> void:
 func score(npc: NPC) -> float:
 	if not _is_initiator:
 		return 0.0
+	if npc.crash.active():
+		return 0.0   ## no chit-chat mid crash-out (overdrive included)
 	if npc.is_talk_on_cooldown():
 		return 0.0
 	var partner: Node = npc.find_talk_partner()

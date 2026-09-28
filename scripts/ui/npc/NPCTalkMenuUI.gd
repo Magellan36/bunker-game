@@ -1084,10 +1084,12 @@ func _issue_command(activity: NPCActivity, action_desc: String, empty_desc: Stri
 	var brain: Object = _npc.get("brain") as Object
 	if brain == null or not brain.has_method("force_command"):
 		return
-	if _npc.has_method("on_player_command"):
-		_npc.call("on_player_command", activity)   ## workload / consideration (NPCSocial)
-	brain.call("force_command", activity)
 	var resident_name: String = String(_npc.get("npc_name"))
+	## Workload / consideration (NPCSocial); false = refused (crashing out).
+	if _npc.has_method("on_player_command") and _npc.call("on_player_command", activity) == false:
+		_show_request_feedback("%s won't listen right now — they're crashing out." % resident_name, false)
+		return
+	brain.call("force_command", activity)
 	if activity.done(_npc):
 		NotificationManager.feedback(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING,
 			"%s: %s" % [resident_name, empty_desc])

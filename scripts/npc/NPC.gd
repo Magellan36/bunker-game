@@ -69,6 +69,7 @@ var thoughts: NPCThoughts = NPCThoughts.new()
 var morale_sys: NPCMorale = NPCMorale.new()   ## slow, condition-driven morale (see NPCMorale.gd)
 var bonds: NPCBonds = NPCBonds.new()           ## relationship ledger + remembered big moments
 var social: NPCSocial = NPCSocial.new()        ## how the player's conduct shapes relationships
+var crash: NPCCrashOut = NPCCrashOut.new()     ## mental breaks when morale collapses
 var stuck: NPCStuckRecovery = NPCStuckRecovery.new()
 
 ## True once apply_save_dict() has populated this NPC — _ready() must not
@@ -254,6 +255,8 @@ func get_work_ethic_job_mult() -> float:
 	return lerp(0.7, 1.3, _trait("work_ethic"))
 
 func get_work_ethic_passive_mult() -> float:
+	if crash != null and crash.mode == NPCCrashOut.Mode.OVERDRIVE:
+		return 0.3   ## overdrive: no breaks, only pacing between jobs
 	return lerp(1.3, 0.7, _trait("work_ethic"))
 
 ## Neuroticism: mood noise and the pass-out mood hit (0.5x..1.5x).
@@ -322,13 +325,16 @@ func work_score(job_type: String, urgency_mult: float = 1.0, base: float = JOB_B
 	if skill_key != "" and skills.has(skill_key):
 		skill_pref = lerp(0.9, 1.15, clampf((float(skills[skill_key]) - 0.6) / 1.4, 0.0, 1.0))
 	var willingness: float = 1.0 - (irritability / 100.0) * 0.5
+	var overdrive: float = 2.2 if crash != null and crash.mode == NPCCrashOut.Mode.OVERDRIVE else 1.0
 	return base * get_job_priority_weight(job_type) * urgency_mult * get_work_ethic_job_mult() \
-		* skill_pref * willingness
+		* skill_pref * willingness * overdrive
 
 ## How fast this resident gets physical work done (age, injuries, skill).
 ## Every job's work timer multiplies its delta by this.
 func get_work_speed_mult(skill_key: String = "") -> float:
 	var m: float = get_age_work_mult()
+	if crash != null and crash.mode == NPCCrashOut.Mode.OVERDRIVE:
+		m *= 1.35   ## overdrive: frantic pace
 	if medical != null:
 		m *= medical.get_medical_job_speed_multiplier()
 	if skill_key != "" and skills.has(skill_key):
@@ -397,6 +403,7 @@ func _tick_social_and_mood(delta: float) -> void:
 	_tick_mood(h)
 	bonds.tick(h)
 	social.tick(h)
+	crash.tick(h)
 	_tick_irritability(h)
 	_tick_relax_day(h)
 	if gift_saturation > 0.0:
@@ -491,8 +498,20 @@ static func holder_of(tree: SceneTree, item: Node) -> NPC:
 	return null
 
 ## Player-facing hooks (resident panel, InteractionSystem).
-func on_player_command(activity: NPCActivity) -> void:
+## Returns false when the order is refused (mid crash-out: it runs its course).
+func on_player_command(activity: NPCActivity) -> bool:
+	if crash.blocks_commands():
+		bark(NPCDialogue.bark_line("seething" if crash.mode == NPCCrashOut.Mode.HOSTILE else "sob"), true)
+		return false
 	social.on_player_command(activity)
+	return true
+
+func is_crashing_out() -> bool:
+	return crash.active()
+
+## Debug / morale timeline test: would a crash-out start this step?
+func debug_roll_crash_out(h: float) -> bool:
+	return crash.roll(h)
 
 func on_player_worked(pos: Vector3) -> void:
 	social.on_player_worked(pos)
@@ -995,7 +1014,7 @@ func find_talk_partner() -> Node:
 	return best
 
 func is_available_to_talk() -> bool:
-	if brain == null or brain.is_relaxing() or brain.is_talking() or brain.is_sleeping():
+	if brain == null or brain.is_relaxing() or brain.is_talking() or brain.is_sleeping() or crash.active():
 		return false
 	if is_talk_on_cooldown() or is_passed_out() or in_sit_sequence():
 		return false
@@ -1144,8 +1163,8 @@ func on_work_done(skill_key: String = "") -> void:
 		if other != self and other is NPC and other.brain != null and other.brain.current_activity() != null \
 				and other.brain.current_activity().is_work() \
 				and NPCItemUser.flat_distance(other.global_position, global_position) < 6.0:
-			bonds.relate(other.npc_id, 0.4, "worked alongside me")
-			other.bonds.relate(npc_id, 0.4, "worked alongside me")
+			bonds.relate(other.npc_id, 0.3, "worked alongside me")
+			other.bonds.relate(npc_id, 0.3, "worked alongside me")
 	if _trait("work_ethic") >= 0.5:
 		add_thought("productive")
 
@@ -1275,6 +1294,7 @@ func _ready() -> void:
 	morale_sys.setup(self)
 	bonds.setup(self)
 	social.setup(self)
+	crash.setup(self)
 	if not morale_sys._loaded:
 		mood = morale_sys.morale   ## fresh resident; a loaded one keeps its saved mood
 	_mood_tick_timer = randf() * MOOD_TICK_INTERVAL   ## stagger across NPCs
@@ -2029,6 +2049,7 @@ func get_save_dict() -> Dictionary:
 		"morale": morale_sys.to_save(),
 		"bonds": bonds.to_save(),
 		"social": social.to_save(),
+		"crash": crash.to_save(),
 		"action_log": log_out,
 		"last_irritability_label": _last_irritability_label,
 		"last_player_rel_label": _last_player_relationship_label,
@@ -2085,6 +2106,7 @@ func apply_save_dict(d: Dictionary) -> void:
 	morale_sys.from_save(d.get("morale", {}))
 	bonds.from_save(d.get("bonds", {}))
 	social.from_save(d.get("social", {}))
+	crash.from_save(d.get("crash", {}))
 	_last_irritability_label = String(d.get("last_irritability_label", ""))
 	_last_player_relationship_label = String(d.get("last_player_rel_label", get_relationship_label("player")))
 	_action_log.clear()
