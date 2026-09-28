@@ -9,6 +9,11 @@ extends SkeletonModifier3D
 ##                 space) is pinned where it landed; a two-bone leg IK keeps it
 ##                 there until the animation lifts it again. Removes the last
 ##                 bit of skating on starts, stops, turns and blends.
+##   foot flatten  a foot standing on the floor gets its sole laid flat on it.
+##                 Several female-sourced Maximo exports (also the shared
+##                 sit/stand pair) carry no ankle keys, so the foot stays at
+##                 its rest angle to the shin and tips toe-down into the floor
+##                 as the shin leans. Code fix, no clip is modified.
 ##   head_support  nods the neck/head up onto a pillow while lying on a bed.
 ##                 The sleep clip was performed flat, so without it the head
 ##                 sinks into the pillow.
@@ -44,6 +49,11 @@ const SETTLE_OFFSET: float = 0.12
 const SETTLE_DELAY: float = 0.35
 const SETTLE_STEP_TIME: float = 0.28
 const SETTLE_LIFT: float = 0.07
+## Foot flatten: full effect with the ankle below FLAT_FULL_HEIGHT above the
+## floor, fading out by FLAT_ZERO_HEIGHT (so lifted/stepping feet keep the
+## clip's own angle).
+const FLAT_FULL_HEIGHT: float = 0.07
+const FLAT_ZERO_HEIGHT: float = 0.16
 
 var head_support: float = 0.0
 var look_weight: float = 0.0
@@ -51,6 +61,13 @@ var look_at_world: Vector3 = Vector3.ZERO
 var lean_roll: float = 0.0
 var lean_pitch: float = 0.0
 var foot_lock_enabled: bool = false
+## 0..1, set by the controller (standing still and furniture transitions).
+var foot_flatten: float = 0.0
+## The ankle's standing height above the floor (world m). While foot locking
+## is enabled an ankle is never allowed below it: the leg IK bends the knee
+## instead, so a clip placed lower than it was performed (e.g. a sit
+## captured on a higher seat) never pushes the feet into the floor.
+var ankle_floor_height: float = 0.03
 var floor_y: float = 0.0
 ## Horizontal speed of the character; below ~0.05 m/s it is standing still.
 var body_speed: float = 0.0
@@ -122,6 +139,24 @@ func _process_modification_with_delta(delta: float) -> void:
 		_look(sk)
 	for leg: Leg in _legs:
 		_foot_lock(sk, leg, delta)
+		if foot_flatten > 0.001:
+			_flatten_foot(sk, leg)
+
+## Humanoid foot bones point +Y at the toes and +Z up out of the instep, so
+## a flat foot has +Z = world up. Rotate the foot (skeleton space, about the
+## ankle) towards that, weighted by how close the ankle is to the floor.
+func _flatten_foot(sk: Skeleton3D, leg: Leg) -> void:
+	var xf: Transform3D = sk.global_transform
+	var foot_g: Transform3D = sk.get_bone_global_pose(leg.foot)
+	var h: float = (xf * foot_g.origin).y - floor_y
+	var w: float = foot_flatten * clampf((FLAT_ZERO_HEIGHT - h) / (FLAT_ZERO_HEIGHT - FLAT_FULL_HEIGHT), 0.0, 1.0)
+	if w <= 0.001:
+		return
+	var up_now: Vector3 = foot_g.basis.z.normalized()
+	var up_want: Vector3 = (xf.basis.inverse() * Vector3.UP).normalized()
+	if up_now.dot(up_want) > 0.9999:
+		return
+	_rotate_skeleton(sk, leg.foot, Quaternion.IDENTITY.slerp(Quaternion(up_now, up_want), w))
 
 ## Humanoid head bones face +Z. Rotate neck then head (skeleton space) by a
 ## clamped fraction of the arc from the current face direction to the target.
@@ -167,8 +202,11 @@ func _foot_lock(sk: Skeleton3D, leg: Leg, delta: float) -> void:
 			leg.settle_timer = 0.0
 	var rate: float = LOCK_BLEND_IN if leg.locked else (SETTLE_STEP_TIME if leg.stepping else LOCK_BLEND_OUT)
 	leg.weight = move_toward(leg.weight, 1.0 if leg.locked else 0.0, delta / rate)
+	var min_y: float = floor_y + ankle_floor_height
 	if leg.weight <= 0.001:
 		leg.stepping = false
+		if foot_lock_enabled and p.y < min_y:
+			_two_bone_ik(sk, leg, xf.affine_inverse() * Vector3(p.x, min_y, p.z))
 		return
 	## Pin horizontally only: height keeps following the clip (heel-toe roll,
 	## settling), so a foot caught just before touchdown never hovers. A
@@ -177,6 +215,7 @@ func _foot_lock(sk: Skeleton3D, leg: Leg, delta: float) -> void:
 	var target: Vector3 = p.lerp(pinned, leg.weight)
 	if leg.stepping:
 		target.y += SETTLE_LIFT * sin(PI * leg.weight)
+	target.y = maxf(target.y, min_y)
 	_two_bone_ik(sk, leg, xf.affine_inverse() * target)
 	## Keep the foot's heading where it was planted; pitch/roll follow the clip
 	## so it still rolls heel-to-toe and settles flat.

@@ -278,7 +278,13 @@ func _apply_dynamic_shadow() -> void:
 	if is_shadow_only:
 		visible = false
 
+## The idle's ankle height above the floor (model units), for the IK floor.
+var _ankle_rest_height: float = 0.024
+
 func _read_gait_metadata() -> void:
+	var idle_low: PackedFloat32Array = _lib.get_animation("idle").get_meta("feet_low", PackedFloat32Array())
+	if not idle_low.is_empty():
+		_ankle_rest_height = idle_low[0]
 	var walk: Animation = _lib.get_animation("walk")
 	var run: Animation = _lib.get_animation("run")
 	_walk_len = walk.length
@@ -468,7 +474,13 @@ func _update_procedural_pose(speed: float, delta: float) -> void:
 	## or while the dying clip throws the body around.
 	_pose_mod.foot_lock_enabled = not _stage in [Stage.DEAD, Stage.LIE_DOWN, Stage.SLEEP, Stage.GET_UP]
 	_pose_mod.floor_y = _floor_y()
+	_pose_mod.ankle_floor_height = _ankle_rest_height * _scale
 	_pose_mod.body_speed = speed
+	## Flat feet while standing still and through sit/stand/lean transitions;
+	## walking keeps the clips' own heel-toe roll.
+	var flatten: float = 1.0 if _stage in [Stage.SIT_DOWN, Stage.SEATED, Stage.STAND_UP, Stage.LEAN] \
+		else (1.0 - smoothstep(0.1, 0.5, speed) if _stage in [Stage.NONE, Stage.PIVOT] else 0.0)
+	_pose_mod.foot_flatten = move_toward(_pose_mod.foot_flatten, flatten, delta * 4.0)
 	_update_look(delta)
 	var support: float = 1.0 if _stage == Stage.SLEEP else 0.0
 	_pose_mod.head_support = move_toward(_pose_mod.head_support, support,
