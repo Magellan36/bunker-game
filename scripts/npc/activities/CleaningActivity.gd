@@ -67,7 +67,9 @@ func interruptible() -> bool:
 	return _item == null and _basket == null
 
 func enter(npc: NPC) -> void:
-	_session_duration = randf_range(SESSION_MIN_SEC, SESSION_MAX_SEC)
+	## The Lazy tidy an item or two and call it a day.
+	_session_duration = randf_range(SESSION_MIN_SEC, SESSION_MAX_SEC) \
+		* (1.0 - 0.5 * npc.get_sloth() * (1.0 - npc.social.drive()))
 	_session_elapsed = 0.0
 	_finished = false
 	_skipped_ids = {}

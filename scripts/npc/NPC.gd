@@ -287,12 +287,13 @@ func get_contagion_sociability_mult() -> float:
 ##   - small jobs (a light tidy-up) basically never, and big emergencies
 ##     half-expecting someone else to deal with it;
 ##   - never job-hunting: far-off jobs lose appeal fast (JobActivity);
-##   - after doing a job they knock off for a while ("did my bit").
+##   - short stints (a cleaning session is half as long), then they knock
+##     off for a couple of hours ("did my bit").
 ## A passion job (Gourmand → cooking, Gardener → farming) ignores all that
 ## and gets PASSION_MULT on top. Player pressure (NPCSocial.drive)
 ## overrides it for a few hours.
 const LAZY_MOTIVATION_PERIOD_H: float = 7.0
-const LAZY_BREAK_AFTER_WORK_H: float = 1.5
+const LAZY_BREAK_AFTER_WORK_H: float = 2.5
 var _last_work_done_at: float = -100.0
 
 ## 0 = not lazy at all (Steady and up) .. 1 = thoroughly Lazy.

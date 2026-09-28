@@ -177,7 +177,8 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   swings ±35% over a 7-game-hour cycle, phase per resident); small jobs
   (light tidying) basically never; emergencies ×0.7 ("someone else will");
   no job-hunting (far-off jobs fade fast in `JobActivity.score`); and after
-  finishing a job they knock off for ~1.5 game hours. They refuse work
+  finishing a job (or a half-length cleaning stint) they knock off for
+  ~2.5 game hours. Work drive cancels all of this in proportion. They refuse work
   orders by chance ("Later.", "Do it yourself."). Harsh leadership PAYS in
   the short term. Pressure is work drive: Threaten +65 (idle residents move
   at once), Be firm +35, Insult +20 plus 24 h cowed (no tantrums or
