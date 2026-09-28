@@ -37,6 +37,8 @@ const BODIES: Dictionary = {
 ##   "loop"   looping clip, played free-running (idle, seated/sleep loops)
 ##   "gait"   looping locomotion: made in-place, stride + phase measured
 ##   "action" one-shot: hip/feet trajectories measured for runtime alignment
+##   "lean"   looping wall lean: also measures where the body's back surface
+##            is (the wall plane the pose was performed against)
 const CLIPS: Dictionary = {
 	"idle":         {"src": "male_locomotion/idle.fbx", "kind": "loop"},
 	"walk":         {"src": "walk.fbx",                 "kind": "gait"},
@@ -53,6 +55,8 @@ const CLIPS: Dictionary = {
 	"lie_down":     {"src": "lying_down_male.fbx",      "kind": "action"},
 	"sleep":        {"src": "sleeping_male.fbx",        "kind": "loop"},
 	"dying":        {"src": "dying_male.fbx",           "kind": "action"},
+	## NPC-only wall lean (back to the wall, one sole up on it).
+	"lean":         {"src": "leaning_male.fbx",         "kind": "lean"},
 }
 
 const GENDER_OVERRIDES: Dictionary = {
@@ -276,6 +280,17 @@ func _analyse(rig: Node3D, key: String, kind: String, src: String) -> void:
 	anim.set_meta("head", head)
 	anim.set_meta("feet", feet)
 	anim.set_meta("feet_low", feet_low)
+	if kind == "lean":
+		## The wall the pose leans on = the rear-most point of the SKINNED body
+		## (back, backpack or raised sole), averaged over the loop. Holder
+		## space faces -Z, so "rear" is +Z.
+		var rear: float = 0.0
+		for t: float in [0.0, 0.25, 0.5, 0.75]:
+			var sk: Skeleton3D = _pose(rig, key, anim.length * t)
+			rear += _rear_extent(rig, sk)
+		anim.set_meta("wall_back", rear / 4.0)
+		print("[bake]   %-12s lean   len=%.3fs wall_back=%.3fm (holder)" % [key, anim.length, rear / 4.0])
+		return
 	if kind == "gait":
 		var travel: Vector3 = hips[hips.size() - 1] - hips[0]
 		travel.y = 0.0
@@ -291,3 +306,37 @@ func _analyse(rig: Node3D, key: String, kind: String, src: String) -> void:
 	else:
 		print("[bake]   %-12s %-6s len=%.3fs hips %s -> %s  feet_low %.3f -> %.3f" % [
 			key, kind, anim.length, hips[0], hips[hips.size() - 1], feet_low[0], feet_low[feet_low.size() - 1]])
+
+## Rear-most (+Z, holder space) point of the visible skinned meshes in the
+## current pose. Evaluates linear-blend skinning on the CPU from the mesh's
+## bone indices/weights and the skin binds — measurement only.
+func _rear_extent(rig: Node3D, sk: Skeleton3D) -> float:
+	var to_holder: Transform3D = rig.global_transform.affine_inverse() * sk.global_transform
+	var rear: float = -INF
+	for node: Node in rig.find_children("*", "MeshInstance3D", true, false):
+		var mi: MeshInstance3D = node as MeshInstance3D
+		if mi.skin == null or mi.mesh == null or mi.name.to_lower() == "backpack":
+			continue   ## the male backpack piece is hidden at runtime
+		var binds: Array[Transform3D] = []
+		for b: int in mi.skin.get_bind_count():
+			var bone: int = mi.skin.get_bind_bone(b)
+			if bone == -1:
+				bone = sk.find_bone(mi.skin.get_bind_name(b))
+			binds.append(sk.get_bone_global_pose(bone) * mi.skin.get_bind_pose(b))
+		for surf: int in mi.mesh.get_surface_count():
+			var arrays: Array = mi.mesh.surface_get_arrays(surf)
+			var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var bones: PackedInt32Array = arrays[Mesh.ARRAY_BONES]
+			var weights: PackedFloat32Array = arrays[Mesh.ARRAY_WEIGHTS]
+			if bones.is_empty():
+				continue
+			var per: int = bones.size() / verts.size()
+			for v: int in verts.size():
+				var p := Vector3.ZERO
+				for k: int in per:
+					var w: float = weights[v * per + k]
+					if w > 0.0:
+						p += (binds[bones[v * per + k]] * verts[v]) * w
+				rear = maxf(rear, (to_holder * p).z)
+	return rear
+

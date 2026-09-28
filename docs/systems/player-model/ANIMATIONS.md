@@ -58,6 +58,7 @@ what each body plays:
 | `lie_down` | `lying_down_male.fbx` / `lying_down_female.fbx` | action |
 | `sleep` | `sleeping_male.fbx` / `sleeping_female.fbx` | loop |
 | `dying` | `dying_male.fbx` / `dying_female.fbx` | action |
+| `lean` | `leaning_male.fbx` / `leaning_female.fbx` (NPC-only wall lean) | lean |
 
 What the bake does per clip:
 
@@ -169,6 +170,42 @@ Stages: `APPROACH → PIVOT → SIT_DOWN → SEATED` (chair) or
   finishes sitting, then stands. Released mid lie-down → plays the lie-down
   backwards from the current frame (e.g. sleep ends because the need is
   already full).
+
+### Wall lean (NPC-only, added 2026-09-28)
+
+Human-made Maximo loop (`Leaning_Male/Female.fbx` from the FINAL folder):
+back against the wall, one sole flat on it, head down. There are no
+enter/exit clips; the controller blends in over 0.75 s and out over 0.6 s.
+
+The bake measures the pose's **wall plane**, `wall_back` meta = rear-most
+point of the *skinned* body (CPU linear-blend skinning over the visible
+meshes). The male body's is his back (the hidden backpack piece is
+excluded); the female body's backpack is part of her mesh, so she leans on
+it. The controller puts that plane exactly on the wall.
+
+**API for NPC code** (on `CharacterModel`, an `AdventurerModelController`):
+
+```gdscript
+model.begin_lean(wall_point: Vector3, wall_normal: Vector3) -> bool
+model.end_lean()
+model.is_leaning() -> bool   # true once settled in the loop
+```
+
+- `wall_point`: any point on the wall surface (e.g. a raycast hit). Its
+  floor projection is where the back rests.
+- `wall_normal`: the outward normal (into the room).
+- The body walks there, turns its back to the wall and settles into the lean.
+  Returns `false` if busy (furniture, dying, another sequence).
+- The capsule is placed at the hips' floor point but never closer to the
+  wall than its radius + 2 cm, so leaving never gets pushed by physics.
+- While leaning, `is_sit_sequence_active()` is true, so NPC physics stays
+  frozen (`NPC.in_sit_sequence()`). When it ends, `stand_animation_finished`
+  is emitted and `get_stand_end_position()` is the capsule's spot.
+- Loop start times are randomised so neighbours don't breathe in sync, and
+  the head look-at still works while leaning.
+- Needs ~0.5 m of clear floor in front of the wall (the raised knee pokes
+  forward). Pick a flat wall stretch: the pose assumes a vertical wall from
+  floor to shoulder height.
 
 ### Procedural pose (`AdventurerProceduralPose`, a SkeletonModifier3D)
 
