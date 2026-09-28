@@ -171,8 +171,13 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   broken −9); taking sides in feuds. Ready hooks: `on_treated_by_player()`,
   `on_rescued_by_player()`.
 - **Work drive & laziness** (NPCSocial): Work Ethic shapes autonomy.
-  Lazy residents score jobs about 0.2× and leisure 1.5×, so they ignore
-  ordinary chores (urgent work still moves them), and they refuse work
+  Lazy residents still work, just noticeably less and on their own terms
+  (`NPC.get_work_ethic_job_mult`, scaled by `get_sloth()`): jobs ×0.55 and
+  leisure ×1.5; medium chores taken when the mood takes them (motivation
+  swings ±35% over a 7-game-hour cycle, phase per resident); small jobs
+  (light tidying) basically never; emergencies ×0.7 ("someone else will");
+  no job-hunting (far-off jobs fade fast in `JobActivity.score`); and after
+  finishing a job they knock off for ~1.5 game hours. They refuse work
   orders by chance ("Later.", "Do it yourself."). Harsh leadership PAYS in
   the short term. Pressure is work drive: Threaten +65 (idle residents move
   at once), Be firm +35, Insult +20 plus 24 h cowed (no tantrums or
@@ -185,6 +190,11 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   grudges, which is what feeds hostile crash-outs later. Harness `lazy`
   scenario, lazy resident: 0% work on their own, ~1% after encouragement,
   20–30% after a threat (0/5 orders refused).
+- **Passions** (`personality["passion"]`, ~30% of residents): **Gourmand**
+  (cooking) or **Gardener** (gardening + harvest). Their passion job
+  ignores the Lazy penalties and gets ×1.7 on top of work ethic, so a Lazy
+  Gourmand mostly just cooks and a Hard-Working one works constantly,
+  cooking first. Shown with the personality words on the panel.
 - **Treating residents**: hold a Bandage/Antibiotics/Splint near an injured
   resident: "[E] Bandage Hana's left arm" treats the worst eligible injury
   (`NPC.receive_treatment`), +8 and a memory the first time (+3 for repeat
@@ -442,7 +452,8 @@ key → no word):
 (Pessimistic/Realistic/Optimistic). All five now drive concrete
 mechanics — Resilience, Optimism, Sociability (see below), and as of
 the Aug 2026 trait-wiring pass Work Ethic and Neuroticism:
-- **Work Ethic** (Lazy/Steady/Hard Worker) — a ±30% score multiplier
+- **Work Ethic** (Lazy/Steady/Hard Worker) — *superseded Sep 2026 by the
+  "Work drive & laziness" and "Passions" bullets above.* Originally a ±30% score multiplier
   applied symmetrically via `get_work_ethic_job_mult()`/
   `get_work_ethic_passive_mult()`: `JobActivity.score()` ×1.3 at Hard
   Worker (×0.7 at Lazy), while every passive/need activity (Wander, Sit,
@@ -575,8 +586,9 @@ branching needed anywhere the multipliers are used.
   (mood contagion)."*
 
 **Work Ethic** (Lazy / — / Hard Worker)
-- `get_work_ethic_job_mult()`, 0.7x-1.3x, applied directly to
-  `JobActivity.score()`.
+- `get_work_ethic_job_mult()` (Sep 2026: 1.0x Steady, 1.3x Hard Worker,
+  Lazy ~0.55x shaped by job size, mood swings and "did my bit" breaks;
+  passion jobs ×1.7), applied through `NPC.work_score()` to every chore.
 - `get_work_ethic_passive_mult()`, the mirror image (1.3x-0.7x), applied
   to Wander/Sit/Lie/Eat/Drink/Relax/Talk/Give-to-Friend's scores.
 - Lazy specifically (not Hard Worker) gets DOUBLE the daily Relaxing

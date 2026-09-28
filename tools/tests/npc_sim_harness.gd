@@ -277,7 +277,11 @@ func _setup() -> void:
 		npc.global_position = _rand_floor_pos() + Vector3(0.0, 1.0, 0.0)
 		if sc == "lazy":
 			npc.hunger = 95.0; npc.thirst = 95.0; npc.energy = 95.0
-			npc.personality["work_ethic"] = [0.08, 0.92, 0.5, 0.5][i % 4]   ## Lazy, Hard Worker, Steady, Steady
+			## Lazy, Hard Worker, Steady, Lazy Gourmand, Hard-Working Gardener
+			npc.personality["work_ethic"] = [0.08, 0.92, 0.5, 0.08, 0.92][i % 5]
+			npc.personality.erase("passion")
+			if i % 5 >= 3:
+				npc.personality["passion"] = ["COOKING", "GARDENING"][i % 5 - 3]
 		elif sc == "session":
 			npc.hunger = randf_range(82.0, 100.0)   ## well fed: cooking must still happen
 			npc.thirst = randf_range(60.0, 100.0)
@@ -294,7 +298,7 @@ func _setup() -> void:
 			"hold_since": -1.0, "hold_act": "", "last_pos": npc.global_position,
 			"still_since": _t, "reported": {},
 		}
-	if sc == "session":
+	if sc in ["session", "lazy"]:
 		await _wire_first_stove()
 	print("[harness] scenario=%s npcs=%d minutes=%.1f seed=%d objects=%d items=%d" % [
 		sc, int(_cfg["npcs"]), float(_cfg["minutes"]), int(_cfg["seed"]), objs.size(), items.size()])
@@ -302,16 +306,20 @@ func _setup() -> void:
 		print("[harness]   group %s = %d" % [g, get_tree().get_nodes_in_group(g).size()])
 
 ## ─── Lazy resident loop ──────────────────────────────────────────────────
-## Resident 0 is Lazy, 1 a Hard Worker. Measures their work vs leisure time
-## per phase, then plays out Brannon's loop on the lazy one: orders get
-## refused -> kindness (encourage) barely helps -> a threat gets them working.
-var _lazy_share: Dictionary = {}   ## phase -> npc name -> {work, leisure}
+## Residents: 0 Lazy, 1 Hard Worker, 2 Steady, 3 Lazy Gourmand, 4 Hard-Working
+## Gardener. Phase 1 (~15 game hours) measures how much each works on their
+## own and at what; then Brannon's loop plays out on the lazy one: orders
+## get refused -> kindness (encourage) barely helps -> a threat gets them
+## working.
+const LAZY_P1: float = 900.0
+const LAZY_P2: float = 990.0
+var _lazy_share: Dictionary = {}   ## phase -> npc name -> {work, leisure, kinds}
 var _lazy_done: Dictionary = {}
 
 func _lazy_phase() -> String:
 	var st: float = _t - _setup_at
-	if st < 150.0: return "1 on their own"
-	if st < 240.0: return "2 after encourage"
+	if st < LAZY_P1: return "1 on their own"
+	if st < LAZY_P2: return "2 after encourage"
 	return "3 after threaten"
 
 func _tick_lazy() -> void:
@@ -320,12 +328,12 @@ func _tick_lazy() -> void:
 	if npcs.size() < 2:
 		return
 	var lazy: NPC = npcs[0]
-	for mark: float in [146.0, 236.0]:
+	for mark: float in [150.0, 300.0, 450.0, 600.0, 750.0, LAZY_P1 - 4.0, LAZY_P2 - 4.0]:
 		if st >= mark and not _lazy_done.has("clutter%d" % int(mark)):
 			_lazy_done["clutter%d" % int(mark)] = true
-			for i: int in 14:   ## fresh obvious chores for the next phase
+			for i: int in (14 if mark >= LAZY_P1 - 4.0 else 6):   ## fresh obvious chores
 				FarmingShopHelper.spawn_scene_settled(_world, "res://scenes/world/TestCrate.tscn", _rand_floor_pos())
-	if st >= 148.0 and not _lazy_done.has("orders"):
+	if st >= LAZY_P1 - 2.0 and not _lazy_done.has("orders"):
 		_lazy_done["orders"] = true
 		var refused: int = 0
 		for i: int in 5:
@@ -334,7 +342,7 @@ func _tick_lazy() -> void:
 		print("[lazy] %s (Lazy) refused %d/5 work orders; last: \"%s\"" % [lazy.npc_name, refused, lazy.get_last_refusal()])
 		var r: Dictionary = lazy.talk_choice("encourage")
 		print("[lazy] encourage -> %s drive=%.2f" % [r.get("line", ""), lazy.social.drive()])
-	if st >= 238.0 and not _lazy_done.has("threat"):
+	if st >= LAZY_P2 - 2.0 and not _lazy_done.has("threat"):
 		_lazy_done["threat"] = true
 		var r: Dictionary = lazy.talk_choice("threaten")
 		print("[lazy] threaten -> %s drive=%.2f rel=%.0f" % [r.get("line", ""), lazy.social.drive(), lazy.get_relationship("player")])
@@ -345,25 +353,45 @@ func _tick_lazy() -> void:
 				refused += 1
 		print("[lazy] after the threat, refused %d/5 orders" % refused)
 	var ph: String = _lazy_phase()
-	for n: NPC in npcs.slice(0, 2):
+	for n: NPC in npcs:
 		var cur: NPCActivity = n.brain.current_activity()
 		if cur == null or cur.is_need() or n.brain.is_sleeping():
 			continue
 		var bucket: Dictionary = _lazy_share.get(ph, {})
-		var row: Dictionary = bucket.get(n.npc_name, {"work": 0.0, "leisure": 0.0})
-		row["work" if cur.is_work() else "leisure"] = float(row["work" if cur.is_work() else "leisure"]) + SAMPLE_DT
+		var row: Dictionary = bucket.get(n.npc_name, {"work": 0.0, "leisure": 0.0, "kinds": {}})
+		if cur.is_work():
+			row["work"] = float(row["work"]) + SAMPLE_DT
+			var kind: String = _work_kind(cur)
+			row["kinds"][kind] = float(row["kinds"].get(kind, 0.0)) + SAMPLE_DT
+		else:
+			row["leisure"] = float(row["leisure"]) + SAMPLE_DT
 		bucket[n.npc_name] = row
 		_lazy_share[ph] = bucket
+
+static func _work_kind(a: NPCActivity) -> String:
+	var inner: NPCActivity = a
+	if a is NPCCommandWrapperActivity and a.get("_inner") != null:
+		inner = a.get("_inner")
+	if inner is CookingActivity: return "cook"
+	if inner is GardeningActivity: return "garden"
+	if inner is CleaningActivity: return "clean"
+	if inner is RefuelActivity: return "refuel"
+	if inner is JobActivity: return String((inner.get("_job") as Dictionary).get("type", "job")).to_lower()
+	return "other"
 
 func _report_lazy() -> void:
 	var npcs: Array = get_tree().get_nodes_in_group("npc")
 	for ph: String in ["1 on their own", "2 after encourage", "3 after threaten"]:
-		var parts: Array[String] = []
-		for n: NPC in npcs.slice(0, 2):
-			var row: Dictionary = _lazy_share.get(ph, {}).get(n.npc_name, {"work": 0.0, "leisure": 0.0})
+		for n: NPC in npcs:
+			if ph != "1 on their own" and n != npcs[0]:
+				continue
+			var row: Dictionary = _lazy_share.get(ph, {}).get(n.npc_name, {"work": 0.0, "leisure": 0.0, "kinds": {}})
 			var tot: float = maxf(0.01, float(row["work"]) + float(row["leisure"]))
-			parts.append("%s (%s) works %d%%" % [n.npc_name, "Lazy" if n.social.is_lazy() else "Hard Worker", int(100.0 * float(row["work"]) / tot)])
-		print("[lazy] %-18s %s" % [ph, " | ".join(parts)])
+			var kinds: Array[String] = []
+			for k: String in row["kinds"]:
+				kinds.append("%s %d%%" % [k, int(100.0 * float(row["kinds"][k]) / maxf(0.01, float(row["work"])))])
+			print("[lazy] %-18s %-8s %-28s works %3d%%  (%s)" % [ph, n.npc_name, "/".join(n.get_personality_words()),
+				int(100.0 * float(row["work"]) / tot), ", ".join(kinds)])
 
 ## ─── Morale timeline (fast-forward, no physics) ─────────────────────────
 ## Drives NPCMorale (and crash-out risk) hour by hour for a week under three

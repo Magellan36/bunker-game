@@ -53,7 +53,9 @@ func score(npc: NPC) -> float:
 	if type == "REPLACE_FILTER" and "filter_quality" in target:
 		urgency_mult = 1.0 + 2.0 * NPC.urgency(float(target.filter_quality), JobBoard.FILTER_BELOW, 3.0)
 	var dist: float = NPCItemUser.flat_distance(target.global_position, npc.global_position)
-	return npc.work_score(type, urgency_mult) / (1.0 + dist * 0.02)
+	## The Lazy don't go looking for work: only jobs close by appeal.
+	var sloth: float = 0.0 if npc.is_passion_job(type) else npc.get_sloth()
+	return npc.work_score(type, urgency_mult) / (1.0 + dist * (0.02 + 0.1 * sloth))
 
 func interruptible() -> bool:
 	return _phase != "work"
