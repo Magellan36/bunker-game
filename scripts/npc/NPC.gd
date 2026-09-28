@@ -506,6 +506,26 @@ func on_player_command(activity: NPCActivity) -> bool:
 	social.on_player_command(activity)
 	return true
 
+## Resident panel: morale at a glance, with its reasons (NPCMorale).
+func get_morale_summary() -> Dictionary:
+	var reasons: Array[Dictionary] = []
+	for r: Dictionary in morale_sys.get_reasons().slice(0, 3):
+		reasons.append({"text": r["text"], "points": r["points"]})
+	var crash_text: String = ""
+	if crash.active():
+		crash_text = "Crashing out — %s" % crash._short()
+	return {"morale": morale_sys.morale, "band": morale_sys.get_band(), "trend": morale_sys.get_trend(),
+		"reasons": reasons, "crash": crash_text, "at_risk": crash.daily_risk() > 0.0 and not crash.active()}
+
+## Resident panel: the most significant remembered moments (biggest first).
+func get_memory_summaries(limit: int = 3) -> Array[Dictionary]:
+	var mems: Array[Dictionary] = bonds.get_memories()
+	mems.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return absf(a["amount"]) > absf(b["amount"]))
+	var out: Array[Dictionary] = []
+	for m: Dictionary in mems.slice(0, limit):
+		out.append({"text": m["text"], "amount": m["amount"], "about": m["name"]})
+	return out
+
 func is_crashing_out() -> bool:
 	return crash.active()
 

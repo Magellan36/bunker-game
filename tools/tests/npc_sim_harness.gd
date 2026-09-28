@@ -144,6 +144,12 @@ func _process(delta: float) -> void:
 			var player: Node3D = get_tree().get_first_node_in_group("player")
 			player.global_position = first.global_position + Vector3(0.0, 0.0, 1.2)
 			first.on_interact()
+			var tm: Node = first.get("_talk_menu")
+			print("[harness] panel opened: %s visible=%s paused=%s" % [tm, tm.get("visible") if tm != null else "-", get_tree().paused])
+			if tm != null:
+				## Tour the tabs for captures: Talk at +0.5 s, Activity Log at +1.0 s.
+				get_tree().create_timer(0.5).timeout.connect(func() -> void: if is_instance_valid(tm): tm.call("_set_tab", 1, false))
+				get_tree().create_timer(1.0).timeout.connect(func() -> void: if is_instance_valid(tm): tm.call("_set_tab", 4, false))
 		if not _verbs_done and float(_cfg["verbs"]) >= 0.0 and _t - _setup_at >= float(_cfg["verbs"]):
 			_verbs_done = true
 			_exercise_verbs()

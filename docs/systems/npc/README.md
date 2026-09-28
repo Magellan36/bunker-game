@@ -148,6 +148,44 @@ loaded into, and a stove only switched on for, a pot on a CONNECTED stove
 (`NPCJobQueries.stove_connected`). A pot may be set on an unplugged stove,
 ready for later.
 
+### Morale, relationships & crash-outs (Sep 2026)
+Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
+- **Morale** (`components/NPCMorale.gd`): slow, 0–100. It follows rolling
+  averages of eight bunker conditions (light, power, water quality, food
+  quality, rest, space, safety, company), each trait-weighted. Displayed
+  **mood** = morale + a capped share of feelings (thoughts, including
+  Hungry/Starving, Thirsty/Parched, Exhausted). There's no random drift. A
+  badly run bunker puts its first resident at crash-out risk around day
+  2.5 and produces the first crash-out on day ~3–4 (harness `morale`
+  scenario).
+- **Relationship ledger** (`components/NPCBonds.gd`): `relate(target,
+  amount, reason)` is the only way relationships change. Every change is
+  logged in plain words ("You gave me water when I was parched (+15.0)").
+  Big moments (|change| ≥ 5) become named memories: bad ones last 18 game
+  days, good ones 6. It also handles third-party effects (witnesses) and
+  shared grievances (alliances).
+- **Player conduct** (`components/NPCSocial.gd`): workload and orders,
+  pitching in, favouritism, hoarding, bed intrusion, daily leadership
+  blame; Talk choices (check in, encourage, joke, vent, insult, threaten)
+  with trait-dependent reception and daily cooldowns; promises (kept +7,
+  broken −9); taking sides in feuds. Ready hooks: `on_treated_by_player()`,
+  `on_rescued_by_player()`.
+- **Crash-outs** (`components/NPCCrashOut.gd` + `CrashOutActivity`): risk
+  only below morale 25, trait-scaled, 36 h cooldown. HOSTILE (despises
+  someone): confront and rant, then sabotage (generator off, food thrown
+  away, things thrown); residents with the same grudge may join. OVERDRIVE
+  (likes the player): a frantic work binge, then burnout. BREAKDOWN: an
+  isolated wall, slumped and sobbing. It can't be talked down (orders are
+  refused). Aftermath: catharsis, a memory, and witness reactions.
+  `NPCCrashOut.attack_enabled` + `CrashOutActivity._attack()` are the combat
+  hook.
+- **Transparency**: `NPC.log_event(kind, text)` with kinds morale / bond /
+  memory / crash, colour-coded in the Activity Log. The Overview shows
+  Morale (number, band, trend and top reasons, or the crash-out state) and
+  Remembers (strongest memories).
+- Harness: `--scenario=morale` (a fast-forward week, bad/average/good
+  bunkers), `--verbs=<t>`, `--force=hostile|breakdown|overdrive`.
+
 ### Free time: wander, lean, relax
 - `WanderActivity`: 1–3 legs with 3–8 s pauses. While paused the HEAD
   glances at passers-by (re-picked every 3–5 s); the body turns only

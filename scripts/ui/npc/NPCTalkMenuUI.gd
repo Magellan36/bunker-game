@@ -119,6 +119,8 @@ var _talk_to_button: Button = null
 var _dialogue_label: Label = null
 var _talk_topics_box: VBoxContainer = null
 var _talk_choices_box: VBoxContainer = null   ## NPC talk choices / promise / take sides (NPCSocial)
+var _overview_morale_value: Label = null
+var _overview_memories_value: Label = null
 var _request_feedback_panel: PanelContainer = null
 var _request_feedback_label: Label = null
 var _job_buttons: Array[Button] = []
@@ -629,6 +631,12 @@ func _build_at_a_glance(parent: Container) -> void:
 	box.add_child(HSeparator.new())
 	_overview_irritability_value = _build_fact_row(box, "mood", "Feeling", "Calm")
 	box.add_child(HSeparator.new())
+	## Morale & memories (NPC session, Sep 2026): the slow state that decides
+	## crash-outs, WHY it is where it is, and the moments they remember.
+	_overview_morale_value = _build_fact_row(box, "status", "Morale", "—")
+	box.add_child(HSeparator.new())
+	_overview_memories_value = _build_fact_row(box, "relationship", "Remembers", "Nothing in particular")
+	box.add_child(HSeparator.new())
 	_overview_last_action_value = _build_fact_row(box, "clock", "Last notable action", "Nothing notable yet")
 
 
@@ -937,6 +945,7 @@ func _update_overview_facts() -> void:
 	_overview_irritability_value.add_theme_color_override(
 		"font_color", S.GREEN if irritation == "" and mood_now >= 55.0 else (S.RED if mood_now < 30.0 else ENERGY_COLOR)
 	)
+	_update_morale_facts()
 	var entries: Array[Dictionary] = _get_action_log()
 	if entries.is_empty():
 		_overview_last_action_value.text = "Nothing notable yet"
@@ -947,6 +956,33 @@ func _update_overview_facts() -> void:
 			_format_log_age(int(latest.get("fired_at_msec", Time.get_ticks_msec()))),
 		]
 
+
+func _update_morale_facts() -> void:
+	if _overview_morale_value == null or not _npc.has_method("get_morale_summary"):
+		return
+	var m: Dictionary = _npc.call("get_morale_summary")
+	var arrow: String = ["↓", "→", "↑"][int(m.get("trend", 0)) + 1]
+	var text: String = "%d  %s %s" % [int(round(float(m["morale"]))), String(m["band"]), arrow]
+	var parts: Array[String] = []
+	for r: Dictionary in m.get("reasons", []):
+		parts.append("%s (%+.0f)" % [String(r["text"]), float(r["points"])])
+	if not parts.is_empty():
+		text += "  •  " + ", ".join(parts)
+	var color: Color = S.GREEN if float(m["morale"]) >= 50.0 else (ENERGY_COLOR if float(m["morale"]) >= 25.0 else S.RED)
+	if String(m.get("crash", "")) != "":
+		text = "%s  •  %s" % [String(m["crash"]).to_upper(), text]
+		color = S.RED
+	elif bool(m.get("at_risk", false)):
+		text = "AT RISK OF CRASHING OUT  •  " + text
+		color = S.RED
+	_overview_morale_value.text = text
+	_overview_morale_value.add_theme_color_override("font_color", color)
+	if _overview_memories_value != null and _npc.has_method("get_memory_summaries"):
+		var mems: Array = _npc.call("get_memory_summaries", 2)
+		var lines: Array[String] = []
+		for mem: Dictionary in mems:
+			lines.append("\"%s\" (%+.0f)" % [String(mem["text"]), float(mem["amount"])])
+		_overview_memories_value.text = "  •  ".join(lines) if not lines.is_empty() else "Nothing in particular"
 
 func _rebuild_traits() -> void:
 	_clear(_trait_row)
@@ -1299,7 +1335,7 @@ func _rebuild_log_rows() -> void:
 		return
 	for entry: Dictionary in _log_entries:
 		var hostile: bool = entry.get("is_live_hostile", false) == true
-		var color: Color = S.RED if hostile else S.BLUE
+		var color: Color = S.RED if hostile else _log_kind_color(entry)
 		var card: PanelContainer = _card(Color("141b1a"), color.darkened(0.55), 7)
 		card.tooltip_text = "At %s" % String(entry.get("game_time", "?"))
 		_log_rows_box.add_child(card)
@@ -1323,6 +1359,23 @@ func _rebuild_log_rows() -> void:
 		row.add_child(time_label)
 		_log_time_labels.append(time_label)
 
+
+## Log entry colour by kind (NPC.log_event): crash-outs red, remembered
+## moments brass, morale amber, relationship changes green/red by sign.
+func _log_kind_color(entry: Dictionary) -> Color:
+	match String(entry.get("kind", "")):
+		"crash":
+			return S.RED
+		"memory":
+			return S.BRASS.lightened(0.25)
+		"morale":
+			return ENERGY_COLOR
+		"bond":
+			var t: String = String(entry.get("text", ""))
+			if t.contains("(-"):
+				return S.RED
+			return S.GREEN if t.contains("(+") else S.BLUE
+	return S.BLUE
 
 func _refresh_log_timestamps() -> void:
 	for index: int in range(_log_time_labels.size()):

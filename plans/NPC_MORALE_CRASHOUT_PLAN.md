@@ -1,6 +1,6 @@
 # NPC morale, relationships & crash-outs — design plan (Sep 2026)
 
-Status: **approved direction; implementation starting with phases 1–2**. It
+Status: **phases 1–5 implemented (Sep 2026)**. Remaining: combat hook-up (attacks, killing = game over), NPC medical treatment calling `on_treated_by_player()`, rescue events. It
 comes from Brannon's brief (2026-09-28) plus an audit of the current code.
 
 ## The brief, in one paragraph
