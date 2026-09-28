@@ -89,6 +89,12 @@ func _process(delta: float) -> void:
 		var status := ResourceLoader.load_threaded_get_status(backdrop_scene_path)
 		if status == ResourceLoader.THREAD_LOAD_LOADED:
 			_present(ResourceLoader.load_threaded_get(backdrop_scene_path) as PackedScene)
+		elif status == ResourceLoader.THREAD_LOAD_FAILED:
+			# Parallel sub-thread loading can race on a dependency (seen
+			# headless on the terrain's normal map); a plain load of the same
+			# file then succeeds, so fall back rather than lose the backdrop.
+			push_warning("[MainMenu] Threaded backdrop load failed; loading it directly.")
+			_present(ResourceLoader.load(backdrop_scene_path) as PackedScene)
 		elif status != ResourceLoader.THREAD_LOAD_IN_PROGRESS or _waited > backdrop_timeout:
 			push_warning("[MainMenu] Backdrop unavailable; showing the menu without it.")
 			_present(null)
