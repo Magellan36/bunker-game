@@ -227,9 +227,9 @@ and README in `assets/models/player/pistol/`, bake with
 - The gun follows the final RightHand pose on `skeleton_updated` (after the
   procedural modifier) via a `WeaponGrip` marker and `grip_basis` meta.
 - The female pack exported identity Head/Foot rotations (a leaf-bone export
-  artifact); the bake restores those three tracks from the identical male
-  mocap clip. The female body has no distal finger bones, so her grip is
-  looser than his; that comes from the body mesh.
+  artifact). Per the provenance rule the bake does not splice them from the
+  male clip; any correction belongs in the runtime modifier. The female body
+  has no distal finger bones, so her grip is looser than his (body mesh).
 
 ### Procedural pose (`AdventurerProceduralPose`, a SkeletonModifier3D)
 

@@ -13,10 +13,9 @@ in the original archives; no source animation is modified or procedurally author
 Import uses the existing Maximo Humanoid rest-fix pipeline. Female finger numbering
 starts at 1 instead of male 2; `bone_map_pistol_female.tres` maps those finger joints
 explicitly. The extra unweighted/end thumb tips have no runtime-body counterpart.
-The female FBXs also carry identity rotations on the leaf bones (Head, Foot, distal
-fingers): an export artifact of a rig without *_end bones. Both packs are the same
-mocap with identical timing, so the bake restores Head/LeftFoot/RightFoot from the
-matching male clip (the female body has no distal finger bones).
+The female FBXs carry identity rotations on the leaf bones (Head, Foot, distal
+fingers): an export artifact of a rig without *_end bones. They are baked as-is (no
+splicing, per the provenance rule in ANIMATIONS.md); corrections are runtime-only.
 
 Run `tools/anim_pipeline/bake_pistol_anims.gd` using the same isolated-data command
 as the canonical Adventurer bake. It reuses that tool's conversion and measurement
