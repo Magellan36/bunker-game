@@ -37,6 +37,7 @@ const FELL_OUT_BELOW: float = -0.25       ## NPC origin (capsule centre) this lo
 const ABANDON_BENCH_SEC: float = 20.0
 
 var recoveries: int = 0                   ## lifetime count, for debug dumps
+var cause_counts: Dictionary = {}          ## "cause @ activity" -> count (debug/harness)
 var last_cause: String = ""
 
 var _npc: NPC = null
@@ -44,6 +45,14 @@ var _timer: float = 0.0
 var _ref_pos: Vector3 = Vector3.ZERO
 var _stalled_for: float = 0.0
 var _step: int = 0
+var _crowd_wait: float = 0.0               ## seconds spent held up by people (not geometry)
+
+## Held up by PEOPLE, not geometry: someone in the way at a shelf, a
+## doorway, a narrow gap. That's a queue, not "stuck" — re-route and wait
+## like a person would. Nudging (a small teleport) or abandoning the task
+## there looked glitchy; only a genuine jam (CROWD_PATIENCE) escalates.
+const CROWD_RADIUS: float = 1.4
+const CROWD_PATIENCE: float = 8.0
 var _last_safe_pos: Vector3 = Vector3.INF
 var _safe_timer: float = 0.0
 
@@ -122,6 +131,7 @@ func tick(delta: float) -> void:
 	if moved >= maxf(MIN_PROGRESS_ABS, expected * MIN_PROGRESS_FRAC):
 		_stalled_for = 0.0
 		_step = 0
+		_crowd_wait = 0.0
 		return
 	_stalled_for += CHECK_INTERVAL
 	if _stalled_for >= GRACE:
@@ -130,12 +140,31 @@ func tick(delta: float) -> void:
 
 # ─── Recovery ladder ─────────────────────────────────────────────────────
 func _recover() -> void:
-	recoveries += 1
-	_step += 1
 	var col: KinematicCollision3D = _blocking_collision()
 	var blocker: Object = col.get_collider() if col != null else null
+	if _held_up_by_people(blocker):
+		_crowd_wait += GRACE
+		if _crowd_wait < CROWD_PATIENCE:
+			last_cause = "waiting for people to pass"
+			_bump_cause(last_cause)
+			_npc.repath()
+			return
+	_crowd_wait = 0.0
+	recoveries += 1
+	_step += 1
 	last_cause = _describe(blocker)
-	NPCDebug.log_stuck(_npc, "step %d" % _step, {"cause": last_cause})
+	_bump_cause(last_cause)
+	if NPCDebug.enabled:
+		var ag: NavigationAgent3D = _npc.nav_agent
+		NPCDebug.log_stuck(_npc, "step %d" % _step, {"cause": last_cause,
+			"pos": _npc.global_position.snapped(Vector3.ONE * 0.01), "target": ag.target_position.snapped(Vector3.ONE * 0.01),
+			"next": ag.get_next_path_position().snapped(Vector3.ONE * 0.01),
+			"path_end": ag.get_final_position().snapped(Vector3.ONE * 0.01),
+			"vel": Vector2(_npc.velocity.x, _npc.velocity.z).length(), "path_pts": ag.get_current_navigation_path().size(),
+			"req": _npc._requested_speed, "safe": _npc.last_safe_speed,
+			"npcs<1.6": _npc.get_tree().get_nodes_in_group("npc").filter(func(o): return o != _npc and NPCItemUser.flat_distance(o.global_position, _npc.global_position) < 1.6).size(),
+			"heavy<1.6": _npc.get_tree().get_nodes_in_group("pickup").filter(func(o): return o is RigidBody3D and not o.is_soft_navigation_clutter() and NPCItemUser.flat_distance(o.global_position, _npc.global_position) < 1.6).size() if true else 0,
+			"player<2": (_npc.get_tree().get_first_node_in_group("player") != null and NPCItemUser.flat_distance(_npc.get_tree().get_first_node_in_group("player").global_position, _npc.global_position) < 2.0)})
 
 	match _step:
 		1:
@@ -262,6 +291,25 @@ func _blocking_collision() -> KinematicCollision3D:
 			best = c
 	return best
 
+func _bump_cause(cause: String) -> void:
+	var act: NPCActivity = _npc.brain.current_activity() if _npc.brain != null else null
+	var key: String = "%s @ %s" % [cause, act.get_script().get_global_name() if act != null else "-"]
+	cause_counts[key] = int(cause_counts.get(key, 0)) + 1
+
+## True when the thing slowing us is a person (another resident or the
+## player): either we're touching one, or nothing solid is touching us and
+## someone is close by (avoidance is steering around them).
+func _held_up_by_people(blocker: Object) -> bool:
+	if blocker is CharacterBody3D:
+		return true
+	if blocker != null:
+		return false   ## furniture/walls/items: real geometry
+	for other: Node in _npc.get_tree().get_nodes_in_group("npc"):
+		if other != _npc and NPCItemUser.flat_distance((other as Node3D).global_position, _npc.global_position) < CROWD_RADIUS:
+			return true
+	var player: Node3D = _npc.get_tree().get_first_node_in_group("player") as Node3D
+	return player != null and NPCItemUser.flat_distance(player.global_position, _npc.global_position) < CROWD_RADIUS
+
 func _describe(blocker: Object) -> String:
 	if blocker == null or not is_instance_valid(blocker):
 		return "nothing identifiable"
@@ -289,7 +337,9 @@ func _tick_goal_progress(delta: float) -> void:
 	_goal_timer += delta
 	if _goal_timer < GOAL_WINDOW:
 		return
-	if _goal_best - remaining < GOAL_MIN_PROGRESS:
+	if _goal_best - remaining < GOAL_MIN_PROGRESS and _crowd_wait > 0.0 and _crowd_wait < CROWD_PATIENCE:
+		pass   ## queueing behind people — patience handled in _recover()
+	elif _goal_best - remaining < GOAL_MIN_PROGRESS:
 		last_cause = "no progress toward the destination"
 		NPCDebug.log_stuck(_npc, "no goal progress", {"remaining": remaining})
 		_safe_nudge(-(_npc.velocity if _npc.velocity.length() > 0.05 else Vector3(randf_range(-1, 1), 0, randf_range(-1, 1))).normalized(), NUDGE_SMALL)

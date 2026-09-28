@@ -107,12 +107,12 @@ func _process(delta: float) -> void:
 		return
 	if _phase == 1:
 		_check_spin(delta)
-		if String(_cfg["scenario"]) == "session" and _sample_timer <= 0.0:
-			_check_session_cooking()
 		_sample_timer -= delta
 		if _sample_timer <= 0.0:
 			_sample_timer = SAMPLE_DT
 			_sample()
+			if String(_cfg["scenario"]) == "session":
+				_check_session_cooking()
 		if float(_cfg["scores"]) > 0.0:
 			_score_timer -= delta
 			if _score_timer <= 0.0:
@@ -768,6 +768,16 @@ func _report() -> void:
 			total_recov.append("%s:%d" % [n.npc_name, n.stuck.recoveries])
 	print("Short (<1.5s) activity entries: %s" % str(short))
 	print("Stuck recoveries: %s" % " ".join(total_recov))
+	var causes: Dictionary = {}
+	for id in _track.keys():
+		var n = _track[id]["npc"]
+		if is_instance_valid(n):
+			for k in n.stuck.cause_counts.keys():
+				causes[k] = int(causes.get(k, 0)) + int(n.stuck.cause_counts[k])
+	var ck: Array = causes.keys()
+	ck.sort_custom(func(a, b): return int(causes[a]) > int(causes[b]))
+	for k in ck.slice(0, 12):
+		print("  stuck: %4d  %s" % [int(causes[k]), k])
 	if NPCDebug.profile and NPCDebug.prof_frames > 0:
 		var sum: int = 0
 		for k in NPCDebug.prof_usec.keys():

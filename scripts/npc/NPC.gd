@@ -1155,6 +1155,14 @@ func _ready() -> void:
 	nav_agent.path_max_distance = 3.0
 	nav_agent.radius = 0.4               ## matches BunkerNavMesh.agent_radius
 	nav_agent.avoidance_enabled = true   ## routes around heavy items' obstacles and other NPCs
+	## Godot's defaults suit big outdoor crowds. In a bunker room, weighing
+	## agents 50 m away (and a 1 s horizon against obstacles of 0 s) made
+	## residents slow down and swerve for people nowhere near them.
+	nav_agent.neighbor_distance = 5.0
+	nav_agent.max_neighbors = 12
+	nav_agent.time_horizon_agents = 1.5
+	nav_agent.time_horizon_obstacles = 1.0
+	nav_agent.avoidance_priority = AVOIDANCE_PRIORITY_STATIONARY
 	nav_agent.velocity_computed.connect(_on_velocity_computed)
 	add_child(nav_agent)
 
@@ -1209,14 +1217,18 @@ func _physics_process(delta: float) -> void:
 	_tick_social_and_mood(delta)
 	if prof:
 		t = NPCDebug.prof_lap("needs+social", t)
+	_steered_this_frame = false
 	if brain != null:
 		brain.tick(delta)
+	if not _steered_this_frame:
+		_publish_stationary()   ## nobody walked us this frame — don't leave a stale velocity for others to dodge
 	if prof:
 		t = NPCDebug.prof_lap("brain+activity", t)
 
 	## While mid sit/lie sequence the model controller owns the position
 	## (eased approach → seat); gravity and move_and_slide would fight it.
 	if in_sit_sequence():
+		_publish_stationary()
 		return
 	if not is_on_floor():
 		velocity.y -= _gravity * delta
@@ -1456,17 +1468,20 @@ func repath() -> void:
 ## Steer toward the next waypoint. Submits a PREFERRED velocity; avoidance
 ## answers in _on_velocity_computed() with the safe one to apply.
 func nav_steer(delta: float) -> void:
+	_steered_this_frame = true
 	_movement_locked = false
 	_last_steer_delta = delta
 	if nav_agent == null or nav_agent.is_navigation_finished():
 		if not _door_lease.is_empty():
 			_release_door_passage()
 		_door_wait = 0.0
+		_publish_stationary()
 		_decelerate(delta)
 		return
 	var next: Vector3 = nav_agent.get_next_path_position()   ## also refreshes a dirty path
 	if _at_path_end():
 		_finish_navigation()
+		_publish_stationary()
 		_decelerate(delta)
 		return
 	if not _door_passage_allows(next, delta):
@@ -1478,7 +1493,9 @@ func nav_steer(delta: float) -> void:
 		return
 	_requested_speed = move_speed * get_status_speed_multiplier()
 	nav_agent.max_speed = _requested_speed   ## avoidance may never return more than we asked for
+	nav_agent.avoidance_priority = AVOIDANCE_PRIORITY_MOVING
 	nav_agent.set_velocity(dir.normalized() * _requested_speed)
+	_published_moving = true
 
 func _on_velocity_computed(safe_velocity: Vector3) -> void:
 	if _movement_locked:
@@ -1486,6 +1503,7 @@ func _on_velocity_computed(safe_velocity: Vector3) -> void:
 	## Cap at the requested pace: with the agent's default max_speed (10 m/s),
 	## a retarget amid other agents could otherwise produce a brief surge.
 	var safe_xz: Vector2 = Vector2(safe_velocity.x, safe_velocity.z).limit_length(_requested_speed)
+	last_safe_speed = safe_xz.length()
 	safe_velocity.x = safe_xz.x
 	safe_velocity.z = safe_xz.y
 	var w: float = minf(acceleration * _last_steer_delta, 1.0)
@@ -1514,14 +1532,34 @@ func _decelerate(delta: float) -> void:
 	velocity.x = lerp(velocity.x, 0.0, w)
 	velocity.z = lerp(velocity.z, 0.0, w)
 
+## Avoidance only knows what each agent last PUBLISHED. A resident who
+## stopped without publishing a zero velocity kept "walking" in everyone
+## else's prediction, so neighbours slowed and swerved around a ghost.
+## Stationary residents also get right of way (walkers go around them).
+const AVOIDANCE_PRIORITY_MOVING: float = 0.5
+const AVOIDANCE_PRIORITY_STATIONARY: float = 1.0
+var _published_moving: bool = false
+var last_safe_speed: float = 0.0   ## debug: speed avoidance granted last frame
+var _steered_this_frame: bool = false
+
+func _publish_stationary() -> void:
+	if not _published_moving or nav_agent == null:
+		return
+	_published_moving = false
+	_requested_speed = 0.0
+	nav_agent.avoidance_priority = AVOIDANCE_PRIORITY_STATIONARY
+	nav_agent.set_velocity(Vector3.ZERO)
+
 ## Decelerate to a stop; raises the movement lock so a late avoidance
 ## callback can't overwrite the halt with a stale travel velocity.
 func halt_movement(delta: float) -> void:
+	_publish_stationary()
 	_movement_locked = true
 	_decelerate(delta)
 
 ## One-time hard stop (sitting down, lying down, talking).
 func lock_movement() -> void:
+	_publish_stationary()
 	_movement_locked = true
 	velocity.x = 0.0
 	velocity.z = 0.0
