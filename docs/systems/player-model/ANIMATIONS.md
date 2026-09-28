@@ -258,7 +258,8 @@ the idle, in right-hand space).
   contact frame lands exactly when `WeaponItem` resolves the hit. Natural
   windup-to-contact is 0.43 s (swing), 0.39 s (alt), 0.22 s (whip).
   `strike_delay`: bat 0.43 (1.0×), crowbar/hatchet 0.36, pipe 0.32, Webley
-  whip 0.18 (1.2×; `WeaponsSmoke` expects the whip hit within 12 ticks).
+  whip 0.22 (1.0×). `WeaponsSmoke` derives its waits from `strike_delay`,
+  so these can be retuned freely.
 - **Shots:** `revolver` plays `pistol_shoot` around its measured recoil kick
   (0.08 s before to 0.3 s after), upper body only, so the legs never flick
   between stances at the fire rate.
