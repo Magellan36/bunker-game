@@ -67,6 +67,7 @@ var medical: NPCMedical = null
 var job_state: NPCJobState = NPCJobState.new()
 var thoughts: NPCThoughts = NPCThoughts.new()
 var morale_sys: NPCMorale = NPCMorale.new()   ## slow, condition-driven morale (see NPCMorale.gd)
+var bonds: NPCBonds = NPCBonds.new()           ## relationship ledger + remembered big moments
 var stuck: NPCStuckRecovery = NPCStuckRecovery.new()
 
 ## True once apply_save_dict() has populated this NPC — _ready() must not
@@ -393,6 +394,7 @@ func _tick_social_and_mood(delta: float) -> void:
 	thoughts.tick(h)
 	_update_condition_thoughts()
 	_tick_mood(h)
+	bonds.tick(h)
 	_tick_irritability(h)
 	_tick_relax_day(h)
 	if gift_saturation > 0.0:
@@ -512,7 +514,7 @@ func _update_proximity(h: float) -> void:
 			and _can_see(other)
 		var exposure: float = float(_contagion_exposure.get(id, 0.0))
 		if together:
-			_adjust_relationship(id, gain)
+			bonds.relate(id, gain, "spent time with me")
 			exposure = minf(CONTAGION_EXPOSURE_MAX, exposure + CONTAGION_EXPOSURE_GAIN_PER_GAME_HOUR * h)
 		else:
 			exposure = maxf(0.0, exposure - CONTAGION_EXPOSURE_DECAY_PER_GAME_HOUR * h)
@@ -520,7 +522,7 @@ func _update_proximity(h: float) -> void:
 	var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D
 	if player != null and NPCItemUser.flat_distance(global_position, player.global_position) <= RELATIONSHIP_PROXIMITY_RANGE \
 			and _can_see(player):
-		_adjust_relationship("player", gain)
+		bonds.relate("player", gain, "spent time with me")
 
 ## Exposure-weighted average of other NPCs' moods (own mood if nobody's
 ## been around — a no-op target).
@@ -658,17 +660,60 @@ func on_item_given(item: Node, giver_id: String = "player", giver_name: String =
 	if already_boosted:
 		log_action("%s gave %s to %s (fed only, no relationship change)" % [giver_name, item_name, npc_name])
 		return
-	var effective_bonus: float = GIVE_RELATIONSHIP_BONUS * lerp(1.0, GIFT_BONUS_FLOOR_MULT, gift_saturation)
-	var applied: float = _adjust_relationship(giver_id, effective_bonus)
+	## Context multiplies (see plans/NPC_MORALE_CRASHOUT_PLAN.md): water for
+	## someone parched, food in a shortage, a hot meal instead of a can.
+	var ctx: Dictionary = _gift_context(item)
+	var effective_bonus: float = GIVE_RELATIONSHIP_BONUS * float(ctx["mult"]) * lerp(1.0, GIFT_BONUS_FLOOR_MULT, gift_saturation)
+	var applied: float = bonds.relate(giver_id, effective_bonus, "gave me %s%s" % [ctx["what"], ctx["when"]])
 	gift_saturation = minf(GIFT_SATURATION_MAX, gift_saturation + GIFT_SATURATION_PER_GIFT)
+	NPCBonds.witnessed(get_tree(), giver_id, self, 3.0, "shared food with %s" % npc_name)
 	add_thought("received_gift", giver_name if giver_id != "player" else "You")
 	if giver_id == "player":
 		bark_event("thanks")
 	else:
 		bark_event("thanks_friend", giver_name)
-	log_action("%s gave %s to %s (%+.1f relationship)" % [giver_name, item_name, npc_name, applied])
-	if NPCDebug.enabled:
-		NPCDebug.log_relationship_event(self, giver_id, effective_bonus, "received gift (saturation %.2f)" % gift_saturation)
+	if is_zero_approx(applied):
+		log_action("%s gave %s to %s" % [giver_name, item_name, npc_name])
+
+## What a gift meant: {mult, what ("a hot meal"), when (" when I was starving")}.
+func _gift_context(item: Node) -> Dictionary:
+	var mult: float = 1.0
+	var what: String = "something to eat"
+	var food: bool = NPCItemUser.is_edible(item)
+	if item is DishItem:
+		mult *= 1.3
+		what = "a hot meal"
+	elif NPCItemUser.is_drinkable_bottle(item):
+		what = "water"
+	elif item is FarmProduceItem:
+		what = "fresh food"
+	var need: float = hunger if food else thirst
+	var when: String = ""
+	if need < 15.0:
+		mult *= 2.0
+		when = " when I was starving" if food else " when I was parched"
+	elif need < 35.0:
+		mult *= 1.5
+		when = " when I was hungry" if food else " when I was thirsty"
+	if food and _food_is_scarce():
+		mult *= 1.5
+		when += (" while food was scarce" if when == "" else ", while food was scarce")
+	return {"mult": mult, "what": what, "when": when}
+
+## Fewer edible items (loose or stored) than residents.
+func _food_is_scarce() -> bool:
+	var n: int = 0
+	for it: Node in get_tree().get_nodes_in_group("pickup"):
+		if is_instance_valid(it) and NPCItemUser.is_edible(it):
+			n += 1
+	for shelf: Node in get_tree().get_nodes_in_group("shelving"):
+		if "slots" in shelf:
+			for stack in shelf.slots:
+				if stack is Array:
+					for it in stack:
+						if it != null and is_instance_valid(it) and NPCItemUser.is_edible(it):
+							n += 1
+	return n < get_tree().get_nodes_in_group("npc").size()
 
 ## Takeaway gate: genuinely hungry/thirsty AND holding food/water now.
 func is_consuming_from_need() -> bool:
@@ -688,12 +733,12 @@ func on_item_taken_by_player() -> void:
 		NPCItemUser.release_item(item)
 	if not was_need_triggered:
 		return
-	var applied: float = _adjust_relationship("player", -TAKEAWAY_RELATIONSHIP_PENALTY)
+	var starving: bool = hunger < 15.0 or thirst < 15.0
+	bonds.relate("player", -TAKEAWAY_RELATIONSHIP_PENALTY * (1.5 if starving else 1.0),
+		"took my %s while I was %s" % [item.get_display_name().to_lower(), "starving" if starving else "hungry"])
 	add_thought("food_taken")
 	bark_event("snatched")
-	log_action("Player took %s from %s (%+.1f relationship)" % [item.get_display_name(), npc_name, applied])
-	if NPCDebug.enabled:
-		NPCDebug.log_relationship_event(self, "player", -TAKEAWAY_RELATIONSHIP_PENALTY, "item taken mid-consumption")
+	NPCBonds.witnessed(get_tree(), "player", self, -5.0, "took %s's food" % npc_name)
 
 ## Called on the VICTIM of an NPC snatch.
 func on_item_snatched_by_npc(thief: NPC) -> void:
@@ -703,7 +748,8 @@ func on_item_snatched_by_npc(thief: NPC) -> void:
 		NPCItemUser.release_item(item)
 	add_thought("got_snatched", thief.npc_name)
 	bark_event("snatched")
-	log_action("%s snatched an item from %s" % [thief.npc_name, npc_name])
+	bonds.relate(thief.npc_id, -8.0, "snatched my food")
+	NPCBonds.witnessed(get_tree(), thief.npc_id, self, -4.0, "snatched food from %s" % npc_name)
 
 # ─── Snatch (hostile food/water grabs) ───────────────────────────────────
 const SNATCH_RELATIONSHIP_THRESHOLD: float = -50.0
@@ -943,10 +989,10 @@ func resolve_conversation(partner: NPC) -> void:
 	for pair: Array in [[self, partner], [partner, self]]:
 		var a: NPC = pair[0]
 		var b: NPC = pair[1]
-		var applied: float = a._adjust_relationship(b.npc_id, magnitude if good else -magnitude)
+		a.bonds.relate(b.npc_id, magnitude if good else -magnitude,
+			"had a good talk with me" if good else "got into an argument with me")
 		a.add_thought("good_chat" if good else "bad_chat", b.npc_name)
 		a._last_social_time = NPCClock.now()
-		a.log_action("Chatted with %s — %s (%+.1f)" % [b.npc_name, "good talk" if good else "it got tense", applied])
 
 ## -1..1 — shared outlook (optimism) and energy (sociability) help; two
 ## irritable people grate on each other.
@@ -1102,9 +1148,8 @@ func request_job_while_relaxing() -> bool:
 	_relax_job_request_count += 1
 	if _relax_job_request_count <= 1:
 		return false
-	var applied: float = _adjust_relationship("player", -3.0)
+	bonds.relate("player", -3.0, "pulled me off my break to work")
 	add_thought("break_interrupted")
-	log_action("Player interrupted %s's relaxation (%+.1f relationship)" % [npc_name, applied])
 	return true
 
 func get_relaxing_refusal_line() -> String:
@@ -1181,7 +1226,9 @@ func _ready() -> void:
 	brain.setup(self)
 	stuck.setup(self)
 	morale_sys.setup(self)
-	mood = morale_sys.morale
+	bonds.setup(self)
+	if not morale_sys._loaded:
+		mood = morale_sys.morale   ## fresh resident; a loaded one keeps its saved mood
 	_mood_tick_timer = randf() * MOOD_TICK_INTERVAL   ## stagger across NPCs
 
 	medical = NPCMedical.new()
@@ -1932,6 +1979,7 @@ func get_save_dict() -> Dictionary:
 		"snatch_pair_cooldowns": _npc_snatch_pair_cooldown.duplicate(),
 		"thoughts": thoughts.to_save(),
 		"morale": morale_sys.to_save(),
+		"bonds": bonds.to_save(),
 		"action_log": log_out,
 		"last_irritability_label": _last_irritability_label,
 		"last_player_rel_label": _last_player_relationship_label,
@@ -1986,6 +2034,7 @@ func apply_save_dict(d: Dictionary) -> void:
 	_npc_snatch_pair_cooldown = (d.get("snatch_pair_cooldowns", {}) as Dictionary).duplicate()
 	thoughts.from_save(d.get("thoughts", []))
 	morale_sys.from_save(d.get("morale", {}))
+	bonds.from_save(d.get("bonds", {}))
 	_last_irritability_label = String(d.get("last_irritability_label", ""))
 	_last_player_relationship_label = String(d.get("last_player_rel_label", get_relationship_label("player")))
 	_action_log.clear()

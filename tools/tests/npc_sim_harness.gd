@@ -706,6 +706,8 @@ func _npc_fingerprint(npc: Node) -> Dictionary:
 	d["gender"] = String(npc.get_meta("_adventurer_random_gender", ""))
 	d["log"] = npc.get_action_log().size()
 	d["medical"] = npc.medical.active_conditions.size() if npc.medical != null else 0
+	d["morale"] = snappedf(npc.morale_sys.morale, 0.01)
+	d["memories"] = npc.bonds.memories.size()
 	return d
 
 ## Order-independent, rounding-tolerant dictionary fingerprint (JSON
