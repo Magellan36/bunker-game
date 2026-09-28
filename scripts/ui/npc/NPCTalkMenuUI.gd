@@ -1123,7 +1123,8 @@ func _issue_command(activity: NPCActivity, action_desc: String, empty_desc: Stri
 	var resident_name: String = String(_npc.get("npc_name"))
 	## Workload / consideration (NPCSocial); false = refused (crashing out).
 	if _npc.has_method("on_player_command") and _npc.call("on_player_command", activity) == false:
-		_show_request_feedback("%s won't listen right now — they're crashing out." % resident_name, false)
+		var why: String = String(_npc.call("get_last_refusal")) if _npc.has_method("get_last_refusal") else ""
+		_show_request_feedback("%s refused: %s" % [resident_name, why] if why != "" and not why.begins_with(resident_name) else why, false)
 		return
 	brain.call("force_command", activity)
 	if activity.done(_npc):
@@ -1370,6 +1371,8 @@ func _log_kind_color(entry: Dictionary) -> Color:
 			return S.BRASS.lightened(0.25)
 		"care":
 			return S.GREEN
+		"drive":
+			return S.BLUE.lightened(0.2)
 		"morale":
 			return ENERGY_COLOR
 		"bond":

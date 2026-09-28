@@ -251,13 +251,19 @@ func get_contagion_sociability_mult() -> float:
 	return lerp(0.67, 1.33, _trait("sociability"))
 
 ## Work Ethic: ±30% on job scores, mirrored on idle activities.
+## Work Ethic shapes autonomy strongly (Sep 2026): the Lazy (~0.2x on jobs,
+## ~1.5x on leisure) skip ordinary chores for downtime and only move for
+## genuinely urgent work; Hard Workers (~1.3x) seek jobs out. Player
+## pressure (NPCSocial.drive) overrides it for a few hours.
 func get_work_ethic_job_mult() -> float:
-	return lerp(0.7, 1.3, _trait("work_ethic"))
+	var drive: float = social.drive() if social != null else 0.0
+	return lerp(0.2, 1.3, social.ethic() if social != null else 0.5) * (1.0 + 2.5 * drive)
 
 func get_work_ethic_passive_mult() -> float:
 	if crash != null and crash.mode == NPCCrashOut.Mode.OVERDRIVE:
 		return 0.3   ## overdrive: no breaks, only pacing between jobs
-	return lerp(1.3, 0.7, _trait("work_ethic"))
+	var drive: float = social.drive() if social != null else 0.0
+	return lerp(1.5, 0.7, social.ethic() if social != null else 0.5) * (1.0 - 0.8 * drive)
 
 ## Neuroticism: mood noise and the pass-out mood hit (0.5x..1.5x).
 func neuroticism_trait_mult() -> float:
@@ -335,6 +341,8 @@ func get_work_speed_mult(skill_key: String = "") -> float:
 	var m: float = get_age_work_mult()
 	if crash != null and crash.mode == NPCCrashOut.Mode.OVERDRIVE:
 		m *= 1.35   ## overdrive: frantic pace
+	if social != null:
+		m *= 1.0 + 0.25 * social.drive()   ## pushed hard, they hurry
 	if medical != null:
 		m *= medical.get_medical_job_speed_multiplier()
 	if skill_key != "" and skills.has(skill_key):
@@ -426,6 +434,8 @@ func _tick_irritability(h: float) -> void:
 	var trait_mult: float = _irritability_trait_mult()
 	_irritability_target = clampf(
 		(need_contrib * IRRITABILITY_NEED_WEIGHT + mood_contrib * IRRITABILITY_MOOD_WEIGHT) * trait_mult, 0.0, 100.0)
+	if social != null and social.is_cowed():
+		_irritability_target = minf(_irritability_target * 0.4, 40.0)   ## put in their place: no tantrums
 	irritability = move_toward(irritability, _irritability_target, IRRITABILITY_CHANGE_PER_GAME_HOUR * h)
 	if NPCDebug.enabled:
 		NPCDebug.log_irritability(self, need_contrib, mood_contrib, trait_mult, _irritability_target, irritability)
@@ -501,10 +511,17 @@ static func holder_of(tree: SceneTree, item: Node) -> NPC:
 ## Returns false when the order is refused (mid crash-out: it runs its course).
 func on_player_command(activity: NPCActivity) -> bool:
 	if crash.blocks_commands():
+		social.last_refusal = "%s won't listen right now — they're crashing out." % npc_name
 		bark(NPCDialogue.bark_line("seething" if crash.mode == NPCCrashOut.Mode.HOSTILE else "sob"), true)
 		return false
-	social.on_player_command(activity)
+	if not social.on_player_command(activity):
+		bark(social.last_refusal, true)
+		return false
 	return true
+
+## Why the last order was refused ("" if it wasn't).
+func get_last_refusal() -> String:
+	return social.last_refusal
 
 ## Resident panel: morale at a glance, with its reasons (NPCMorale).
 func get_morale_summary() -> Dictionary:
@@ -925,7 +942,7 @@ func get_snatch_chance_toward(target_id: String) -> float:
 ## Deterministic eligibility (no roll) — lets Eat/Drink score > 0 when the
 ## only matching item is in a disliked person's hands.
 func is_player_snatch_eligible(need_filter: Callable) -> bool:
-	if get_relationship("player") > SNATCH_RELATIONSHIP_THRESHOLD:
+	if get_relationship("player") > SNATCH_RELATIONSHIP_THRESHOLD or social.is_cowed():
 		return false
 	var player: Node = get_tree().get_first_node_in_group("player")
 	if player == null or not player.has_method("get_held_item"):

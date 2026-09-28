@@ -20,8 +20,8 @@ func label() -> String:
 
 func score(npc: NPC) -> float:
 	if npc.get_relax_time_remaining_today() <= 0.0 or npc.is_relax_on_cooldown() or npc.is_night_for_me() \
-			or npc.crash.active():
-		return 0.0
+			or npc.crash.active() or npc.social.drive() >= 0.4:
+		return 0.0   ## no breaks while being pushed hard
 	return BASE_SCORE * npc.get_work_ethic_passive_mult()
 
 func interruptible() -> bool:

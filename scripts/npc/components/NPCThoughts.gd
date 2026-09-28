@@ -48,6 +48,8 @@ const DEFS: Dictionary = {
 	"burned_out":        {"label": "Burned out",                       "mood": -4.0, "hours": 10.0, "stack": 1},
 	"vented_rage":       {"label": "Got it out of my system",          "mood": 2.0,  "hours": 8.0,  "stack": 1},
 	"cried_it_out":      {"label": "Cried it out",                     "mood": 3.0,  "hours": 8.0,  "stack": 1},
+	"under_pressure":    {"label": "Being pushed hard",                "mood": -3.0, "hours": 0.0,  "stack": 1},
+	"cowed":             {"label": "Put in my place",                  "mood": -2.0, "hours": 0.0,  "stack": 1},
 	"hungry":            {"label": "Hungry",                           "mood": -4.0, "hours": 0.0,  "stack": 1},
 	"starving":          {"label": "Starving",                         "mood": -12.0, "hours": 0.0, "stack": 1},
 	"thirsty":           {"label": "Thirsty",                          "mood": -4.0, "hours": 0.0,  "stack": 1},

@@ -124,6 +124,7 @@ const BARKS: Dictionary = {
 	"tidy":          ["There. Better.", "Why is there always junk everywhere..."],
 	"hungry":        ["I'm starving...", "Need to find something to eat."],
 	"thirsty":       ["So thirsty...", "Water. I need water."],
+	"refuse_work":   ["Later.", "Can't be bothered right now.", "Do it yourself.", "Yeah, in a bit.", "Not now, I'm busy doing nothing.", "Why me?"],
 	"strained":      ["I can't take much more of this.", "Something's gotta give down here.", "I'm hanging by a thread.", "How long can we keep living like this?"],
 	"crash_hostile": ["That's IT. I'm DONE.", "I've had ENOUGH!", "You want to see me snap? Here it is!"],
 	"crash_overdrive": ["No. No more. I'm fixing this. All of it.", "Nobody else is going to hold this place together.", "Move. I've got work to do."],
@@ -196,7 +197,10 @@ const TALK_REPLIES: Dictionary = {
 	"vent_hard":      ["\"Right?! I thought it was just me.\"", "\"Finally, someone says it.\""],
 	"vent":           ["\"Yeah, it's not perfect.\"", "\"Could be worse, I guess.\""],
 	"insult":         ["\"Wow. Noted.\"", "\"You know what? Forget you.\"", "\"Say that again. I dare you.\""],
-	"threaten":       ["\"...Okay. Okay. I hear you.\"", "\"You don't scare me.\"", "\"Back off.\""],
+	"threaten":       ["\"...Okay. Okay. I'm going.\"", "\"Fine! FINE. I'm going.\"", "\"Alright, alright — I'm on it.\""],
+	"encourage_lazy": ["\"Yeah, yeah. Sure.\"", "\"Mm. Nice speech.\"", "\"Thanks. ...So, anyway.\""],
+	"firm_lazy":      ["\"Ugh. Fine.\"", "\"Alright, alright. Don't get your shorts in a twist.\"", "\"...Fine. Going.\""],
+	"firm_worker":    ["\"I'm already on it.\"", "\"You don't need to tell me twice.\"", "\"Seriously? I never stop.\""],
 	"promise":        ["\"You mean it? ...Alright. I'll hold you to that.\"", "\"I'll believe it when I see it.\""],
 	"side":           ["\"Thank you. Seriously.\"", "\"Good to know someone's on my side.\""],
 }
@@ -205,9 +209,6 @@ static func talk_reply(npc: NPC, outcome: String) -> String:
 	var pool: Array = TALK_REPLIES.get(outcome, [])
 	if pool.is_empty():
 		return greeting(npc)
-	## Fear colours a threat reply: frightened people comply, the rest bristle.
-	if outcome == "threaten":
-		return pool[0] if npc.social != null and npc.social.fear >= 50.0 else _pick(pool.slice(1))
 	return _pick(pool)
 
 static func chat_line(npc: NPC, replying: bool) -> String:

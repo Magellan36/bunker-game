@@ -47,7 +47,7 @@ func label() -> String:
 	return "Leaning on the wall" if _phase == Phase.LEANING else "Finding a spot to lean"
 
 func score(npc: NPC) -> float:
-	if npc.is_night_for_me() or NPCItemUser.hands_full(npc) or npc.crash.active():
+	if npc.is_night_for_me() or NPCItemUser.hands_full(npc) or npc.crash.active() or npc.social.drive() >= 0.4:
 		return 0.0
 	if NPCClock.now() < float(npc.get_meta("_lean_cooldown_until", -1.0)):
 		return 0.0

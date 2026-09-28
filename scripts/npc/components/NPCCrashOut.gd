@@ -92,6 +92,9 @@ func tick(h: float) -> void:
 func _choose_mode() -> Mode:
 	var worst: Dictionary = worst_person()
 	if not worst.is_empty() and float(worst["score"]) <= HOSTILE_AT:
+		if _npc.social.is_cowed():
+			_npc.log_event("crash", "Too cowed to lash out — it all came out as tears instead")
+			return Mode.BREAKDOWN   ## insulted into line: the anger is bottled up, for now
 		target_id = String(worst["id"])
 		return Mode.HOSTILE
 	if _npc.get_relationship("player") >= OVERDRIVE_AT and randf() < 0.75:

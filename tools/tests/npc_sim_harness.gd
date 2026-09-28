@@ -22,7 +22,7 @@ extends Node
 ## (runs res://tools/tests/NPCSimHarness.tscn as the main scene so autoloads exist)
 ## Exit code 0 = no invariant violations, 1 = violations (report printed).
 
-const SCENARIOS: Array[String] = ["basic", "farm", "cook", "power", "stress", "scarcity", "door", "session", "morale", "all"]
+const SCENARIOS: Array[String] = ["basic", "farm", "cook", "power", "stress", "scarcity", "door", "session", "morale", "lazy", "all"]
 
 var _cfg: Dictionary = {
 	"scenario": "basic",
@@ -124,6 +124,8 @@ func _process(delta: float) -> void:
 		if _sample_timer <= 0.0:
 			_sample_timer = SAMPLE_DT
 			_sample()
+			if String(_cfg["scenario"]) == "lazy":
+				_tick_lazy()
 			if String(_cfg["scenario"]) == "session":
 				_check_session_cooking()
 		if float(_cfg["scores"]) > 0.0:
@@ -175,7 +177,7 @@ func _setup() -> void:
 	var objs: Array = []
 	var items: Array = []   ## [scene_path_or_kind, Vector3, extra]
 	var gen_fuel: float = -1.0
-	var want_all: bool = sc == "all" or sc == "session"
+	var want_all: bool = sc == "all" or sc == "session" or sc == "lazy"
 
 	## Room is x ∈ [-12, 3], z ∈ [5, 12] (1 m cells). Research station sits
 	## around the middle — keep furniture on the edges.
@@ -197,6 +199,10 @@ func _setup() -> void:
 		objs.append(_obj(3, Vector3(2.5, 0.5, 6.0), 90.0))          ## shelving
 		objs.append(_obj(36, Vector3(2.5, 0.5, 8.5), 0.0))          ## trash can
 		objs.append(_obj(33, Vector3(-6.0, 0.5, 11.6), 0.0))        ## dresser
+	if sc == "lazy":   ## extra storage so tidying stays available all run
+		for x: float in [1.0, -1.5]:
+			objs.append(_obj(3, Vector3(x, 0.5, 5.5), 0.0))
+		objs.append(_obj(3, Vector3(-11.4, 0.5, 6.8), 90.0))
 	if sc in ["farm"] or want_all:
 		objs.append(_obj(22, Vector3(-7.0, 0.5, 6.0), 0.0))         ## double tray
 		objs.append(_obj(21, Vector3(-4.5, 0.5, 6.0), 0.0))         ## single tray
@@ -222,6 +228,8 @@ func _setup() -> void:
 			food_count = 10; water_count = 10; clutter = 20
 		"scarcity":
 			food_count = 1; water_count = 1; clutter = 2
+		"lazy":
+			clutter = 18   ## plenty of obvious chores lying around
 	for i in food_count:
 		items.append(["res://scenes/world/FoodCan.tscn", _rand_floor_pos()])
 	for i in water_count:
@@ -267,7 +275,10 @@ func _setup() -> void:
 		var npc: Node3D = npc_scene.instantiate()
 		_world.add_child(npc)
 		npc.global_position = _rand_floor_pos() + Vector3(0.0, 1.0, 0.0)
-		if sc == "session":
+		if sc == "lazy":
+			npc.hunger = 95.0; npc.thirst = 95.0; npc.energy = 95.0
+			npc.personality["work_ethic"] = [0.08, 0.92, 0.5, 0.5][i % 4]   ## Lazy, Hard Worker, Steady, Steady
+		elif sc == "session":
 			npc.hunger = randf_range(82.0, 100.0)   ## well fed: cooking must still happen
 			npc.thirst = randf_range(60.0, 100.0)
 			npc.energy = randf_range(55.0, 100.0)
@@ -289,6 +300,70 @@ func _setup() -> void:
 		sc, int(_cfg["npcs"]), float(_cfg["minutes"]), int(_cfg["seed"]), objs.size(), items.size()])
 	for g in ["chair", "bed", "shelving", "trash_receptacle", "generator", "farming_tray", "stove", "pickup"]:
 		print("[harness]   group %s = %d" % [g, get_tree().get_nodes_in_group(g).size()])
+
+## ─── Lazy resident loop ──────────────────────────────────────────────────
+## Resident 0 is Lazy, 1 a Hard Worker. Measures their work vs leisure time
+## per phase, then plays out Brannon's loop on the lazy one: orders get
+## refused -> kindness (encourage) barely helps -> a threat gets them working.
+var _lazy_share: Dictionary = {}   ## phase -> npc name -> {work, leisure}
+var _lazy_done: Dictionary = {}
+
+func _lazy_phase() -> String:
+	var st: float = _t - _setup_at
+	if st < 150.0: return "1 on their own"
+	if st < 240.0: return "2 after encourage"
+	return "3 after threaten"
+
+func _tick_lazy() -> void:
+	var st: float = _t - _setup_at
+	var npcs: Array = get_tree().get_nodes_in_group("npc")
+	if npcs.size() < 2:
+		return
+	var lazy: NPC = npcs[0]
+	for mark: float in [146.0, 236.0]:
+		if st >= mark and not _lazy_done.has("clutter%d" % int(mark)):
+			_lazy_done["clutter%d" % int(mark)] = true
+			for i: int in 14:   ## fresh obvious chores for the next phase
+				FarmingShopHelper.spawn_scene_settled(_world, "res://scenes/world/TestCrate.tscn", _rand_floor_pos())
+	if st >= 148.0 and not _lazy_done.has("orders"):
+		_lazy_done["orders"] = true
+		var refused: int = 0
+		for i: int in 5:
+			if not lazy.on_player_command(CommandCleaningActivity.new()):
+				refused += 1
+		print("[lazy] %s (Lazy) refused %d/5 work orders; last: \"%s\"" % [lazy.npc_name, refused, lazy.get_last_refusal()])
+		var r: Dictionary = lazy.talk_choice("encourage")
+		print("[lazy] encourage -> %s drive=%.2f" % [r.get("line", ""), lazy.social.drive()])
+	if st >= 238.0 and not _lazy_done.has("threat"):
+		_lazy_done["threat"] = true
+		var r: Dictionary = lazy.talk_choice("threaten")
+		print("[lazy] threaten -> %s drive=%.2f rel=%.0f" % [r.get("line", ""), lazy.social.drive(), lazy.get_relationship("player")])
+		var refused: int = 0
+		print("[lazy] acceptance after threat: %.2f (fear %.0f)" % [lazy.social.order_acceptance(), lazy.social.fear])
+		for i: int in 5:
+			if not lazy.on_player_command(CommandCleaningActivity.new()):
+				refused += 1
+		print("[lazy] after the threat, refused %d/5 orders" % refused)
+	var ph: String = _lazy_phase()
+	for n: NPC in npcs.slice(0, 2):
+		var cur: NPCActivity = n.brain.current_activity()
+		if cur == null or cur.is_need() or n.brain.is_sleeping():
+			continue
+		var bucket: Dictionary = _lazy_share.get(ph, {})
+		var row: Dictionary = bucket.get(n.npc_name, {"work": 0.0, "leisure": 0.0})
+		row["work" if cur.is_work() else "leisure"] = float(row["work" if cur.is_work() else "leisure"]) + SAMPLE_DT
+		bucket[n.npc_name] = row
+		_lazy_share[ph] = bucket
+
+func _report_lazy() -> void:
+	var npcs: Array = get_tree().get_nodes_in_group("npc")
+	for ph: String in ["1 on their own", "2 after encourage", "3 after threaten"]:
+		var parts: Array[String] = []
+		for n: NPC in npcs.slice(0, 2):
+			var row: Dictionary = _lazy_share.get(ph, {}).get(n.npc_name, {"work": 0.0, "leisure": 0.0})
+			var tot: float = maxf(0.01, float(row["work"]) + float(row["leisure"]))
+			parts.append("%s (%s) works %d%%" % [n.npc_name, "Lazy" if n.social.is_lazy() else "Hard Worker", int(100.0 * float(row["work"]) / tot)])
+		print("[lazy] %-18s %s" % [ph, " | ".join(parts)])
 
 ## ─── Morale timeline (fast-forward, no physics) ─────────────────────────
 ## Drives NPCMorale (and crash-out risk) hour by hour for a week under three
@@ -433,7 +508,7 @@ func _check_spin(delta: float) -> void:
 		if float(tr["spin_t"]) >= SPIN_WINDOW:
 			var moved: float = NPCItemUser.flat_distance(npc.global_position, tr["spin_pos"])
 			var turns: float = maxf(float(tr["spin_acc"]), float(tr["spin_macc"])) / TAU
-			if (absf(float(tr["spin_net"])) / TAU > 1.5 or turns > 2.5) and moved < 1.0:
+			if (absf(float(tr["spin_net"])) / TAU > 1.5 or turns > 3.0) and moved < 1.0:
 				_flag("spinning", npc, "turned %.1f times (net %.1f) in %.0fs while moving %.2fm (model %.1f) locked %d/%d frames pos=%s" % [
 					turns, float(tr["spin_net"]) / TAU, SPIN_WINDOW, moved, float(tr["spin_macc"]) / TAU,
 					int(tr["spin_locked"]), int(tr["spin_frames"]), npc.global_position],
@@ -987,6 +1062,8 @@ func _report() -> void:
 			for e: Dictionary in n._action_log:
 				lines.append(String(e.get("text", "")))
 			print("[harness] %s actions: %s" % [n.npc_name, " | ".join(lines.slice(maxi(0, lines.size() - 25)))])
+	if String(_cfg["scenario"]) == "lazy":
+		_report_lazy()
 	if String(_cfg["scenario"]) == "session":
 		print("[harness] first cooking decision: %s" % ("%.1fs" % _first_cook_t if _first_cook_t >= 0.0 else "NEVER"))
 		for st: Node in get_tree().get_nodes_in_group("stove"):

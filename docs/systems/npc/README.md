@@ -170,6 +170,25 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   with trait-dependent reception and daily cooldowns; promises (kept +7,
   broken −9); taking sides in feuds. Ready hooks: `on_treated_by_player()`,
   `on_rescued_by_player()`.
+- **Work drive & laziness** (NPCSocial): Work Ethic shapes autonomy.
+  Lazy residents score jobs about 0.2× and leisure 1.5×, so they ignore
+  ordinary chores (urgent work still moves them), and they refuse work
+  orders by chance ("Later.", "Do it yourself."). Harsh leadership PAYS in
+  the short term. Pressure is work drive: Threaten +65 (idle residents move
+  at once), Be firm +35, Insult +20 plus 24 h cowed (no tantrums or
+  snatching, and a hostile crash-out is bottled up as a breakdown). Kindness
+  motivates hard workers (Encourage up to +25) but barely moves the Lazy
+  (+3). Drive gives job scores ×(1 + 2.5·drive), leisure ×(1 − 0.8·drive),
+  no breaks above 0.4, work speed ×(1 + 0.25·drive), and makes orders more
+  likely to be accepted. It fades ~10/game hour, and firm/cruel pushes
+  build tolerance within a day. The bill is relationship, fear and 18-day
+  grudges, which is what feeds hostile crash-outs later. Harness `lazy`
+  scenario, lazy resident: 0% work on their own, ~1% after encouragement,
+  20–30% after a threat (0/5 orders refused).
+- **Treating residents**: hold a Bandage/Antibiotics/Splint near an injured
+  resident: "[E] Bandage Hana's left arm" treats the worst eligible injury
+  (`NPC.receive_treatment`), +8 and a memory the first time (+3 for repeat
+  care within 12 h).
 - **Crash-outs** (`components/NPCCrashOut.gd` + `CrashOutActivity`): risk
   only below morale 25, trait-scaled, 36 h cooldown. HOSTILE (despises
   someone): confront and rant, then sabotage (generator off, food thrown
