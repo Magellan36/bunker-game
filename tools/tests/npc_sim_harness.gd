@@ -36,6 +36,8 @@ var _cfg: Dictionary = {
 	"cam": "",            ## "px,py,pz,lx,ly,lz" camera position + look-at for captures
 	"shots": "",          ## "t0:count:dt" — capture `count` frames starting at sim time t0, every dt seconds
 	"hour": -1.0,         ## start the clock at this hour of day
+	"follow": -1,          ## capture camera frames this resident (index) instead of --cam
+	"force": "",           ## at --bubbles time, force an activity on resident 0 (e.g. "lean")
 	"bubbles": -1.0,       ## at this sim time: stage a chat + a nap in front of the capture camera
 	"saveload": -1.0,     ## at this sim time: save all NPCs, restore them, verify nothing was lost
 	"player_sleep": 0.0,  ## +1 / -1: at sim t=2 put the PLAYER into the first bed from that side (visual check)
@@ -87,6 +89,8 @@ func _ready() -> void:
 			"hour": _cfg["hour"] = float(v)
 			"saveload": _cfg["saveload"] = float(v)
 			"bubbles": _cfg["bubbles"] = float(v)
+			"follow": _cfg["follow"] = int(v)
+			"force": _cfg["force"] = v
 			"debug": NPCDebug.enabled = v != "0"
 			"profile": NPCDebug.profile = v != "0"
 			"player_sleep": _cfg["player_sleep"] = float(v)
@@ -346,6 +350,13 @@ func _check_spin(delta: float) -> void:
 var _bubbles_staged: bool = false
 func _stage_bubbles() -> void:
 	var npcs: Array = get_tree().get_nodes_in_group("npc")
+	if String(_cfg["force"]) == "lean" and not npcs.is_empty():
+		var l: NPC = npcs[0]
+		if NPCItemUser.hands_full(l):
+			NPCItemUser.drop_held(l)
+		l.brain.force_command(LeanActivity.new())
+		print("[harness] forced lean on %s" % l.npc_name)
+		return
 	if npcs.size() < 3:
 		return
 	var a: NPC = npcs[0]
@@ -387,7 +398,7 @@ func _rand_floor_pos() -> Vector3:
 	return Vector3(x, 1.0, z)
 
 # ─── Sampling / invariants ────────────────────────────────────────────────
-const STATIONARY_OK: Array[String] = [
+const STATIONARY_OK: Array[String] = ["LeanActivity", 
 	"SitActivity", "LieActivity", "RelaxActivity", "RelaxSitActivity", "RelaxLieActivity",
 	"PassedOutActivity", "TalkActivity", "WanderActivity", "ForgetfulWanderActivity",
 	"SleepActivity", "", "Idle",
@@ -713,6 +724,15 @@ func _tick_capture() -> void:
 	if st >= _next_shot_t:
 		if _capture_cam != null:
 			_capture_cam.current = true
+			var fi: int = int(_cfg["follow"])
+			var npcs: Array = get_tree().get_nodes_in_group("npc")
+			if fi >= 0 and fi < npcs.size():
+				## Three-quarter view in front of the resident.
+				var n: Node3D = npcs[fi]
+				var fwd: Vector3 = -n.global_transform.basis.z
+				var eye: Vector3 = n.global_position + fwd * 2.6 + n.global_transform.basis.x * 1.2 + Vector3.UP * 1.1
+				_capture_cam.global_position = eye
+				_capture_cam.look_at(n.global_position + Vector3.UP * 0.6)
 		RenderingServer.render_loop_enabled = true
 		_render_warm += 1
 		if _render_warm < 3:

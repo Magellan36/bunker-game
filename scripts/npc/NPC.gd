@@ -26,8 +26,8 @@ class_name NPC
 @export var move_speed: float = 2.2
 @export var acceleration: float = 8.0
 @export var npc_name: String = "Survivor"
-@export var idle_time_min: float = 1.5
-@export var idle_time_max: float = 4.0
+@export var idle_time_min: float = 3.0   ## wander pauses: people mostly stand around in downtime
+@export var idle_time_max: float = 8.0
 
 ## Shared need thresholds — "needs it" means the same thing everywhere.
 const NEED_LOW: float = 55.0      ## below this a need is actively pressing

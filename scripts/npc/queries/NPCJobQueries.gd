@@ -435,7 +435,10 @@ static func cooking_opportunity(npc: NPC) -> Dictionary:
 	var power: Node = find_cooking_needs_power_target(npc)
 	if power != null:
 		return {"mode": "power", "stove": power}
-	var have_ingredient: bool = supply_available(npc, Callable(NPCItemUser, "is_cookable_ingredient"))
+	## A meal needs FOOD (produce or cans — loose, stored, or still in a
+	## can case). Water alone never starts a pot.
+	var have_ingredient: bool = supply_available(npc, Callable(NPCItemUser, "is_cookable_food")) \
+		or supply_available(npc, Callable(NPCItemUser, "is_stocked_can_case"))
 	if not have_ingredient:
 		return {}
 	var ing: Node = find_cooking_ingredient_target(npc)

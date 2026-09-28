@@ -81,9 +81,6 @@ const HEAD_SUPPORT_RATE: float = 1.2
 ## Look-at: glance at what the character is about to use (player: the
 ## interaction prompt's focus; NPC: its activity's attention target).
 const LOOK_RANGE: float = 3.5
-const LOOK_WEIGHT: float = 0.7
-const LOOK_FADE_RATE: float = 2.5
-const LOOK_FOLLOW_RATE: float = 5.0
 const LOOK_HEIGHT: float = 0.3
 
 # ─── Furniture tuning (world metres) ─────────────────────────────────────────
@@ -468,29 +465,45 @@ func _update_procedural_pose(speed: float, delta: float) -> void:
 	_pose_mod.head_support = move_toward(_pose_mod.head_support, support,
 		delta * (HEAD_SUPPORT_RATE if support > 0.0 else HEAD_SUPPORT_RATE * 2.0))
 
+## Head look-at is NPC-only (Brannon, 2026-09-28): the player's head no
+## longer follows interaction focus, and NPC glances are subtle — a gentler
+## weight, slow easing, and a minimum hold per target so the head doesn't
+## flick between every object that passes through range.
+const NPC_LOOK_WEIGHT: float = 0.4
+const NPC_LOOK_FOLLOW_RATE: float = 1.6
+const NPC_LOOK_FADE_RATE: float = 1.2
+const NPC_LOOK_MIN_HOLD: float = 2.5
+var _look_held: Node3D = null
+var _look_hold_left: float = 0.0
+
 func _update_look(delta: float) -> void:
 	var want: float = 0.0
 	var target: Node3D = _look_target() if _stage in [Stage.NONE, Stage.SEATED, Stage.LEAN] else null
+	## Hold the current target for a moment before switching to a new one.
+	_look_hold_left -= delta
+	if target != _look_held:
+		if _look_held != null and is_instance_valid(_look_held) and _look_hold_left > 0.0:
+			target = _look_held
+		else:
+			_look_held = target
+			_look_hold_left = NPC_LOOK_MIN_HOLD
 	if target != null:
 		var point: Vector3 = target.global_position + Vector3.UP * LOOK_HEIGHT
 		var to: Vector3 = point - _visual.global_position
 		var facing := Vector3(-sin(_visual_yaw), 0.0, -cos(_visual_yaw))
 		if Vector2(to.x, to.z).length() < LOOK_RANGE and facing.dot(Vector3(to.x, 0.0, to.z).normalized()) > -0.35:
-			want = LOOK_WEIGHT
+			want = NPC_LOOK_WEIGHT
 			if _pose_mod.look_weight < 0.01:
 				_look_point = point
-			_look_point = _look_point.lerp(point, clampf(LOOK_FOLLOW_RATE * delta, 0.0, 1.0))
-	_pose_mod.look_weight = move_toward(_pose_mod.look_weight, want, LOOK_FADE_RATE * delta)
+			_look_point = _look_point.lerp(point, clampf(NPC_LOOK_FOLLOW_RATE * delta, 0.0, 1.0))
+	_pose_mod.look_weight = move_toward(_pose_mod.look_weight, want, NPC_LOOK_FADE_RATE * delta)
 	_pose_mod.look_at_world = _look_point
 
 ## Duck-typed: the player's interaction focus, or an NPC activity's
 ## attention target. Nothing to look at → null.
 func _look_target() -> Node3D:
 	var target: Variant = null
-	if "interaction_system" in _player and _player.interaction_system != null \
-			and "look_focus" in _player.interaction_system:
-		target = _player.interaction_system.look_focus
-	elif "brain" in _player and _player.brain != null and _player.brain.has_method("current_activity"):
+	if "brain" in _player and _player.brain != null and _player.brain.has_method("current_activity"):
 		var activity: Variant = _player.brain.current_activity()
 		if activity != null and activity.has_method("attention_target"):
 			target = activity.attention_target(_player)

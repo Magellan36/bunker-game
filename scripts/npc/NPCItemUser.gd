@@ -446,17 +446,21 @@ static func is_stocked_can_case(item: Node) -> bool:
 static func is_stocked_water_case(item: Node) -> bool:
 	return ("bottle_count" in item) and int(item.bottle_count) > 0
 
-## Cooking (Aug 2026) — narrower than "cookpot_storable" (that group also
-## includes WaterBottle, which CookingPot's own ingredient-key lookup
-## doesn't recognize — it'd occupy a slot for zero value/zero recipe
-## match). This is exactly is_edible() minus DishItem (a dish is cooking
-## OUTPUT, not a valid input, and isn't in cookpot_storable to begin with).
+## Cooking ingredients, by quality (Sep 2026): fresh produce first, then a
+## food can; a water bottle (CookingPot keys it "water_bottle" and turns it
+## into the dish's hydration) is a soup base only, never the whole meal —
+## see CookingActivity._ingredient_filters().
 static func is_cookable_ingredient(item: Node) -> bool:
-	if item is FarmProduceItem:
-		return true
-	if item.has_method("has_bites_left"):   ## FoodCan
-		return item.has_bites_left()
-	return false
+	return is_cookable_food(item) or is_drinkable_bottle(item)
+
+static func is_cookable_food(item: Node) -> bool:
+	return is_fresh_produce(item) or is_food_can(item)
+
+static func is_fresh_produce(item: Node) -> bool:
+	return item is FarmProduceItem
+
+static func is_food_can(item: Node) -> bool:
+	return item.has_method("has_bites_left") and item.has_bites_left()
 
 ## A Cooking Pot available to fetch — excludes one already resting on a
 ## stove. Confirmed Aug 2026: Stove.try_place_pot() sets is_held = false

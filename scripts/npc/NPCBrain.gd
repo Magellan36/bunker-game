@@ -60,6 +60,7 @@ func setup(npc: NPC) -> void:
 	_think_timer = randf() * THINK_INTERVAL   ## stagger
 	_candidates = [
 		WanderActivity.new(),
+		LeanActivity.new(),
 		SitActivity.new(),
 		LieActivity.new(),
 		DrinkActivity.new(),
