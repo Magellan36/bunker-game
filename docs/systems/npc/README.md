@@ -194,7 +194,9 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   (cooking) or **Gardener** (gardening + harvest). Their passion job
   ignores the Lazy penalties and gets ×1.7 on top of work ethic, so a Lazy
   Gourmand mostly just cooks and a Hard-Working one works constantly,
-  cooking first. Shown with the personality words on the panel.
+  cooking first. While a passion holder is up and about, everyone else
+  scores that job ×0.6 and leaves it to them. Shown with the personality
+  words on the panel.
 - **Treating residents**: hold a Bandage/Antibiotics/Splint near an injured
   resident: "[E] Bandage Hana's left arm" treats the worst eligible injury
   (`NPC.receive_treatment`), +8 and a memory the first time (+3 for repeat

@@ -33,6 +33,7 @@ var _is_forced_session: bool = false
 var _session_elapsed: float = 0.0
 var _session_duration: float = 0.0
 var _finished: bool = false
+var _no_reach_time: float = 0.0             ## fetch: seconds at the path end without the item in reach
 var _skipped_ids: Dictionary = {}           ## item instance_id -> true (nowhere to put it this session)
 var _no_storage_categories: Dictionary = {} ## "light"/"heavy"/"trash" -> true
 var _basket: Basket = null                  ## held while gathering produce
@@ -173,7 +174,20 @@ func tick(npc: NPC, delta: float) -> void:
 			return
 	NPCItemUser.track_fetch_target(npc, _item)
 	npc.nav_steer(delta)
-	if NPCItemUser.in_reach(npc, _item.global_position, NPCItemUser.PICKUP_RANGE):
+	var reachable: bool = NPCItemUser.in_reach(npc, _item.global_position, NPCItemUser.PICKUP_RANGE)
+	## Wedged where no one can get at it (against a wall, behind furniture):
+	## the path ends short of reach. Give up on it instead of circling there.
+	_no_reach_time = _no_reach_time + delta if npc.nav_finished() and not reachable else 0.0
+	if _no_reach_time > 2.0:
+		_no_reach_time = 0.0
+		npc.job_state.record_cleaning_pickup_failure(npc, _item)
+		_skipped_ids[_item.get_instance_id()] = true
+		NPCItemUser.release_item(_item)
+		if _item.has_method("set_nav_obstacle_enabled"):
+			_item.set_nav_obstacle_enabled(true)
+		_item = null
+		return
+	if reachable:
 		if NPCItemUser.grab_loose(npc, _item):
 			_on_picked_up(npc)
 		else:

@@ -224,6 +224,16 @@ func get_passion() -> String:
 func is_passion_job(job_type: String) -> bool:
 	return job_type in (PASSION_JOBS.get(get_passion(), []) as Array)
 
+## Someone else who loves this job is up and about (not asleep, passed out
+## or crashing out), so the rest leave it to them.
+func _passion_holder_free(job_type: String) -> bool:
+	for other: Node in get_tree().get_nodes_in_group("npc"):
+		if other != self and other is NPC and (other as NPC).is_passion_job(job_type) \
+				and not other.is_passed_out() and (other.crash == null or not other.crash.active()) \
+				and (other.brain == null or not other.brain.is_sleeping()):
+			return true
+	return false
+
 func _trait(key: String) -> float:
 	return float(personality.get(key, 0.5))
 
@@ -381,6 +391,8 @@ func work_score(job_type: String, urgency_mult: float = 1.0, base: float = JOB_B
 	var willingness: float = 1.0 - (irritability / 100.0) * 0.5
 	var overdrive: float = 2.2 if crash != null and crash.mode == NPCCrashOut.Mode.OVERDRIVE else 1.0
 	var raw: float = base * get_job_priority_weight(job_type) * urgency_mult
+	if not is_passion_job(job_type) and _passion_holder_free(job_type):
+		raw *= 0.6   ## "that's Ruth's thing" — leave it to the Gourmand/Gardener
 	return raw * get_work_ethic_job_mult(raw, job_type) * skill_pref * willingness * overdrive
 
 ## How fast this resident gets physical work done (age, injuries, skill).

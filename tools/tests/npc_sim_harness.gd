@@ -266,6 +266,8 @@ func _setup() -> void:
 			elif pm != null and pm.has_method("set_generator_fuel"):
 				pm.set_generator_fuel(str(g.get_instance_id()), gen_fuel)
 
+	if String(_cfg["scenario"]) == "lazy" and float(_cfg["hour"]) < 0.0:
+		_cfg["hour"] = 7.0   ## daytime for every phase
 	if float(_cfg["hour"]) >= 0.0:
 		var stats: Node = get_tree().get_first_node_in_group("player_stats")
 		stats.set_elapsed(float(_cfg["hour"]) * stats._seconds_per_game_hour)
@@ -307,12 +309,13 @@ func _setup() -> void:
 
 ## ─── Lazy resident loop ──────────────────────────────────────────────────
 ## Residents: 0 Lazy, 1 Hard Worker, 2 Steady, 3 Lazy Gourmand, 4 Hard-Working
-## Gardener. Phase 1 (~15 game hours) measures how much each works on their
+## Gardener. Starts 07:00 (run ~15 min so it ends before bed). Phase 1
+## (~10 game hours) measures how much each works on their
 ## own and at what; then Brannon's loop plays out on the lazy one: orders
 ## get refused -> kindness (encourage) barely helps -> a threat gets them
 ## working.
-const LAZY_P1: float = 900.0
-const LAZY_P2: float = 990.0
+const LAZY_P1: float = 600.0
+const LAZY_P2: float = 690.0
 var _lazy_share: Dictionary = {}   ## phase -> npc name -> {work, leisure, kinds}
 var _lazy_done: Dictionary = {}
 
@@ -328,7 +331,7 @@ func _tick_lazy() -> void:
 	if npcs.size() < 2:
 		return
 	var lazy: NPC = npcs[0]
-	for mark: float in [150.0, 300.0, 450.0, 600.0, 750.0, LAZY_P1 - 4.0, LAZY_P2 - 4.0]:
+	for mark: float in [150.0, 300.0, 450.0, LAZY_P1 - 4.0, LAZY_P2 - 4.0]:
 		if st >= mark and not _lazy_done.has("clutter%d" % int(mark)):
 			_lazy_done["clutter%d" % int(mark)] = true
 			for i: int in (14 if mark >= LAZY_P1 - 4.0 else 6):   ## fresh obvious chores
