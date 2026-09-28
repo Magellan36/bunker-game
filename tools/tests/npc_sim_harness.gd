@@ -335,6 +335,7 @@ func _tick_lazy() -> void:
 	for mark: float in [150.0, 300.0, 450.0, LAZY_P1 - 4.0, LAZY_P2 - 4.0]:
 		if st >= mark and not _lazy_done.has("clutter%d" % int(mark)):
 			_lazy_done["clutter%d" % int(mark)] = true
+			_clear_shelved_crates()   ## free up storage so tidying never runs out
 			for i: int in (14 if mark >= LAZY_P1 - 4.0 else 6):   ## fresh obvious chores
 				FarmingShopHelper.spawn_scene_settled(_world, "res://scenes/world/TestCrate.tscn", _rand_floor_pos())
 	if st >= LAZY_P1 - 2.0 and not _lazy_done.has("orders"):
@@ -377,6 +378,22 @@ func _tick_lazy() -> void:
 			row["leisure"] = float(row["leisure"]) + SAMPLE_DT
 		bucket[n.npc_name] = row
 		_lazy_share[ph] = bucket
+
+func _clear_shelved_crates() -> void:
+	for shelf: Node in get_tree().get_nodes_in_group("shelving"):
+		if not ("slots" in shelf):
+			continue
+		for i: int in shelf.slots.size():
+			var stack: Variant = shelf.slots[i]
+			if not (stack is Array):
+				continue
+			var keep: Array = []
+			for it: Variant in stack:
+				if it is Node and is_instance_valid(it) and String((it as Node).scene_file_path).ends_with("TestCrate.tscn"):
+					(it as Node).queue_free()
+				else:
+					keep.append(it)
+			shelf.slots[i] = keep
 
 static func _work_kind(a: NPCActivity) -> String:
 	var inner: NPCActivity = a
