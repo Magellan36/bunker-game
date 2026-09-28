@@ -149,7 +149,11 @@ func _recover() -> void:
 			_bump_cause(last_cause)
 			_npc.repath()
 			return
-	_crowd_wait = 0.0
+		## Patience used up: fall through to the normal ladder and KEEP the
+		## wait total (only real progress clears it), so a genuine jam goes
+		## repath -> nudge -> give up instead of cycling back to waiting.
+	else:
+		_crowd_wait = 0.0
 	recoveries += 1
 	_step += 1
 	last_cause = _describe(blocker)

@@ -10,6 +10,7 @@ const MAX_SAME_DIRECTION_BATCH: int = 2
 const BATCH_WINDOW_MSEC: int = 1100
 const LEASE_MSEC: int = 8000
 const CLEANUP_INTERVAL_MSEC: int = 250
+const QUEUE_STALE_MSEC: int = 1200
 
 static var _states: Dictionary = {} ## door instance id -> state Dictionary
 static var _next_serial: int = 1
@@ -37,6 +38,8 @@ static func request(npc: Node3D, door: Node3D, direction: int) -> Dictionary:
 	for entry: Dictionary in queue:
 		if int(entry.get("npc_id", 0)) == npc_id:
 			queued = true
+			entry["seen"] = Time.get_ticks_msec()   ## still waiting — keep the place in line
+			entry["direction"] = direction
 			break
 	if not queued:
 		queue.append({
@@ -44,6 +47,7 @@ static func request(npc: Node3D, door: Node3D, direction: int) -> Dictionary:
 			"npc_ref": weakref(npc),
 			"direction": direction,
 			"since": Time.get_ticks_msec(),
+			"seen": Time.get_ticks_msec(),
 		})
 	queue.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		return int(a.get("since", 0)) < int(b.get("since", 0)))
@@ -141,10 +145,15 @@ static func _cleanup() -> void:
 			if npc_ref == null or npc_ref.get_ref() == null \
 					or now >= int(lease.get("expires", 0)):
 				holders.erase(npc_id)
+		## A waiter that stopped asking (plans changed, walked off) must not
+		## stay "oldest in line" forever — that deadlocked the doorway for
+		## everyone (Sep 2026). Waiters re-request every frame they wait.
 		var queue: Array = state.get("queue", [])
 		for index: int in range(queue.size() - 1, -1, -1):
-			var queued_ref: WeakRef = (queue[index] as Dictionary).get("npc_ref") as WeakRef
-			if queued_ref == null or queued_ref.get_ref() == null:
+			var entry: Dictionary = queue[index]
+			var queued_ref: WeakRef = entry.get("npc_ref") as WeakRef
+			if queued_ref == null or queued_ref.get_ref() == null \
+					or now - int(entry.get("seen", entry.get("since", 0))) > QUEUE_STALE_MSEC:
 				queue.remove_at(index)
 		state["holders"] = holders
 		state["queue"] = queue

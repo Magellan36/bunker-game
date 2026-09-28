@@ -354,8 +354,17 @@ func _stage_bubbles() -> void:
 		var l: NPC = npcs[0]
 		if NPCItemUser.hands_full(l):
 			NPCItemUser.drop_held(l)
-		l.brain.force_command(LeanActivity.new())
-		print("[harness] forced lean on %s" % l.npc_name)
+		for attempt: int in 15:
+			if NPCItemUser.hands_full(l):
+				NPCItemUser.drop_held(l)
+			l.remove_meta("_lean_cooldown_until") if l.has_meta("_lean_cooldown_until") else null
+			l.brain.force_command(LeanActivity.new())
+			await get_tree().physics_frame
+			if l.brain.current_activity() is LeanActivity and not l.brain.current_activity().done(l):
+				print("[harness] forced lean on %s (try %d)" % [l.npc_name, attempt])
+				return
+			await get_tree().create_timer(1.0).timeout
+		print("[harness] forced lean FAILED")
 		return
 	if npcs.size() < 3:
 		return

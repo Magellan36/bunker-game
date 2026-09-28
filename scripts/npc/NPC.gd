@@ -1305,6 +1305,7 @@ const DOOR_GIVE_UP_SEC: float = 8.0
 var _door_lease: Dictionary = {}
 var _door_wait: float = 0.0
 var door_blocked: bool = false
+var _door_queued: bool = false
 
 func is_waiting_at_door() -> bool:
 	return _door_wait > 0.0
@@ -1315,6 +1316,10 @@ func _door_passage_allows(next_path_point: Vector3, delta: float) -> bool:
 		_door_wait = 0.0
 		return true
 	_door_wait += delta
+	if NPCDebug.enabled and int(_door_wait) != int(_door_wait - delta):
+		var dd: Node = get_tree().get_first_node_in_group("npc_bottleneck")
+		print("[door] t=%.1f %s waiting %.0fs lease=%s pos=%s door_open=%s info=%s anim=%s req=%s" % [Time.get_ticks_msec() / 1000.0, npc_name, _door_wait, _door_lease.keys(), global_position.snapped(Vector3.ONE * 0.01),
+			dd.is_open() if dd != null else "-", dd.get_npc_portal_info() if dd != null else {}, dd.get("_animating") if dd != null else "-", dd.get("_npc_open_requested") if dd != null else "-"])
 	if _door_wait >= DOOR_GIVE_UP_SEC:
 		_door_wait = 0.0
 		_release_door_passage()
@@ -1364,7 +1369,11 @@ func _door_passage_check(next_path_point: Vector3) -> bool:
 			best_door = door
 			best_direction = direction
 	if best_door == null:
+		if _door_queued:
+			_door_queued = false
+			NPC_DOOR_COORDINATOR.release_owner(self)   ## no longer crossing — leave the line
 		return true
+	_door_queued = true
 	if not bool(best_door.get_npc_portal_info().get("open", false)):
 		if best_door.has_method("request_npc_open"):
 			best_door.request_npc_open(self)
@@ -1380,6 +1389,7 @@ func _release_door_passage() -> void:
 		NPC_DOOR_COORDINATOR.release(_door_lease, self)
 	NPC_DOOR_COORDINATOR.release_owner(self)   ## also drops a queued request
 	_door_lease = {}
+	_door_queued = false
 
 ## The chair/bed this NPC occupies, mirroring Player.gd so the shared
 ## AdventurerModelController drives the same sit / lie-down animations.
