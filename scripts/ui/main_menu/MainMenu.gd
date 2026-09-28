@@ -1,8 +1,13 @@
 extends Node
 ## MainMenu.gd (Sep 2026)
 ## Boot scene orchestrator. Owns three things only:
-##   1. The surface backdrop: loaded on a thread so the menu appears at once,
-##      faded in from black when ready (the menu still works if it never is).
+##   1. The surface backdrop: loaded on threads so the menu appears at once,
+##      then revealed with a short fade (the menu still works if it never is).
+##      Load speed: with vsync on, every GPU texture upload waits for a shown
+##      frame (~75 ms per texture here; ~140 textures = 8+ s). V-sync is
+##      therefore off only while the backdrop loads (the screen is black
+##      then) and the player's setting is restored the moment it is ready.
+##      With parallel sub-thread loading that brings the load to under 1 s.
 ##   2. The curtain: sits *under* the UI for the opening (the wordmark reveals
 ##      over black), then moves *over* everything when leaving.
 ##   3. Hand-offs: New Game -> character creation, Continue/Load -> loading
@@ -20,7 +25,8 @@ const CURTAIN_OVER_ALL: int = 250
 @export_file("*.tscn") var backdrop_scene_path: String = "res://scenes/world/menu_backdrop/MenuBackdrop.tscn"
 ## Give up waiting for the backdrop after this long and show the menu anyway.
 @export var backdrop_timeout: float = 8.0
-@export var backdrop_fade_seconds: float = 2.6
+## Short reveal once the backdrop is in and its first frames have rendered.
+@export var backdrop_fade_seconds: float = 0.5
 @export var exit_seconds: float = 1.2
 @export var music: AudioStream
 @export var music_volume_db: float = -12.0
@@ -37,6 +43,7 @@ var _presented: bool = false
 var _leaving: bool = false
 var _waited: float = 0.0
 var _music: AudioStreamPlayer = null
+var _vsync_to_restore: int = -1
 
 
 func _ready() -> void:
@@ -57,9 +64,23 @@ func _ready() -> void:
 		_music.play()
 		create_tween().tween_property(_music, "volume_db", music_volume_db, 3.0)
 	_screen.call("play_intro")
-	if backdrop_scene_path.is_empty() \
-			or ResourceLoader.load_threaded_request(backdrop_scene_path) != OK:
+	if backdrop_scene_path.is_empty():
 		_present(null)
+		return
+	_vsync_to_restore = DisplayServer.window_get_vsync_mode()
+	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+	if ResourceLoader.load_threaded_request(backdrop_scene_path, "", true) != OK:
+		_present(null)
+
+
+func _exit_tree() -> void:
+	_restore_vsync()
+
+
+func _restore_vsync() -> void:
+	if _vsync_to_restore >= 0:
+		DisplayServer.window_set_vsync_mode(_vsync_to_restore as DisplayServer.VSyncMode)
+		_vsync_to_restore = -1
 
 
 func _process(delta: float) -> void:
@@ -85,9 +106,14 @@ func _process(delta: float) -> void:
 
 func _present(scene: PackedScene) -> void:
 	_presented = true
+	_restore_vsync()
 	if scene != null:
 		_backdrop = scene.instantiate()
 		_backdrop_host.add_child(_backdrop)
+		# The first two frames compile pipelines (~70-95 ms each); let them
+		# happen behind the curtain so the fade itself is smooth.
+		await get_tree().process_frame
+		await get_tree().process_frame
 	var fade := UIMotion.duration(backdrop_fade_seconds if _backdrop != null else 0.6)
 	var tween := create_tween()
 	tween.tween_property(_curtain, "modulate:a", 0.0, fade) \

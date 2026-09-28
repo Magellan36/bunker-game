@@ -63,14 +63,22 @@ credits file.
 
 ## Runtime flow
 
-1. `MainMenu._ready()` starts a threaded load of the backdrop and plays the
-   intro immediately: the wordmark resolves from wide letter-spacing over
-   black, the brass rule draws, items stagger in, focus lands on Continue
-   (or New Game when there is no save).
-2. When the backdrop is ready the curtain (currently *under* the UI) fades out
-   over ~2.6 s while the camera finishes an 8 s dolly. Any key/click/button
-   skips straight to the settled state. No backdrop within 8 s → menu shows
-   anyway.
+1. `MainMenu._ready()` starts a threaded load of the backdrop (parallel
+   sub-threads, **v-sync off until it is ready**) and plays the intro
+   immediately: the wordmark resolves from wide letter-spacing over black,
+   the brass rule draws, items stagger in, focus lands on Continue (or New
+   Game when there is no save).
+2. When the backdrop is ready, v-sync goes back to the player's setting, two
+   frames render behind the curtain (pipeline warm-up hitches), then the
+   curtain (currently *under* the UI) fades out over 0.5 s while the camera
+   finishes an 8 s dolly. Any key/click/button skips straight to the settled
+   state. No backdrop within 8 s → menu shows anyway.
+
+   Why v-sync is off during the load: with it on, every GPU texture upload
+   waits for a displayed frame (~75 ms per texture on the RX 580; the
+   backdrop has ~140 textures), so the load took 6–8+ s. With it off and
+   sub-threads on it takes ~0.8–2.5 s depending on machine load. The screen
+   is black during the load, so there's no visible tearing.
 3. Leaving: the column falls away, camera pushes in and narrows, wind fades,
    the curtain moves *over* everything and fades to black, then the scene
    changes. Quit is two-step ("Press again to quit", 3 s window).
