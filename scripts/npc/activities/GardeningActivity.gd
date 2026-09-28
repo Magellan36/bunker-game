@@ -38,6 +38,9 @@ var _finished: bool = false
 var _handoff: NPCActivity = null
 var _cells_done: int = 0
 
+func attention_target(_npc: NPC) -> Node3D:
+	return _current_tray as Node3D if _current_tray != null and is_instance_valid(_current_tray) else null
+
 func label() -> String:
 	match _phase:
 		"fetch": return "Fetching %s" % {"soil": "soil", "plant": "seeds", "fertilize": "fertilizer"}.get(_current_task, "supplies")

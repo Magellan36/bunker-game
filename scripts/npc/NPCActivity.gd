@@ -49,6 +49,9 @@ func backoff_on_futile() -> bool: return true
 ## normal hysteresis). Lets e.g. a break be "interruptible" by something
 ## urgent while ignoring ordinary chores.
 func min_challenger_score() -> float: return 0.0
+## What the resident's head should look at (AdventurerModelController's
+## procedural look-at reads this). null = look where they're going.
+func attention_target(_npc: NPC) -> Node3D: return null
 
 ## Optional — structured debug snapshot for NPCDebug's on-demand dumps.
 ## An override should include an "activity" String key.

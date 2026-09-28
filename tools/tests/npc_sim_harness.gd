@@ -332,7 +332,7 @@ func _check_spin(delta: float) -> void:
 		if float(tr["spin_t"]) >= SPIN_WINDOW:
 			var moved: float = NPCItemUser.flat_distance(npc.global_position, tr["spin_pos"])
 			var turns: float = maxf(float(tr["spin_acc"]), float(tr["spin_macc"])) / TAU
-			if (absf(float(tr["spin_net"])) / TAU > 1.0 or turns > 2.5) and moved < 1.0:
+			if (absf(float(tr["spin_net"])) / TAU > 1.5 or turns > 2.5) and moved < 1.0:
 				_flag("spinning", npc, "turned %.1f times (net %.1f) in %.0fs while moving %.2fm (model %.1f) locked %d/%d frames pos=%s" % [
 					turns, float(tr["spin_net"]) / TAU, SPIN_WINDOW, moved, float(tr["spin_macc"]) / TAU,
 					int(tr["spin_locked"]), int(tr["spin_frames"]), npc.global_position],

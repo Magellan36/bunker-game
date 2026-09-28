@@ -475,7 +475,7 @@ func _look_target() -> Node3D:
 		var activity: Variant = _player.brain.current_activity()
 		if activity != null and activity.has_method("attention_target"):
 			target = activity.attention_target(_player)
-	return target as Node3D if target is Node3D and is_instance_valid(target) else null
+	return target as Node3D if is_instance_valid(target) and target is Node3D else null   ## validity first: `is` on a freed object errors
 
 # ─── Furniture planning ──────────────────────────────────────────────────────
 func _parent_furniture() -> Node3D:

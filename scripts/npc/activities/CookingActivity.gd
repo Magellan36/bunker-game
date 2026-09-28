@@ -34,6 +34,9 @@ var _storage_dest: Node = null
 var _work_left: float = 0.0
 var _finished: bool = false
 
+func attention_target(_npc: NPC) -> Node3D:
+	return _stove as Node3D if _phase in ["travel", "work"] and _stove != null and is_instance_valid(_stove) else null
+
 func label() -> String:
 	match _mode:
 		"serve":
