@@ -87,7 +87,7 @@ func _physics_process(delta: float) -> void:
 		var camera: Camera3D = get_viewport().get_camera_3d()
 		if camera != null:
 			var mouse: Vector2 = get_viewport().get_mouse_position()
-			var plane := Plane(Vector3.UP, interaction.hold_point.global_position.y)
+			var plane := Plane(Vector3.UP, _weapon.get_aim_origin().y)
 			var point: Variant = plane.intersects_ray(camera.project_ray_origin(mouse), camera.project_ray_normal(mouse))
 			if point != null:
 				target_direction = point - Vector3(player.global_position.x, plane.d, player.global_position.z)

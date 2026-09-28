@@ -38,8 +38,9 @@ This does **not** silently connect to NPC health/medical/social systems: those n
 an agreed damage contract. Test targets already implement the receiver and count hits.
 
 `attack_started`, `aim_changed`, and `dry_fired` are animation/audio integration hooks.
-Set `grip_anchor` to a future hand BoneAttachment3D/Marker3D to replace the generic
-hold point; no input rewrite is required. Current player carry animation is retained.
+`grip_anchor` replaces the generic hold point. While the player holds the Webley,
+`PistolAnimationLayer` (see "Animation" below) sets it to a marker on the animated
+right hand. Melee weapons keep the generic hold point and the normal carry pose.
 Optional attack/empty/reload AudioStream exports are ready for authored sound assets;
 this pass does not include final weapon audio or mechanical cylinder/reload animation.
 
@@ -60,7 +61,18 @@ provenance/conversion is in `assets/models/weapons/webley/README.md`. The origin
 and mechanical animation source are preserved in the user's model folder.
 Temporary agent-authored graybox visuals (not final artwork): knife, hatchet, pipe,
 procedural casing, impact dot, and test-room targets. Replace with authored meshes/
-effects before release. Custom player holding/attack animations and sound are pending.
+effects before release. Attack/reload animations, melee holding poses and sound are pending.
+
+## Animation
+
+Holding the Webley blends the player (both bodies) into the supplied human-made
+Maximo pistol locomotion pack: a two-handed idle, walk/run forward and backward, and
+both strafes, chosen by travel direction relative to facing so aiming while moving
+sideways or backwards uses the matching clip. Feet are phase-locked to distance
+travelled, as with the normal gait. The gun rides the final right-hand pose each
+frame. Dropping, storing or switching to melee eases back to the normal tree in
+~0.12 s. NPCs are untouched. Details: `docs/systems/player-model/ANIMATIONS.md`
+("Pistol layer") and `assets/models/player/pistol/README.md`.
 
 ## Validation
 
@@ -68,6 +80,12 @@ Run with isolated user data (see `docs/AGENT_GIT_WORKFLOW.md`):
 
 ```
 XDG_DATA_HOME=$(mktemp -d) XDG_CONFIG_HOME=$(mktemp -d) /path/to/godot --headless --path . res://tools/tests/WeaponsTest.tscn --quit-after 120
+```
+
+Headless behavior checks (expects `WEAPONS_SMOKE: 31 checks, 0 failures`):
+
+```
+XDG_DATA_HOME=$(mktemp -d) XDG_CONFIG_HOME=$(mktemp -d) /path/to/godot --headless --path . res://tools/tests/WeaponsSmoke.tscn
 ```
 
 The rightmost room target is behind a wall. Check shots and melee against the exposed

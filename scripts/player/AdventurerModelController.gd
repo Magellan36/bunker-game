@@ -52,6 +52,9 @@ const LIBRARY_PATHS: Dictionary = {
 	"female": "res://assets/models/player/anims/adventurer_female_lib.res",
 }
 const LIB: String = "body"
+const PistolLayer = preload("res://scripts/weapons/PistolAnimationLayer.gd")
+var _pistol_layer: PistolLayer
+
 const ProceduralPose: GDScript = preload("res://scripts/player/AdventurerProceduralPose.gd")
 const FALLBACK_CAPSULE_HEIGHT: float = 2.0
 
@@ -229,6 +232,10 @@ func _ready() -> void:
 	_lib = load(LIBRARY_PATHS.get(_gender, LIBRARY_PATHS["male"])) as AnimationLibrary
 	_read_gait_metadata()
 	_build_tree()
+	# NPCs retain their existing tree; weapon input/locomotion is player-owned.
+	if _player != null and not randomize_gender:
+		_pistol_layer = PistolLayer.new()
+		_pistol_layer.install(self)
 	_last_visual_world = _visual.global_transform
 
 func _resolve_gender() -> String:
@@ -352,6 +359,8 @@ func _process(delta: float) -> void:
 		_update_locomotion(delta)
 	_update_slots(delta)
 	_apply_tree_params()
+	if _pistol_layer != null:
+		_pistol_layer.update(delta)
 	_tree.advance(delta)
 	_place_visual()
 

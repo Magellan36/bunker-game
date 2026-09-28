@@ -7,7 +7,7 @@ var _label: Label3D
 func _ready() -> void:
 	var collision := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(0.8, 1.8, 0.35)
+	shape.size = Vector3(0.8, 2.2, 0.35)
 	collision.shape = shape
 	add_child(collision)
 	var mesh := MeshInstance3D.new()

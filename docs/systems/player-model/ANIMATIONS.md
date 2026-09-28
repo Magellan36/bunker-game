@@ -207,6 +207,30 @@ model.is_leaning() -> bool   # true once settled in the loop
   forward). Pick a flat wall stretch: the pose assumes a vertical wall from
   floor to shoulder height.
 
+### Pistol layer (player-only, added 2026-09-28)
+
+Owned by the weapons work: `scripts/weapons/PistolAnimationLayer.gd`, sources
+and README in `assets/models/player/pistol/`, bake with
+`tools/anim_pipeline/bake_pistol_anims.gd` (reuses this bake's `_convert` /
+`_analyse`, writes only `pistol_{male,female}_lib.res`).
+
+- The controller installs it in `_ready()` only for the player (`_player`
+  set, not `randomize_gender`); NPC trees are unchanged.
+- It adds a `pistol` library and a `pistol_mix` Blend2 between `carry` and
+  `out`, so furniture/death overrides still win. The weight eases in
+  (8/s) while the held item `is_firearm()` and the stage is NONE.
+- Seven human-made Maximo clips per body (idle, walk/run forward and
+  backward, both strafes) in two sync'd BlendSpace2Ds. Travel direction is
+  relative to the visual yaw, so strafing while aiming picks the side clips.
+  Playback is phase-seeked from distance travelled over measured stride,
+  same as the main gait: no foot slide in any direction.
+- The gun follows the final RightHand pose on `skeleton_updated` (after the
+  procedural modifier) via a `WeaponGrip` marker and `grip_basis` meta.
+- The female pack exported identity Head/Foot rotations (a leaf-bone export
+  artifact); the bake restores those three tracks from the identical male
+  mocap clip. The female body has no distal finger bones, so her grip is
+  looser than his; that comes from the body mesh.
+
 ### Procedural pose (`AdventurerProceduralPose`, a SkeletonModifier3D)
 
 - **Foot locking.** A foot whose ankle is within 7.5 cm of the floor and

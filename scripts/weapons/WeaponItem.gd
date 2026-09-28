@@ -136,6 +136,7 @@ func _physics_process(delta: float) -> void:
 func sync_held_pose() -> void:
 	if is_held and is_instance_valid(_hold_point):
 		global_transform = grip_anchor.global_transform if is_instance_valid(grip_anchor) else _hold_point.global_transform
+		global_basis = global_basis.orthonormalized()
 
 ## Returns true only for a committed attack. Call from a physics tick.
 func try_attack(direction: Vector3) -> bool:
@@ -171,7 +172,7 @@ func _ray(from: Vector3, to: Vector3) -> Dictionary:
 
 func _attack_origin() -> Vector3:
 	var holder: CharacterBody3D = _get_holder()
-	return Vector3(holder.global_position.x, global_position.y, holder.global_position.z) if holder != null else global_position
+	return Vector3(holder.global_position.x, _muzzle.global_position.y if is_firearm() else global_position.y, holder.global_position.z) if holder != null else global_position
 
 func _fire(direction: Vector3) -> void:
 	var muzzle_position: Vector3 = _muzzle.global_position
@@ -279,3 +280,6 @@ func _play_sound(stream: AudioStream) -> void:
 	if stream != null and is_instance_valid(_audio):
 		_audio.stream = stream
 		_audio.play()
+
+func get_aim_origin() -> Vector3:
+	return _muzzle.global_position if is_instance_valid(_muzzle) else global_position
