@@ -929,7 +929,8 @@ static func _canon(d: Dictionary) -> String:
 	keys.sort()
 	var parts: Array[String] = []
 	for k in keys:
-		parts.append("%s=%.5f" % [str(k), float(d[k])])
+		## 3 decimals: float round-trips through the save file can differ in the 5th.
+		parts.append("%s=%s" % [str(k), d[k] if d[k] is String else "%.3f" % float(d[k])])
 	return ",".join(parts)
 
 func _check_save_load() -> void:
