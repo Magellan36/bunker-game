@@ -209,7 +209,8 @@ model.is_leaning() -> bool   # true once settled in the loop
 
 ### Pistol layer (player-only, added 2026-09-28)
 
-Owned by the weapons work: `scripts/weapons/PistolAnimationLayer.gd`, sources
+Owned by the animation session since the 2026-09-28 handoff (contract:
+`docs/systems/weapons/HANDOFF.md`); originally written by the weapons work: `scripts/weapons/PistolAnimationLayer.gd`, sources
 and README in `assets/models/player/pistol/`, bake with
 `tools/anim_pipeline/bake_pistol_anims.gd` (reuses this bake's `_convert` /
 `_analyse`, writes only `pistol_{male,female}_lib.res`).
@@ -230,6 +231,39 @@ and README in `assets/models/player/pistol/`, bake with
   artifact). Per the provenance rule the bake does not splice them from the
   male clip; any correction belongs in the runtime modifier. The female body
   has no distal finger bones, so her grip is looser than his (body mesh).
+
+### Melee and strike clips (player-only, added 2026-09-28)
+
+Same `PistolAnimationLayer.gd`. Sources: Brannon's human-made "Baseball Bat"
+set, per gender, in `assets/models/player/weapons/{male,female}/`
+(`melee_idle`, `melee_swing`, `melee_swing_alt` = "Baseball Swing adjust",
+`pistol_whip`, `pistol_shoot`). Baked by `tools/anim_pipeline/bake_weapon_anims.gd`
+into `weapons_{male,female}_lib.res`. Measured meta: `contact_time` (peak
+right-hand speed), `windup_time` (top of the backswing, within 0.45 s before
+contact), and `melee_grip` (handle axis from the left to the right hand in
+the idle, in right-hand space).
+
+- The tree chain is `pistol_mix → melee_full → melee_upper → strike_full →
+  strike_upper → out`. "full" blends every bone (never the armature root, so
+  the body can't drift off the capsule); "upper" blends spine, neck, head,
+  arms and hands. Standing still uses full, moving uses upper, so the legs
+  keep walking.
+- **Hold:** bat/crowbar/pipe/hatchet play `melee_idle`. The knife has no
+  suitable clip and keeps the weapons session's placeholder wobble (no
+  `grip_anchor`).
+- **Strikes** on `WeaponItem.attack_started(kind, variant)`: melee variant 0
+  → `melee_swing`, variant 1 → `melee_swing_alt`; `pistol_whip` →
+  `pistol_whip`. Each starts at `windup_time` and plays at
+  `(contact - windup) / strike_delay` (clamped 0.7–2.2×), so the authored
+  contact frame lands exactly when `WeaponItem` resolves the hit. Natural
+  windup-to-contact is 0.43 s (swing), 0.39 s (alt), 0.22 s (whip).
+  `strike_delay`: bat 0.43 (1.0×), crowbar/hatchet 0.36, pipe 0.32, Webley
+  whip 0.18 (1.2×; `WeaponsSmoke` expects the whip hit within 12 ticks).
+- **Shots:** `revolver` plays `pistol_shoot` around its measured recoil kick
+  (0.08 s before to 0.3 s after), upper body only, so the legs never flick
+  between stances at the fire rate.
+- **Grip:** melee weapons anchor to the right palm with `melee_grip`; the
+  Webley keeps its pistol grip.
 
 ### Procedural pose (`AdventurerProceduralPose`, a SkeletonModifier3D)
 

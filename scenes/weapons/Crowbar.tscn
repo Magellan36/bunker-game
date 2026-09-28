@@ -8,4 +8,4 @@ weapon_kind = "crowbar"
 damage = 26.0
 attack_interval = 0.6
 reach = 1.6
-strike_delay = 0.16
+strike_delay = 0.36

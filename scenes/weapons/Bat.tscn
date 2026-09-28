@@ -9,4 +9,4 @@ damage = 30.0
 attack_interval = 0.75
 reach = 1.8
 melee_half_angle = 60.0
-strike_delay = 0.22
+strike_delay = 0.43
