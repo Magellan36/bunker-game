@@ -3,6 +3,15 @@
 **Read this before opening `Player.gd`, `PlayerStats.gd`, or `InteractionSystem.gd`.**
 Only open the actual source for the specific function you're changing.
 
+## September 2026: overdrive
+`PlayerExertion.gd` now tracks independent arm/leg exposure while Player owns
+stamina. Zero stamina allows continued sprint/heavy carrying at reduced speed;
+there is no automatic stamina drop or sprint lockout. `exertion_updated` feeds
+probabilistic Medical accidents, while `exhausted` is a warning-only edge event.
+Medical-owned `ExertionFeedback.gd` adds a noninteractive vignette and text below
+the HUD. Ordinary movement locks suspend exposure; genuine chair/bed rest
+recovers it. See [medical gameplay consequences](../medical/GAMEPLAY_CONSEQUENCES.md).
+
 ## Purpose
 Owns the player character's movement/stamina, survival needs + game clock, and
 all pickup/drop/store/scroll interaction logic. These three scripts are
@@ -132,9 +141,9 @@ itself. **Survival needs now saved (Save/Load overhaul):**
 `player_survival` field — food/water/sleep/health plus the Medical-derived
 needs caps (caps are re-derived from saved conditions by `PlayerMedical`
 right after, since medical conditions are saved too). Player inventory (the 4
-slots) is saved via `InventoryManager`'s `player_inventory` field. **Not
-persisted:** stamina (fast-regen combat resource), the transient `sleeping`
-flag. Loose world items outside inventory/storage are saved separately via
+slots) is saved via `InventoryManager`'s `player_inventory` field. **Also persisted:** stamina and per-limb exertion/cooldown in the optional
+`player_survival.exertion` dictionary. Legacy saves default to rested. The
+transient `sleeping` flag is not persisted. Loose world items outside inventory/storage are saved separately via
 `world_items`.
 
 ## Call graph (brief)
@@ -207,9 +216,9 @@ PlayerStats._process() → _tick_needs() → food/water/sleep drain, starvation 
   rather than fighting each other, and heavy-carry drain alone (12.0)
   deliberately exceeds `stamina_regen` (8.0) so standing still while
   holding something heavy still nets a drain instead of idling. Hitting 0
-  from ANY drain source now locks sprint via the existing `_sprint_locked`
-  gate and fires `exhausted` (previously sprint-only), consistent with
-  "out of stamina blocks sprinting" regardless of why it hit 0.
+  now enters overdrive and fires the warning-only `exhausted` signal.
+  Continued exertion accumulates independent limb exposure; it does not
+  lock sprint or drop the held item (September 2026 replacement).
   Wires up `PlayerMedical.get_medical_carry_stamina_drain_multiplier()`,
   which existed and was already documented as correct-but-unwired ("no
   base heavy-carry-drain mechanic exists yet for it to multiply") — no
@@ -717,9 +726,10 @@ own held item while CASE 1 scans for a different target — guarded with
   one game clock; don't create a second timer elsewhere.
 
 ## Known tradeoffs / tech debt
-- No automated tests.
-- Survival stats and inventory are saved (see Persistence above); stamina
-  and loose world items are not.
+- Movement/medical integration tests: `tools/tests/run_medical.py` (isolated
+  neighbors; not a full-bunker playtest).
+- Survival stats, stamina/exertion, inventory and loose world items are saved
+  through their respective existing SaveManager fields (see Persistence).
 - `InteractionSystem.gd` is a single ~1,245-line file covering pickup,
   drop, store, scroll, prompt-building, AND the NPC Give/Takeaway/Snatch
   transfer path — see the Player subsystem's cleanup assessment plan

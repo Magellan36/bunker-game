@@ -1,0 +1,4 @@
+class_name PickupableItem
+extends RigidBody3D
+static func shove_small_items_near(_node: Node3D, _cooldowns: Dictionary) -> void:
+	pass

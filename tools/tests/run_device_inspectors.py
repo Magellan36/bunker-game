@@ -38,6 +38,9 @@ def main() -> int:
             target = stage / source.relative_to(ROOT)
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
+        risk_path = Path("scripts/player/medical/MedicalRiskRules.gd")
+        (stage / risk_path).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / risk_path, stage / risk_path)
         shutil.copytree(ROOT / "assets/fonts", stage / "assets/fonts", dirs_exist_ok=True)
         core = stage / "scripts/core"
         core.mkdir(parents=True)

@@ -4,3 +4,5 @@ const ELECTRICAL_BURN_LOW_HEALTH_THRESHOLD: float = 50.0
 var burns: Array[String] = []
 func roll_electrical_burn(state: String, _generator_health: float = 100.0) -> void:
 	burns.append(state)
+func roll_device_electrical_burn(_generator: bool, tripped: bool, _health: float = 100.0) -> void:
+	burns.append("TRIPPED" if tripped else "LOCAL_DAMAGE")

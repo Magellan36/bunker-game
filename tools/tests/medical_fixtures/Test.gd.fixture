@@ -1,0 +1,280 @@
+extends Node
+const Exertion = preload("res://scripts/player/PlayerExertion.gd")
+const Rules = preload("res://scripts/player/medical/MedicalRiskRules.gd")
+
+class InteractionProbe extends Node3D:
+	var held_item: RigidBody3D
+	var build_mode_active: bool = false
+	var _held_from_slot: int = -1
+	var drops: int = 0
+	func drop_in_place() -> void:
+		drops += 1
+		held_item = null
+
+class HeavyProbe extends RigidBody3D:
+	func is_heavy_item() -> bool:
+		return true
+
+var checks: int = 0
+var failures: int = 0
+var player: Player
+var stats: PlayerStats
+var medical: PlayerMedical
+var interactions: InteractionProbe
+
+func check(ok: bool, message: String) -> void:
+	checks += 1
+	if not ok:
+		failures += 1
+		printerr("FAIL: " + message)
+
+func near(a: float, b: float, message: String) -> void:
+	check(absf(a - b) < 0.0001, message + " (%f vs %f)" % [a, b])
+
+func _ready() -> void:
+	_run.call_deferred()
+
+func _run() -> void:
+	_test_exposure()
+	_setup_player()
+	_test_gameplay()
+	_test_medical()
+	_test_save_load()
+	_test_electrical()
+	print("Medical/exertion: %d checks, %d failures" % [checks, failures])
+	var args: PackedStringArray = OS.get_cmdline_user_args()
+	if args.size() == 2 and args[0] == "--screenshot":
+		await _capture_feedback(args[1])
+	get_tree().quit(1 if failures else 0)
+
+func _test_exposure() -> void:
+	var state := Exertion.new()
+	var stamina: float = state.advance(1.0, 18.0, true, false, 18.0, 8.0, 20.0)
+	near(stamina, 0.0, "stamina reaches zero")
+	check(state.exhausted and state.just_exhausted and state.legs_active, "zero begins overdrive")
+	near(state.leg_dose, 0.0, "no injury on crossing zero")
+	state.advance(2.0, 0.0, true, false, 18.0, 8.0, 20.0)
+	near(state.leg_dose, 0.0, "two-second grace")
+	state.advance(5.0, 0.0, true, true, 30.0, 8.0, 20.0)
+	check(state.leg_dose > 0.0 and state.arm_dose > 0.0, "both activities expose their own limbs")
+	state.advance(1.0, 0.0, false, true, 12.0, 8.0, 20.0)
+	near(state.leg_dose, 0.0, "stop sprinting stops leg risk")
+	check(state.arm_dose > 0.0 and state.arms_active, "holding load keeps arm risk")
+	var before: float = state.arm_seconds
+	state.advance(0.1, 0.0, false, false, 0.0, 8.0, 20.0)
+	check(state.arm_seconds > before - 1.0, "brief interruption retains strain")
+	state.advance(20.0, 0.8, false, false, 0.0, 8.0, 20.0)
+	check(not state.exhausted and state.arm_seconds == 0.0 and state.leg_seconds == 0.0, "rest fully recovers")
+	var coarse: float = _integrated_dose(1.0)
+	near(coarse, _integrated_dose(1.0 / 30.0), "30 FPS dose invariance")
+	near(coarse, _integrated_dose(1.0 / 144.0), "144 FPS dose invariance")
+	state.advance(40.0, 0.0, true, false, 18.0, 8.0, 20.0)
+	state.note_accident()
+	state.advance(12.0, 0.0, true, false, 18.0, 8.0, 20.0)
+	near(state.leg_dose, 0.0, "accident cooldown prevents immediate pile-on")
+	state.advance(0.5, 0.0, true, false, 18.0, 8.0, 20.0)
+	check(state.leg_dose > 0.0, "continuing eventually exposes limb again")
+	check(state.movement_multiplier(true) * 7.5 > 4.0, "exhausted running retains value over walking")
+	check(state.movement_multiplier(true) < 1.0, "overdrive slows movement")
+
+func _integrated_dose(step: float) -> float:
+	var state := Exertion.new()
+	var dose: float = 0.0
+	var elapsed: float = 0.0
+	var stamina: float = 100.0
+	while elapsed < 40.0 - 0.00001:
+		var dt: float = minf(step, 40.0 - elapsed)
+		stamina = state.advance(dt, stamina, true, false, 18.0, 8.0, 20.0)
+		dose += state.leg_dose
+		elapsed += dt
+	return dose
+
+func _setup_player() -> void:
+	for action: String in ["move_left", "move_right", "move_up", "move_down", "aim_left", "aim_right", "aim_up", "aim_down", "sprint", "interact"]:
+		InputMap.add_action(action)
+	stats = PlayerStats.new()
+	add_child(stats)
+	stats.set_process(false)
+	player = Player.new()
+	var collision := CollisionShape3D.new()
+	collision.name = "CollisionShape3D"
+	collision.shape = CapsuleShape3D.new()
+	player.add_child(collision)
+	var area := Area3D.new()
+	area.name = "InteractionArea"
+	player.add_child(area)
+	interactions = InteractionProbe.new()
+	interactions.name = "InteractionSystem"
+	player.add_child(interactions)
+	add_child(player)
+	player.set_physics_process(false)
+	medical = PlayerMedical.new()
+	add_child(medical)
+	medical.set_process(false)
+	medical.risk_rng.seed = 147
+
+func _test_gameplay() -> void:
+	var heavy := HeavyProbe.new()
+	add_child(heavy)
+	heavy.freeze = true
+	interactions.held_item = heavy
+	player.stamina = 0.0
+	Input.action_press("move_right")
+	Input.action_press("sprint")
+	player._handle_movement(1.0 / 60.0)
+	check(player._is_sprinting, "keyboard sprint continues at zero")
+	check(interactions.held_item == heavy and interactions.drops == 0, "heavy object is not automatically dropped")
+	check(medical.active_conditions.is_empty(), "no guaranteed injury at zero")
+	Input.action_release("sprint")
+	player._sprint_toggle = true
+	player._handle_movement(1.0 / 60.0)
+	check(player._is_sprinting and player._sprint_toggle, "controller latch survives exhaustion")
+	Input.action_release("move_right")
+	player._handle_movement(1.0 / 60.0)
+	check(not player._sprint_toggle and not player.exertion.legs_active, "stopping movement cancels sprint")
+	check(player.exertion.arms_active, "standing with a load still exerts arms")
+	interactions.held_item = null
+	player._update_exertion(3.0, false, false)
+	check(player.stamina >= 20.0 and not player.exertion.exhausted, "putting down load allows recovery")
+	heavy.free()
+	player.exertion.advance(10.0, 0.0, true, false, 18.0, 8.0, 20.0)
+	player.stamina = 0.0
+	player.set_movement_locked(true)
+	var strain_before: float = player.exertion.leg_seconds
+	player._physics_process(1.0)
+	near(player.stamina, 0.0, "modal cannot refill stamina while carrying")
+	near(player.exertion.leg_seconds, strain_before, "modal cannot erase accumulated strain")
+	check(not player.exertion.legs_active and player.exertion.leg_dose == 0.0, "modal suspends hidden accidents")
+	player.set_movement_locked(false)
+	var chair := Node3D.new()
+	add_child(chair)
+	player.seated_chair = chair
+	player._process(3.0)
+	check(player.stamina >= 20.0, "seated rest recovers despite disabled physics")
+	player.seated_chair = null
+	chair.free()
+	# Full callback chooses only one limb, even under simultaneous exposure.
+	player.exertion.leg_dose = 10000.0
+	player.exertion.arm_dose = 10000.0
+	medical._on_exertion_updated()
+	check(medical.active_conditions.size() == 1, "one combined mishap, not four independent limb injuries")
+	check(player.exertion.accident_cooldown > 0.0, "real medical callback sets accident protection")
+	var feedback: Node = get_tree().get_first_node_in_group("exertion_feedback")
+	feedback._process(0.1)
+	check(feedback._label.text.contains("—"), "accident produces readable feedback")
+	check(feedback._shade.mouse_filter == Control.MOUSE_FILTER_IGNORE, "feedback never blocks input")
+	medical.debug_clear_all()
+	var wound := MedicalCondition.new()
+	wound.id = "open_wound"
+	wound.body_part = MedicalCondition.BodyPart.TORSO
+	medical.add_condition(wound)
+	var infected := MedicalCondition.new()
+	infected.id = "open_wound"
+	infected.body_part = MedicalCondition.BodyPart.TORSO
+	infected.is_infected = true
+	infected.infection_severity = 70.0
+	medical.add_condition(infected)
+	check(medical.active_conditions.size() == 1 and wound.is_infected and wound.infection_severity == 70.0, "duplicate legacy wounds retain worst infection")
+	medical.debug_clear_all()
+
+func _test_medical() -> void:
+	var part: int = MedicalCondition.BodyPart.LEFT_ARM
+	medical.spawn_strain(part)
+	var strain: MedicalCondition = medical.get_condition_by_id_and_part("strain", part)
+	near(strain.speed_mult, 1.0, "arm strain does not slow walking")
+	check(strain.stamina_drain_mult_carry > 1.0 and strain.work_speed_mult < 1.0, "arm strain affects carrying and work")
+	medical.catch_up(18.0)
+	check(medical.active_conditions.is_empty(), "strain resolves with ordinary light-duty recovery")
+	medical.spawn_fractured(part)
+	var fracture: MedicalCondition = medical.get_condition_by_id_and_part("fractured", part)
+	fracture.heal_progress = 10.0
+	var severity: float = fracture.severity
+	medical.apply_exertion_accident(part, 20.0)
+	check(fracture.severity > severity and fracture.heal_progress < 10.0, "accident worsens existing fracture and sets back healing")
+	check(medical.active_conditions.size() == 1, "reinjury does not duplicate the same fracture")
+	check(medical.get_status_detail_text(fracture).contains("Heavy load slipped"), "status explains injury cause")
+	medical.apply_splint(part)
+	fracture.severity = 99.0
+	medical.apply_exertion_accident(part, 20.0)
+	var broken: MedicalCondition = medical.get_condition_by_id_and_part("broken", part)
+	check(broken != null and not broken.is_treated, "fracture converts to broken and loses old splint")
+	check(medical.active_conditions.size() == 1, "conversion replaces fracture")
+	medical.treat_all_bleeding_and_fractures()
+	check(broken.is_treated, "trauma kit now treats broken limbs")
+	broken.heal_progress = 40.0
+	medical.apply_exertion_accident(part, 30.0)
+	check(broken.heal_progress < 40.0 and medical.active_conditions.size() == 1, "broken reinjury sets back recovery without duplicates")
+	medical.spawn_burn(part, "electrical")
+	medical.spawn_burn(part, "electrical")
+	check(medical.active_conditions.size() == 2, "repeat burn merges into existing limb burn")
+	medical.debug_clear_all()
+	for limb: int in [MedicalCondition.BodyPart.LEFT_LEG, MedicalCondition.BodyPart.RIGHT_LEG, MedicalCondition.BodyPart.LEFT_ARM, MedicalCondition.BodyPart.RIGHT_ARM]:
+		medical.spawn_fractured(limb)
+	medical.debug_force_break_all_fractures()
+	medical._tick_all_conditions(0.0)
+	check(medical.get_medical_speed_multiplier() >= 0.35, "multiple leg injuries retain usable movement")
+	check(medical.get_medical_job_speed_multiplier() >= 0.35, "multiple arm injuries retain usable work")
+	check(medical.get_medical_sprint_stamina_drain_multiplier() <= 5.0, "sprint drain is bounded")
+	check(medical.get_medical_carry_stamina_drain_multiplier() <= 5.0, "carry drain is bounded")
+	medical.debug_clear_all()
+	# Seeded samples exercise all outcomes while protecting against an accidental
+	# always-fracture implementation. This checks distribution, not an exact RNG sequence.
+	var outcomes: Dictionary = {"strain": 0, "fractured": 0, "broken": 0}
+	for i: int in range(300):
+		medical.apply_exertion_accident(part, 30.0)
+		outcomes[medical.active_conditions[0].id] += 1
+		medical.debug_clear_all()
+	check(outcomes.strain > 150 and outcomes.fractured > 30 and outcomes.broken > 0 and outcomes.broken < 40, "minor outcomes common, severe outcomes rare: " + str(outcomes))
+
+func _test_save_load() -> void:
+	player.stamina = 0.0
+	player.exertion.advance(20.0, 0.0, true, true, 30.0, 8.0, 20.0)
+	player.exertion.note_accident()
+	var data: Dictionary = stats.get_survival_save_data()
+	player.restore_exertion_save_data({})
+	stats.apply_survival_save_data(data)
+	near(player.stamina, 0.0, "save preserves empty stamina")
+	near(player.exertion.arm_seconds, 20.0, "save preserves arm exposure")
+	check(player.exertion.exhausted and player.exertion.accident_cooldown > 0.0, "save preserves exhaustion and accident cooldown")
+	medical.apply_exertion_accident(MedicalCondition.BodyPart.RIGHT_LEG, 20.0)
+	var conditions: Array = medical.get_conditions_save_data()
+	medical.restore_conditions_save_data(conditions)
+	check(medical.active_conditions.size() == 1 and medical.active_conditions[0].incident_description.contains("Bad step"), "condition provenance round-trips")
+	stats.apply_survival_save_data({})
+	near(player.stamina, 100.0, "legacy saves default to rested")
+	check(not player.exertion.exhausted, "legacy saves do not inherit previous session exhaustion")
+	medical.debug_clear_all()
+
+func _test_electrical() -> void:
+	near(Rules.electrical_chance(false, false), 0.0, "healthy breaker is safe")
+	near(Rules.electrical_chance(true, false, 100.0), 0.0, "healthy generator is safe")
+	check(Rules.electrical_chance(true, true) > Rules.electrical_chance(false, true), "generator inherently riskier than breaker")
+	check(Rules.electrical_chance(true, true, 10.0) > Rules.electrical_chance(true, true, 100.0), "damage increases restart risk")
+	check(Rules.electrical_warning(true, true).contains("8%"), "warning matches actual probability")
+	near(Rules.accident_probability(0.0, 0.0), 0.0, "no exposure means no accident")
+	check(Rules.accident_probability(1.0, 0.0) < Rules.accident_probability(20.0, 0.0), "prolonged exposure raises cumulative risk")
+
+func _capture_feedback(path: String) -> void:
+	var backdrop := CanvasLayer.new()
+	backdrop.layer = 0
+	add_child(backdrop)
+	move_child(backdrop, 0)
+	var background := ColorRect.new()
+	background.color = Color(0.18, 0.22, 0.20)
+	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	backdrop.add_child(background)
+	var caption := Label.new()
+	caption.text = "EXERTION FEEDBACK PREVIEW — isolated simulation fixture"
+	caption.position = Vector2(24, 660)
+	backdrop.add_child(caption)
+	player.exertion.advance(30.0, 0.0, true, true, 30.0, 8.0, 20.0)
+	player.stamina = 0.0
+	var feedback: Node = get_tree().get_first_node_in_group("exertion_feedback")
+	feedback.show_accident("Heavy load slipped — Strain (Left Arm)")
+	for i: int in range(90):
+		feedback._process(1.0 / 60.0)
+	await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	var capture: Image = get_viewport().get_texture().get_image()
+	capture.save_png(path)
+	print("Feedback preview: " + path)

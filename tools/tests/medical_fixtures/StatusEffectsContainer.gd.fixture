@@ -1,0 +1,10 @@
+class_name StatusEffectsContainer
+extends Control
+func add_medical_effect(_id: String, _texture: Texture2D, _color: Color, _heal: bool) -> void:
+	pass
+func update_medical_effect(_id: String, _severity: float, _heal: float, _tooltip: String) -> void:
+	pass
+func update_medical_outer_ring(_id: String, _active: bool, _severity: float, _color: Color) -> void:
+	pass
+func remove_effect(_id: String) -> void:
+	pass

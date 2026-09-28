@@ -385,7 +385,10 @@ func _power_owners() -> void:
 		check(player.interaction_system.completion.is_valid(), "restart completion bound")
 		pm.state = "ONLINE"
 		player.interaction_system.completion.call()
-		check(pm.breaker_resets == before + 1 and medical.burns.back() == "TRIPPED", "completion uses original hazard state")
+		check(pm.breaker_resets == before + 1 and medical.burns.back() == "TRIPPED", "completion uses local trip despite global ONLINE state")
+		var rolls: int = medical.burns.size()
+		player.interaction_system.completion.call()
+		check(pm.breaker_resets == before + 1 and medical.burns.size() == rolls, "stale reset completion cannot reroll injury")
 		check(not breaker._pass_battery, "restart does not reenable sharing")
 		breaker.on_interact()
 		check(not ui._restart.visible and not ui._battery.disabled, "post-reset controls available")

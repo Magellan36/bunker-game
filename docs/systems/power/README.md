@@ -20,6 +20,18 @@ wires, and every powered device (lights, appliances, terminals). Decides who
 has power, who gets shed under overload, and drives the visual/UX state of
 every electrical device in the game.
 
+## Medical hazards — September 2026
+Physical breaker resets and generator restart actions use `MedicalRiskRules`
+with the device's local trip/condition facts. A tripped breaker has a 4% arm
+burn risk; a tripped generator has 8%, plus up to 8 percentage points for
+condition below 50%. Healthy untripped starts are safe. Global ONLINE/OFFLINE
+state no longer determines electrical burn odds. World interaction prompts
+show the same computed risk before opening the inspector. Timed breaker jobs
+revalidate the local trip at completion; duplicate/stale completions cannot
+reroll. Generator stop/already-running requests do not roll.
+This first pass does not model live conductors, isolation procedures, or
+repeated-fault escalation. Solver policy is unchanged.
+
 ## Wiring polish — September 2026
 
 This pass changes connection geometry, placement and build-mode wire presentation.

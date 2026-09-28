@@ -664,7 +664,13 @@ func get_interact_prompt() -> String:
 		state_str = "Backup — Standby" if not _is_running else "Backup — Active"
 	else:
 		state_str = "Running" if _is_running else "Stopped"
-	return "[E] %s  %d%% fuel  [%s]" % [_get_display_name(), fuel_pct, state_str]
+	var prompt: String = "[E] %s  %d%% fuel  [%s]" % [_get_display_name(), fuel_pct, state_str]
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if not _is_running and pm != null:
+		var warning: String = preload("res://scripts/player/medical/MedicalRiskRules.gd").electrical_warning(true, _grid_tripped, pm.get_generator_health(_pm_id))
+		if not warning.is_empty():
+			prompt += "\n" + warning
+	return prompt
 
 func _get_display_name() -> String:
 	var base: String = TIER_CONFIG[generator_tier].get("label", "Generator")
@@ -727,7 +733,7 @@ func _on_power_toggled(desired_running: bool) -> void:
 	## either value, so the chance reflects the hazard the player was
 	## actually reaching into.
 	var was_grid_tripped: bool = _grid_tripped
-	var grid_state_before: String = pm.get_grid_state_string()
+	var was_running: bool = pm.get_generator_running(_pm_id)
 	var health_before: float = pm.get_generator_health(_pm_id)
 
 	## When the grid is TRIPPED and the player wants to start this generator,
@@ -744,11 +750,11 @@ func _on_power_toggled(desired_running: bool) -> void:
 	## Only a genuine "restart something hazardous" moment rolls the chance —
 	## starting an already-fine, ungrid-tripped, full-health generator (the
 	## ordinary case) never does. Matches BreakerBox._finish_restart()'s
-	## exact shape (grid-state-scaled chance + a low-health bonus).
-	if desired_running and (was_grid_tripped or health_before < PlayerMedical.ELECTRICAL_BURN_LOW_HEALTH_THRESHOLD):
+	## local trip/condition policy in MedicalRiskRules.
+	if desired_running and not was_running and (was_grid_tripped or _is_running):
 		var player_medical: PlayerMedical = get_tree().get_first_node_in_group("player_medical") as PlayerMedical
 		if player_medical != null:
-			player_medical.roll_electrical_burn(grid_state_before, health_before)
+			player_medical.roll_device_electrical_burn(true, was_grid_tripped, health_before)
 
 	_sync_indicator()
 	_sync_socket()

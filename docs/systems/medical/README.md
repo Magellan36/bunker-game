@@ -1,27 +1,20 @@
 # Medical System
 
-**Status: Pass 0-2(+) implemented, player-only.**
-`scripts/player/medical/MedicalCondition.gd` and `PlayerMedical.gd` exist
-and are wired into the game: Open Wound, Bleeding, Infection, Fractured,
-Broken, Burns, the full HUD (live rings, Healed overlay, Infection's
-outer ring, the dedicated vertical `MedicalEffects` stack, and the
-greyed-out need-cap rendering on `NeedsGauge`), F7 debug tooling,
-needs-cap reduction end-to-end, and time-skip/sleep integration
-(`PlayerMedical.catch_up()`/`apply_rest_bonus()`, wired into both the
-admin fast-forward cheat and real `SleepOverlay` sleep). Chronic
-conditions, real triggers for gameplay-caused injuries (everything is
-currently F7-spawned only), the deep-dive status screen, and the NPC-side
-port are not yet built. **All four Medical items are implemented, Aug
-2026** (`scripts/world/items/Bandage.gd`/`Antibiotics.gd`/`Splint.gd`/
-`TraumaKit.gd`, placeholder procedural-sphere visuals) — see "Item roles
-and mechanics" below. See
-`plans/medical-system-implementation-plan.md`
-for the pass breakdown. This doc remains the design source of truth; read
-it in full before touching the code. This doc went through several rounds
-of real revision during design (see git history if curious) — treat
-everything here as the current best understanding, not as untouchable
-law. If a future idea genuinely conflicts with something below, that's a
-reason to revisit this doc, not a reason to force-fit the idea.
+**Status: gameplay consequences first pass implemented (September 2026).**
+Player injuries now result from sustained sprint/heavy-carry overdrive and
+hazardous electrical restarts; cooking burns were already connected. The
+player has strains, wounds/bleeding/infection, fractures, broken bones and
+burns, with treatment, symptoms, status-screen inspection and persistence.
+NPCMedical also exists, but autonomous hazard exposure and shared simulation
+consolidation remain future work.
+
+Read [Gameplay consequences](GAMEPLAY_CONSEQUENCES.md) for the current
+exertion state machine, probabilities, safeguards, save contract, tests and
+remaining roadmap. It supersedes historical zero-stamina lockout,
+deterministic fracture-trigger and global-grid burn-risk descriptions below.
+The existing status screen already supports condition details and treatment.
+All four medical items are implemented. Historical implementation notes below
+remain useful for the established wound/infection/treatment model.
 
 ## Purpose
 Models physical injury and illness for both the player and NPCs — open
@@ -373,24 +366,18 @@ water, and sleep. At 100% infection severity, need caps are reduced so
 severely that survival without treatment becomes close to impossible.
 
 ### Broken bones / fractures
-- **Fractured** (the initial state) triggers deterministically (e.g.
-  sustained 0-stamina over-exertion, or a real physical event). Starting
+- **Fractured** can result from a probabilistic overdrive accident (or a
+  future physical injury event). Simply reaching zero stamina is safe. Starting
   severity is randomized within a low-to-moderate range (roughly 15–25%),
   with a correspondingly minor initial speed penalty. Severity is
   **one-directional** here — it only rises, never falls; recovery is
   entirely the Healed ring's job (see "Healing (the Healed ring)" above).
-- **Escalation:** further sustained over-exertion while already Fractured
-  is a deterministic trigger for a severity increase — the *size* of each
-  increase is randomized within a bounded range (roughly 10–25% per
-  event), repeating on each qualifying event until severity reaches 100%.
-  Each escalation also sets back the Healed ring and extends its target
-  time (see above). **Body-part-causal (Aug 2026):** the trigger is
-  0-stamina exhaustion, but WHICH limb escalates depends on what actually
-  caused the exhaustion — sprinting to empty stamina escalates a leg
-  Fracture, carrying a Heavy item to empty stamina escalates an arm
-  Fracture (both can fire in the same episode if both were happening at
-  once). See `Player.gd`'s `exhausted` signal and
-  `PlayerMedical._on_player_exhausted()`.
+- **Escalation:** an overdrive accident affecting an already-fractured limb
+  increases severity by 10–25%, reduces its healing progress and extends its
+  target healing time. The accident is probabilistic; the severity increase
+  follows only when one actually happens. Sprint accidents affect one leg;
+  carrying accidents affect one arm. Combined exertion selects one affected
+  limb and has a shared 12-second accident cooldown. See the gameplay guide.
 - **At 100%, Fractured converts into Broken** — a distinct, worse
   condition, pinned at 100% severity, with its own (more detrimental)
   symptoms. Broken also gets its own Healed ring per the general
@@ -533,9 +520,9 @@ drain the sprint drain contributes to). `get_medical_carry_stamina_drain_
 multiplier()` is wired into that real drain line, so an Arm Fracture/
 Broken/Burn or Infection now visibly drains stamina faster while carrying
 something heavy, the same way `get_medical_sprint_stamina_drain_
-multiplier()` already did for sprinting. Carrying to empty stamina is also
-now the deterministic arm-side trigger for Fracture escalation — see
-"Broken bones / fractures" above.
+multiplier()` already did for sprinting. Continuing beyond empty stamina accumulates arm exposure and can cause a
+strain, fracture, break, or setback to an existing injury. The load is no
+longer automatically dropped; see the gameplay guide.
 
 ### Tooltip presentation
 Every condition's hover tooltip (`PlayerMedical._tooltip_for()`, via the
@@ -639,7 +626,7 @@ all** — see its own entry below and the Item roles table:
   fractures" above for the resolved open question).
 - **Trauma Kit** — **redesigned Aug 2026, does not open this submenu.**
   Pressing E immediately bandages every currently-Bleeding wound and
-  splints every currently-Fractured limb, all at once, then destroys
+  splints every currently-Fractured or Broken limb, all at once, then destroys
   itself — no target selection at all. This is a deliberate, open-ended
   baseline: the game hasn't touched more serious injury/illness content
   yet (gunshots, chronic diseases, etc.) that would give Trauma Kit a
@@ -729,7 +716,7 @@ constraint fixed here.
 | **Bandage** | Stops the Bleeding status effect outright on the treated body part. That's its entire job — no effect on infection risk, no effect on a wound's Healed-ring rate directly (though stopping Bleeding removes one of the two things that dampen it). Use-prompt reads `"[E] Bandage"` (corrected Aug 2026 from "Treat Bleeding" — shorter, matches the item's own name like every other item's use-prompt convention). |
 | **Antibiotics** | Dual role: applied to a plain Open Wound, **prevents/reduces** infection risk. Applied after infection has taken hold, **cures** it — flips Infection Severity from rising to falling (and removes the other Healed-ring dampener once cured). |
 | **Splint** | Treats Fractured or Broken (Aug 2026 — previously Fracture-only). Not required for healing to occur at all (natural healing always happens — see "Healing"), but dramatically hastens the Healed ring and reduces symptom penalties while worn. Destroyed if a splinted Fracture reaches 100% and converts to Broken — the new Broken always needs a fresh splint of its own. **Single-charge (see "Charges")** — destroyed on its one use regardless. |
-| **Trauma Kit** | **Redesigned Aug 2026** — no target selection, no submenu. E immediately bandages EVERY currently-Bleeding wound and splints EVERY currently-Fractured limb at once, then the item is destroyed regardless of whether anything was actually eligible. Deliberately open-ended baseline pending later, more serious injury/illness content (gunshots, chronic diseases, etc.) this game hasn't built yet — expect this to be tweaked/expanded once that content exists. **Single-charge (see "Charges")** — destroyed on its one use regardless. |
+| **Trauma Kit** | **Redesigned Aug 2026** — no target selection, no submenu. E immediately bandages EVERY currently-Bleeding wound and splints EVERY currently-Fractured or Broken limb at once, then the item is destroyed regardless of whether anything was actually eligible. Deliberately open-ended baseline pending later, more serious injury/illness content (gunshots, chronic diseases, etc.) this game hasn't built yet — expect this to be tweaked/expanded once that content exists. **Single-charge (see "Charges")** — destroyed on its one use regardless. |
 
 ### Research Station chute yields
 Most items in the game can be fed into the Research Station's chute (F,
@@ -771,7 +758,7 @@ new, strictly more expressive contract instead of replacing the old one:
 
 ## Data model (sketch)
 
-Not yet implemented — the intended shape, generalizing the pattern
+Implemented; this historical sketch describes the intended shape, generalizing the pattern
 `NPC.gd` already proved out for needs (`get_status_speed_multiplier()`,
 `get_status_labels()`), extended to also run on the player and to be
 body-part-aware.
@@ -1017,14 +1004,10 @@ this system, not just floated ideas:
   `_draw_right_half()` as distinct warm-red "locked off" zones at both
   ends of the affected arc. The unavailable span is split evenly so caps
   visibly close toward the center without changing normal depletion direction.
-- **Exertion-threshold definition:** ~~what counts as "resting" vs.
-  "exertion"~~ **Resolved/implemented** — reuses `Player.gd`'s existing
-  0-stamina exhaustion lockout, exposed as an `exhausted` signal fired
-  once per exertion episode (the edge trigger Fracture escalation needs).
-  **Extended Aug 2026:** the signal now reports which drain source(s)
-  caused it (sprinting vs. carrying a Heavy item), so escalation is
-  body-part-causal — legs from sprint-exhaustion, arms from
-  carry-exhaustion — rather than always assuming legs.
+- **Exertion threshold:** zero stamina now enters overdrive instead of
+  locking sprint/dropping the held item. Injury risk starts only after a
+  two-second per-limb grace period. `exertion_updated` carries the notification
+  to Medical; the old `exhausted` signal remains warning-only compatibility.
 - **Exact numbers everywhere:** starting severities, escalation steps,
   the infection probability curve, heal-time baselines/scaling, the
   needs-cap curve, HP drain rates, Healed-ring dampening/hastening
@@ -1055,10 +1038,9 @@ saved separately via `player_survival` (see `docs/systems/player/README.md`).
 - Real, non-placeholder models/icons for all four Medical items —
   currently procedural-sphere placeholders per Brannon's explicit call;
   the full logic/wiring is implemented (see "Item roles and mechanics").
-- Real triggers for Burns — cooking and hazardous breaker/generator reset
-  are not yet wired to `Stove`/`CookingPot`/`PowerManager`; Burns are
-  currently F7-spawned only, same as every other condition's Pass 1/2
-  scope. Flag to whoever owns those interaction handlers before wiring.
+- Additional hazards and treatment polish: waterborne illness, heat-aware
+  cooking, hazardous salvage, wound care and burn treatment are tracked in
+  the gameplay guide. Cooking/electrical burn triggers already exist.
 - Scarring / permanent injury outcomes (would need its own evaluation
   against Pillar 10 before being added — not assumed here).
 - Any UI/UX visual design pass for the deep-dive status screen beyond "it

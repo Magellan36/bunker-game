@@ -10,7 +10,7 @@ class_name TraumaKit
 ## content exists rather than over-designing this now.
 ##
 ## Behavior: pressing E immediately bandages EVERY currently-Bleeding
-## wound and splints EVERY currently-Fractured limb, all at once — NO
+## wound and splints EVERY currently-Fractured or Broken limb, all at once — NO
 ## target selection, unlike Bandage/Antibiotics/Splint. This is the one
 ## Medical item that does NOT open the injury-selection submenu at all;
 ## see PlayerMedical.treat_all_bleeding_and_fractures(). Single-charge,

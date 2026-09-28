@@ -1,0 +1,4 @@
+class_name ControllerUINavigation
+extends RefCounted
+static func owns_directional_input(_tree: SceneTree) -> bool:
+	return false

@@ -16,6 +16,9 @@ class_name PlayerMedical
 ## get_tree().get_first_node_in_group("player_medical") without a direct
 ## scene reference, matching PlayerStats/PowerManager's existing convention.
 
+const RiskRules = preload("res://scripts/player/medical/MedicalRiskRules.gd")
+var risk_rng := RandomNumberGenerator.new()
+
 signal condition_added(condition: MedicalCondition)
 signal condition_removed(condition: MedicalCondition)
 signal condition_changed(condition: MedicalCondition)
@@ -108,10 +111,7 @@ const BROKEN_SPLINT_PENALTY_RELIEF: float = 0.5   ## matches FRACTURE_SPLINT_PEN
 ## Pinned-severity, no escalation, no infection track — the simplest
 ## wound-tier condition. Both flavors (electrical, cooking) share this
 ## exact same model per the design doc; only their trigger source differs,
-## and neither trigger is wired to real gameplay yet (same as Open Wound
-## in Pass 1 — this pass is condition logic + HUD, F7-spawned only; real
-## cooking/breaker-reset triggers are a later, cross-system task per
-## docs/systems/medical/README.md's "Burns (electrical and cooking)").
+## real triggers are plating hot dishes and hazardous electrical restarts.
 const BURN_HEAL_TIME_MIN_HOURS: float = 24.0
 const BURN_HEAL_TIME_MAX_HOURS: float = 48.0
 const BURN_SPEED_MULT: float = 0.85   ## flat, minor penalty — no severity gradation to scale off of
@@ -155,7 +155,7 @@ func _ready() -> void:
 	_status_effects = _find_status_effects()
 	_player = get_tree().get_first_node_in_group("player") as Player
 	if _player != null:
-		_player.exhausted.connect(_on_player_exhausted)
+		_player.exertion_updated.connect(_on_exertion_updated)
 
 func _find_status_effects() -> StatusEffectsContainer:
 	var hud: Node = get_tree().get_first_node_in_group("hud")
@@ -172,8 +172,8 @@ func _process(delta: float) -> void:
 		_status_effects = _find_status_effects()
 	if _player == null:
 		_player = get_tree().get_first_node_in_group("player") as Player
-		if _player != null and not _player.exhausted.is_connected(_on_player_exhausted):
-			_player.exhausted.connect(_on_player_exhausted)
+		if _player != null and not _player.exertion_updated.is_connected(_on_exertion_updated):
+			_player.exertion_updated.connect(_on_exertion_updated)
 
 	var seconds_per_game_hour: float = _player_stats._seconds_per_game_hour
 	if seconds_per_game_hour <= 0.0:
@@ -200,6 +200,8 @@ func _tick_all_conditions(game_hours: float) -> void:
 			_tick_fractured(condition, game_hours)
 		elif condition.id == "broken":
 			_tick_broken(condition, game_hours)
+		elif condition.id == "strain":
+			_tick_strain(condition, game_hours)
 		elif condition.id == "burn":
 			_tick_burn(condition, game_hours)
 		condition_changed.emit(condition)
@@ -641,31 +643,96 @@ func _tick_fractured(frac: MedicalCondition, game_hours: float) -> void:
 	if frac.heal_progress >= frac.severity:
 		remove_condition(frac)   ## fully healed
 
-## Triggered by Player.gd's exhausted signal (sustained 0-stamina) — the
-## deterministic trigger for Fracture escalation. The signal's own
-## once-per-episode semantics (only fires on the false->true transition)
-## already give this the "one escalation roll per exertion episode"
-## behavior the design doc calls for, with no extra cooldown bookkeeping
-## needed here. Aug 2026 — extended to arms: Player.gd now reports WHICH
-## drain source(s) actually caused this exhaustion (sprinting vs. carrying
-## a Heavy item — see that signal's own doc comment), so the escalation
-## itself stays body-part-causal per the design doc's "reason over
-## randomness" pillar — sprinting escalates leg fractures (sprint/stamina
-## is leg-driven, matching the design doc's original leg-only wording),
-## carrying something heavy escalates arm fractures (arms are what's
-## actually under load), and both fire in the same episode if the player
-## was sprinting WHILE carrying something heavy.
-func _on_player_exhausted(from_sprint: bool, from_heavy_carry: bool) -> void:
-	if from_sprint:
-		_escalate_fractures_on_parts([MedicalCondition.BodyPart.LEFT_LEG, MedicalCondition.BodyPart.RIGHT_LEG])
-	if from_heavy_carry:
-		_escalate_fractures_on_parts([MedicalCondition.BodyPart.LEFT_ARM, MedicalCondition.BodyPart.RIGHT_ARM])
+## A single weighted accident roll covers both activities. Consuming the
+## integrated dose keeps probability independent of physics frame rate.
+func _on_exertion_updated() -> void:
+	var state = _player.exertion
+	var legs: float = state.leg_dose
+	var arms: float = state.arm_dose
+	if legs + arms <= 0.0 or risk_rng.randf() >= RiskRules.accident_probability(legs, arms):
+		return
+	var leg_weight: float = legs * RiskRules.LEG_ACCIDENT_RATE
+	var arm_weight: float = arms * RiskRules.ARM_ACCIDENT_RATE
+	var carrying: bool = risk_rng.randf() * (leg_weight + arm_weight) < arm_weight
+	var part: int
+	if carrying:
+		part = MedicalCondition.BodyPart.LEFT_ARM if risk_rng.randf() < 0.5 else MedicalCondition.BodyPart.RIGHT_ARM
+	else:
+		part = MedicalCondition.BodyPart.LEFT_LEG if risk_rng.randf() < 0.5 else MedicalCondition.BodyPart.RIGHT_LEG
+	state.note_accident()
+	apply_exertion_accident(part, state.arm_seconds if carrying else state.leg_seconds)
 
-func _escalate_fractures_on_parts(parts: Array) -> void:
-	for part in parts:
-		var frac: MedicalCondition = get_condition_by_id_and_part("fractured", part)
-		if frac != null:
-			_escalate_fracture(frac)
+## Shared by gameplay and deterministic test/debug callers. One mishap only
+## affects its selected limb; repeat accidents worsen the existing injury.
+func apply_exertion_accident(part: int, exposure_seconds: float) -> void:
+	var carrying: bool = part == MedicalCondition.BodyPart.LEFT_ARM or part == MedicalCondition.BodyPart.RIGHT_ARM
+	var description: String = "Heavy load slipped during overexertion" if carrying else "Bad step while running beyond exhaustion"
+	var injury: MedicalCondition = get_condition_by_id_and_part("broken", part)
+	if injury != null:
+		injury.heal_progress *= 0.85
+	else:
+		injury = get_condition_by_id_and_part("fractured", part)
+		if injury != null:
+			_escalate_fracture(injury)
+			injury = get_condition_by_id_and_part("broken", part) if injury.severity >= 100.0 else injury
+		else:
+			var strain: MedicalCondition = get_condition_by_id_and_part("strain", part)
+			var roll: float = risk_rng.randf()
+			var break_chance: float = (0.06 if carrying else 0.02) if exposure_seconds >= 12.0 else 0.0
+			if roll < break_chance:
+				if strain != null:
+					remove_condition(strain)
+				spawn_fractured(part)
+				_convert_fractured_to_broken(get_condition_by_id_and_part("fractured", part))
+				injury = get_condition_by_id_and_part("broken", part)
+			elif roll < (0.55 if strain != null else 0.30):
+				if strain != null:
+					remove_condition(strain)
+				spawn_fractured(part)
+				injury = get_condition_by_id_and_part("fractured", part)
+			else:
+				if strain == null:
+					spawn_strain(part)
+					strain = get_condition_by_id_and_part("strain", part)
+				else:
+					strain.heal_progress *= 0.7
+				injury = strain
+	_record_incident(injury, description)
+	_tick_all_conditions(0.0)
+	_show_incident("%s — %s (%s)" % [description, injury.id.capitalize(), MedicalCondition.body_part_label(part)])
+
+func spawn_strain(part: int) -> void:
+	var strain := MedicalCondition.new()
+	strain.id = "strain"
+	strain.body_part = part
+	strain.severity = 100.0
+	strain.has_heal_ring = true
+	strain.heal_time_target_hours = 18.0
+	_apply_limb_symptoms(strain, 0.9, 1.3, 0.85)
+	add_condition(strain)
+
+func _tick_strain(strain: MedicalCondition, game_hours: float) -> void:
+	_apply_limb_symptoms(strain, 0.9, 1.3, 0.85)
+	var stressing: bool = false
+	if _player != null:
+		var is_arm: bool = strain.body_part == MedicalCondition.BodyPart.LEFT_ARM or strain.body_part == MedicalCondition.BodyPart.RIGHT_ARM
+		stressing = _player.exertion.arms_active if is_arm else _player.exertion.legs_active
+	strain.current_heal_rate_mult = 0.25 if stressing else 1.0
+	strain.heal_progress = minf(100.0, strain.heal_progress + game_hours / strain.heal_time_target_hours * 100.0 * strain.current_heal_rate_mult)
+	if strain.heal_progress >= 100.0:
+		remove_condition(strain)
+
+func _record_incident(condition: MedicalCondition, description: String) -> void:
+	condition.incident_description = description
+	if _player_stats != null:
+		condition.incident_game_hour = _player_stats.get_elapsed() / _player_stats._seconds_per_game_hour
+	condition_changed.emit(condition)
+	_update_hud_badge(condition)
+
+func _show_incident(message: String) -> void:
+	var feedback: Node = get_tree().get_first_node_in_group("exertion_feedback")
+	if feedback != null:
+		feedback.show_accident(message)
 
 ## Shared escalation math — one bounded-random severity bump, a Healed-
 ## ring setback, a recomputed heal-time target, and a Broken conversion if
@@ -691,6 +758,8 @@ func _convert_fractured_to_broken(frac: MedicalCondition) -> void:
 	broken.id = "broken"
 	broken.category = MedicalCondition.Category.INJURY
 	broken.body_part = body_part
+	broken.incident_description = frac.incident_description
+	broken.incident_game_hour = frac.incident_game_hour
 	broken.severity_mode = MedicalCondition.SeverityMode.PINNED_MAX
 	broken.severity = 100.0
 	broken.has_heal_ring = true
@@ -751,21 +820,17 @@ func _tick_burn(burn: MedicalCondition, game_hours: float) -> void:
 ## arm-attributed elsewhere in this system (heavy carry, work speed).
 const COOKING_BURN_CHANCE: float = 0.04
 
-const ELECTRICAL_BURN_CHANCE_ONLINE: float = 0.02
-const ELECTRICAL_BURN_CHANCE_BROWNOUT: float = 0.05
-const ELECTRICAL_BURN_CHANCE_OVERLOADED: float = 0.07
-const ELECTRICAL_BURN_CHANCE_TRIPPED: float = 0.10
-const ELECTRICAL_BURN_CHANCE_OFFLINE: float = 0.12
-## Added on top of the grid-state chance above when restarting a
-## generator that's below half health — a failing generator is a more
-## dangerous thing to manually restart, independent of the grid's own state.
-const ELECTRICAL_BURN_CHANCE_LOW_HEALTH_BONUS: float = 0.05
 const ELECTRICAL_BURN_LOW_HEALTH_THRESHOLD: float = 50.0
 
 func _roll_burn(chance: float, cause: String) -> void:
-	if randf() < chance:
-		var part: int = MedicalCondition.BodyPart.LEFT_ARM if randf() < 0.5 else MedicalCondition.BodyPart.RIGHT_ARM
+	if risk_rng.randf() < chance:
+		var part: int = MedicalCondition.BodyPart.LEFT_ARM if risk_rng.randf() < 0.5 else MedicalCondition.BodyPart.RIGHT_ARM
 		spawn_burn(part, cause)
+		var burn: MedicalCondition = get_condition_by_id_and_part("burn", part)
+		var description: String = "Hot dish handling" if cause == "cooking" else "Electrical arc during a hazardous restart"
+		_record_incident(burn, description)
+		_tick_burn(burn, 0.0)
+		_show_incident("%s — burn (%s)" % [description, MedicalCondition.body_part_label(part)])
 
 ## Called by InteractionSystem._finish_take_dish()/_finish_take_dish_from_
 ## held_pot() right after a dish is successfully served ("plating a dish
@@ -775,25 +840,13 @@ func _roll_burn(chance: float, cause: String) -> void:
 func roll_cooking_burn() -> void:
 	_roll_burn(COOKING_BURN_CHANCE, "cooking")
 
-## Called by BreakerBox._request_restart()'s job completion and
-## GeneratorObject._on_power_toggled()'s restart-from-trip/low-health
-## path. `grid_state_string` matches PowerManager.get_grid_state_string()'s
-## exact return values ("ONLINE"/"BROWNOUT"/"OVERLOADED"/"TRIPPED"/
-## "OFFLINE") — captured by the caller BEFORE the reset/restart actually
-## changes it, so the chance reflects the hazard the player was actually
-## reaching into, not the post-fix state. `generator_health` defaults to
-## 100 (irrelevant/full) for the breaker-reset call site, which has no
-## generator of its own.
+## Compatibility API for older callers; live devices pass their local trip
+## state explicitly via roll_device_electrical_burn instead of global state.
 func roll_electrical_burn(grid_state_string: String, generator_health: float = 100.0) -> void:
-	var chance: float = ELECTRICAL_BURN_CHANCE_ONLINE
-	match grid_state_string:
-		"BROWNOUT": chance = ELECTRICAL_BURN_CHANCE_BROWNOUT
-		"OVERLOADED": chance = ELECTRICAL_BURN_CHANCE_OVERLOADED
-		"TRIPPED": chance = ELECTRICAL_BURN_CHANCE_TRIPPED
-		"OFFLINE": chance = ELECTRICAL_BURN_CHANCE_OFFLINE
-	if generator_health < ELECTRICAL_BURN_LOW_HEALTH_THRESHOLD:
-		chance += ELECTRICAL_BURN_CHANCE_LOW_HEALTH_BONUS
-	_roll_burn(chance, "electrical")
+	roll_device_electrical_burn(generator_health < 100.0, grid_state_string == "TRIPPED", generator_health)
+
+func roll_device_electrical_burn(generator: bool, tripped: bool, health: float = 100.0) -> void:
+	_roll_burn(RiskRules.electrical_chance(generator, tripped, health), "electrical")
 
 ## Splint (Pass 2, extended Aug 2026) — per the design doc, NOT required
 ## for Fractured to heal at all (natural healing always happens), but
@@ -847,14 +900,14 @@ func treat_all_bleeding_and_fractures() -> void:
 	for c in conditions_copy:
 		if c.id == "bleeding":
 			treat_bleeding(c.body_part)
-		elif c.id == "fractured":
+		elif c.id == "fractured" or c.id == "broken":
 			apply_splint(c.body_part)
 
 func get_medical_speed_multiplier() -> float:
 	var mult: float = 1.0
 	for c in active_conditions:
 		mult *= c.speed_mult
-	return mult
+	return maxf(RiskRules.MIN_MOVEMENT_MULT, mult)
 
 ## Aug 2026 — mirrors get_medical_speed_multiplier() above for the two new
 ## body-part-gated stamina-drain fields. See
@@ -867,13 +920,13 @@ func get_medical_sprint_stamina_drain_multiplier() -> float:
 	var mult: float = 1.0
 	for c in active_conditions:
 		mult *= c.stamina_drain_mult_sprint
-	return mult
+	return minf(RiskRules.MAX_STAMINA_MULT, mult)
 
 func get_medical_carry_stamina_drain_multiplier() -> float:
 	var mult: float = 1.0
 	for c in active_conditions:
 		mult *= c.stamina_drain_mult_carry
-	return mult
+	return minf(RiskRules.MAX_STAMINA_MULT, mult)
 
 ## Aug 2026 — aggregate getter for `work_speed_mult`, added once the Job
 ## Progress Bar system (docs/systems/player/README.md) gave it a real
@@ -885,7 +938,7 @@ func get_medical_job_speed_multiplier() -> float:
 	var mult: float = 1.0
 	for c in active_conditions:
 		mult *= c.work_speed_mult
-	return mult
+	return maxf(RiskRules.MIN_WORK_MULT, mult)
 
 func get_medical_status_labels() -> Array[String]:
 	var labels: Array[String] = []
@@ -909,6 +962,22 @@ func get_medical_status_labels() -> Array[String]:
 	return labels
 
 func add_condition(condition: MedicalCondition) -> void:
+	var existing: MedicalCondition = get_condition_by_id_and_part(condition.id, condition.body_part)
+	if existing != null:
+		existing.severity = maxf(existing.severity, condition.severity)
+		existing.heal_progress = minf(existing.heal_progress, condition.heal_progress)
+		existing.heal_time_target_hours = maxf(existing.heal_time_target_hours, condition.heal_time_target_hours)
+		# Old saves may contain duplicate wounds. Preserve the worst infection
+		# instead of dropping it when merging the shared body-part UI entry.
+		existing.is_infected = existing.is_infected or condition.is_infected
+		existing.infection_severity = maxf(existing.infection_severity, condition.infection_severity)
+		existing.infection_roll_elapsed_hours = maxf(existing.infection_roll_elapsed_hours, condition.infection_roll_elapsed_hours)
+		if condition.incident_game_hour > existing.incident_game_hour:
+			existing.incident_description = condition.incident_description
+			existing.incident_game_hour = condition.incident_game_hour
+		condition_changed.emit(existing)
+		_update_hud_badge(existing)
+		return
 	active_conditions.append(condition)
 	condition_added.emit(condition)
 	if condition.id != "bleeding":
@@ -975,6 +1044,8 @@ func _ring_color_for(condition: MedicalCondition) -> Color:
 	match condition.id:
 		"bleeding":
 			return BLEEDING_RING_COLOR
+		"strain":
+			return Color(0.78, 0.66, 0.39)
 		"fractured":
 			return FRACTURED_RING_COLOR
 		"broken":
@@ -1059,6 +1130,14 @@ func _symptom_effect_lines(condition: MedicalCondition) -> Array[String]:
 	return lines
 
 func _tooltip_for(condition: MedicalCondition) -> String:
+	var text: String = _condition_tooltip(condition)
+	if not condition.incident_description.is_empty():
+		text += "\nCause: " + condition.incident_description
+		if condition.incident_game_hour >= 0.0:
+			text += "\nLast incident: Day %d, %02d:%02d" % [floori(condition.incident_game_hour / 24.0) + 1, int(condition.incident_game_hour) % 24, int(condition.incident_game_hour * 60.0) % 60]
+	return text
+
+func _condition_tooltip(condition: MedicalCondition) -> String:
 	var part_label: String = MedicalCondition.body_part_label(condition.body_part)
 	if condition.id == "bleeding":
 		return "Bleeding (%s)\nSeverity: %d%%\nHP loss: %.2f/sec" % [part_label, int(condition.severity), condition.hp_drain_per_second]
@@ -1089,6 +1168,11 @@ func _tooltip_for(condition: MedicalCondition) -> String:
 			var hours_left2: float = frac_left2 * condition.heal_time_target_hours / maxf(condition.current_heal_rate_mult, 0.0001)
 			lines2.append("Time Left: ~%.0fh" % maxf(hours_left2, 0.0))
 		return "\n".join(lines2)
+	if condition.id == "strain":
+		var lines: Array[String] = ["Strain (%s)" % part_label, "Light duties allow recovery; avoid overexerting this limb."]
+		lines.append_array(_symptom_effect_lines(condition))
+		lines.append("Time Left: ~%.0fh" % ((1.0 - condition.heal_progress / 100.0) * condition.heal_time_target_hours / maxf(condition.current_heal_rate_mult, 0.001)))
+		return "\n".join(lines)
 	if condition.id == "broken":
 		var lines3: Array[String] = ["Broken (%s)" % part_label]
 		lines3.append("Splinted" if condition.is_treated else "Not splinted")

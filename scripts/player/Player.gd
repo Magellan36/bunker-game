@@ -66,7 +66,7 @@ func _get_player_medical() -> PlayerMedical:
 		_player_medical = get_tree().get_first_node_in_group("player_medical") as PlayerMedical
 	return _player_medical
 
-## Stamina must recover to this before sprinting is allowed again (prevents flicker)
+## Stamina must recover to this before exertion returns to normal.
 @export var sprint_recover_threshold: float = 20.0
 
 ## Render layer 12 (bit index 11) — reserved EXCLUSIVELY for tagging the
@@ -103,10 +103,13 @@ const AIM_DEADZONE_SQ: float = 0.01
 var camera_yaw_rad: float = 0.0
 var _is_moving: bool = false
 var _is_sprinting: bool = false
-var _sprint_locked: bool = false  ## true when exhausted, blocks sprint until threshold met
+const Exertion = preload("res://scripts/player/PlayerExertion.gd")
+var exertion: Exertion = Exertion.new()
+## Visual strength can be reduced to zero without removing the text warning.
+@export_range(0.0, 1.0) var exertion_feedback_strength: float = 1.0
 ## Latched by a left-stick click (Aug 2026): while true, the player keeps
 ## running as long as they're moving. Cleared automatically when the player
-## stops moving or runs out of stamina, or by clicking the stick again.
+## stops moving, or by clicking the stick again; zero stamina enters overdrive.
 var _sprint_toggle: bool = false
 
 ## Current stamina 0–100. Drive this from PlayerStats if you have one,
@@ -177,17 +180,10 @@ func set_job_locked(locked: bool) -> void:
 # ─── Signals ──────────────────────────────────────────────────────────────────
 signal interacted()
 signal stamina_changed(new_value: float)   ## Emit so HUD / PlayerStats can react
-## Emitted once on the exact frame stamina hits 0 and sprint locks out — an
-## edge trigger, not fired again while still exhausted. Medical's Fracture
-## escalation (docs/systems/medical/README.md) listens for this rather than
-## polling _sprint_locked, since the once-per-episode semantics this signal
-## already has are exactly what escalation needs. Aug 2026 — now reports
-## WHICH drain source(s) actually caused this exhaustion episode
-## (sprinting, carrying a Heavy item, or both at once — see the drain block
-## in _handle_movement() below), so Medical can attribute the escalation to
-## the correct limb (sprint → legs, heavy carry → arms) rather than always
-## assuming legs.
+## Compatibility event: entering exhaustion is a warning, never an injury.
 signal exhausted(from_sprint: bool, from_heavy_carry: bool)
+## Medical consumes the latest per-limb exposure after each stamina step.
+signal exertion_updated
 
 func _ready() -> void:
 	## Register in "player" group so items (e.g. Flashlight) can resolve the
@@ -217,6 +213,9 @@ func _ready() -> void:
 	add_child(_navigation_obstacle)
 
 	_player_medical = get_tree().get_first_node_in_group("player_medical") as PlayerMedical
+	var feedback := preload("res://scripts/player/medical/ExertionFeedback.gd").new()
+	feedback.player = self
+	add_child(feedback)
 
 	## Controller support guard (Aug 2026) — the Xbox gamepad bindings are
 	## defined in project.godot's Input Map, but the editor rewrites that
@@ -239,8 +238,22 @@ func _ready() -> void:
 	## PlayerModelShadow instance was removed to avoid duplicate animation and
 	## skinning work and to restore physically correct shadow proportions.
 
+func _process(delta: float) -> void:
+	# Chair/bed sequences disable physics; genuine rest must still recover.
+	if not dead and not is_physics_processing() and (is_instance_valid(seated_chair) or is_instance_valid(sleeping_bed)):
+		_update_exertion(delta, false, false)
+
 func _physics_process(delta: float) -> void:
 	if _movement_locked or _job_locked:
+		_is_sprinting = false
+		_is_moving = false
+		_sprint_toggle = false
+		# Actual sleep recovers exertion. Other movement locks suspend it:
+		# opening a menu cannot hide an accident or reset accumulated strain.
+		if not dead and sleeping_bed != null:
+			_update_exertion(delta, false, false)
+		else:
+			exertion.suspend()
 		## Still apply gravity/move_and_slide so the player doesn't float or
 		## clip through the floor while the menu (or a job) is active — just
 		## skip WASD/sprint/interact input handling.
@@ -272,98 +285,19 @@ func _handle_movement(delta: float) -> void:
 	var raw: Vector3 = Vector3(input_dir.x, 0.0, input_dir.y)
 	var direction: Vector3 = raw.rotated(Vector3.UP, camera_yaw_rad)
 
-	# Unlock sprint once stamina recovers past threshold
-	if _sprint_locked and stamina >= sprint_recover_threshold:
-		_sprint_locked = false
-
-	# Sprint only while moving, not locked out. Hold works via the keyboard
-	# (Shift) or holding the stick click; the left-stick click also LATCHES
-	# running via _sprint_toggle (see _unhandled_input), so a quick click
-	# keeps the player running without holding anything.
 	var wants_sprint: bool = (Input.is_action_pressed("sprint") or _sprint_toggle) \
 		and direction.length_squared() > 0.0
-	_is_sprinting = wants_sprint and not _sprint_locked
-
-	## Auto-cancel the toggle when the player stops moving or runs out of
-	## stamina — back to a normal walking state, no surprise auto-resume.
-	if direction.length_squared() <= 0.0 or _sprint_locked:
+	_is_sprinting = wants_sprint
+	if direction.length_squared() <= 0.0:
 		_sprint_toggle = false
-
-	# Drain / regen stamina (Aug 2026 — generalized to sum every active drain
-	# source into one total; regen only applies when nothing is draining at
-	# all. Previously sprint-only; sprint behavior itself is unchanged, just
-	# no longer an if/else against regen directly.)
-	var total_stamina_drain: float = 0.0
-	## Aug 2026 — tracked so the exhausted signal below can report which
-	## drain source(s) actually caused this episode (see exhausted's own doc
-	## comment). True whenever the heavy-carry block below contributes any
-	## drain, independent of whether it happened to be the SOLE cause.
 	var carrying_heavy: bool = false
-	if _is_sprinting:
-		## Medical system (Aug 2026) — leg injuries/illness exponentially
-		## increase sprint-stamina drain, scaled by severity (Infection
-		## contributes too, systemically, regardless of body part). Returns
-		## 1.0 (no effect) when nothing's active, same no-op-by-default
-		## pattern as get_medical_speed_multiplier() above. See
-		## docs/systems/medical/README.md's "Body-part-differentiated
-		## symptom effects".
-		var medical_sprint_mult: float = 1.0
-		var pm_sprint: PlayerMedical = _get_player_medical()
-		if pm_sprint != null:
-			medical_sprint_mult = pm_sprint.get_medical_sprint_stamina_drain_multiplier()
-		total_stamina_drain += sprint_stamina_drain * medical_sprint_mult
-
-	## Heavy-carry stamina drain (Aug 2026) — passive drain while holding a
-	## Heavy item (PickupableItem.is_heavy_item(); Light items — anything
-	## that fits the 4-slot inventory — never trigger this). Applies
-	## regardless of sprint state and is cumulative with the sprint drain
-	## above when both are active at once — the whole point of summing into
-	## total_stamina_drain rather than branching. Medical's carry-drain
-	## multiplier (get_medical_carry_stamina_drain_multiplier() —
-	## previously unwired, see its own doc comment) is wired in now that
-	## there's a base mechanic for it to actually multiply.
 	if interaction_system != null:
-		var held_for_drain = interaction_system.held_item
-		if held_for_drain != null and is_instance_valid(held_for_drain) \
-				and held_for_drain.has_method("is_heavy_item") and held_for_drain.is_heavy_item():
-			carrying_heavy = true
-			var medical_carry_mult: float = 1.0
-			var pm_carry: PlayerMedical = _get_player_medical()
-			if pm_carry != null:
-				medical_carry_mult = pm_carry.get_medical_carry_stamina_drain_multiplier()
-			total_stamina_drain += heavy_carry_stamina_drain * medical_carry_mult
-
-	if total_stamina_drain > 0.0:
-		stamina = maxf(0.0, stamina - total_stamina_drain * delta)
-		if stamina == 0.0 and not _sprint_locked:
-			exhausted.emit(_is_sprinting, carrying_heavy)
-			_sprint_locked = true  ## exhausted — force walk until recovered
-	else:
-		stamina = minf(100.0, stamina + stamina_regen * delta)
-	stamina_changed.emit(stamina)
-
-	## Drop whatever's held while stamina is at rock bottom (Aug 2026, fixed).
-	## Deliberately a LEVEL check every frame, NOT folded into the
-	## "stamina == 0.0 and not _sprint_locked" edge-trigger above. Heavy-carry
-	## drain isn't gated by _sprint_locked (unlike sprint drain, which stops
-	## the instant _sprint_locked goes true) — if the player picks up ANOTHER
-	## Heavy item while still near 0 stamina, its passive drain alone pins
-	## stamina at 0 forever (drain > regen), so it can never climb back to
-	## sprint_recover_threshold, _sprint_locked never flips back to false, and
-	## the edge-trigger above would then never fire again — a permanent
-	## soft-lock where nothing ever drops again. Checking the level every
-	## frame instead means a freshly-picked-up-while-exhausted item still
-	## gets dropped immediately, self-correcting regardless of how the
-	## player got back into this state. Uses drop_in_place() (Aug 2026, not
-	## _quick_drop()) — an involuntary drop should let the item fall from
-	## wherever it's currently held, not hop to the ~1.5m-forward spot
-	## _quick_drop() uses for a deliberate player action. Both no-op safely
-	## when nothing's held, so this is cheap to check unconditionally.
-	if stamina <= 0.0 and interaction_system != null and interaction_system.held_item != null \
-			and interaction_system.has_method("drop_in_place"):
-		interaction_system.drop_in_place()
+		var held: Node = get_held_item()
+		carrying_heavy = is_instance_valid(held) and held.has_method("is_heavy_item") and held.is_heavy_item()
+	_update_exertion(delta, wants_sprint, carrying_heavy)
 
 	var target_speed: float = sprint_speed if _is_sprinting else move_speed
+	target_speed *= exertion.movement_multiplier(_is_sprinting)
 	## Medical system (Aug 2026) — injuries/illness can slow the player.
 	## PlayerMedical.get_medical_speed_multiplier() returns 1.0 (no effect)
 	## when no conditions are active, so this is a no-op until Medical
@@ -488,7 +422,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 	## Left-stick click toggles sprint (Aug 2026) — a quick click latches
-	## running until the player stops, clicks again, or runs out of stamina.
+	## running until the player stops or clicks again, including during overdrive.
 	## Only from a joypad so keyboard Shift keeps its hold-to-sprint feel.
 	## Consumed even in menus (movement is locked there anyway, so the
 	## toggle flip is guarded below).
@@ -555,3 +489,25 @@ func _ensure_joy_button(action: String, idx: int) -> void:
 	var ne := InputEventJoypadButton.new()
 	ne.button_index = idx
 	InputMap.action_add_event(action, ne)
+
+## Stamina and exposure use active seconds, independent of the survival clock.
+func _update_exertion(delta: float, sprinting: bool, carrying: bool) -> void:
+	var medical: PlayerMedical = _get_player_medical()
+	var drain: float = 0.0
+	if sprinting:
+		drain += sprint_stamina_drain * (medical.get_medical_sprint_stamina_drain_multiplier() if medical != null else 1.0)
+	if carrying:
+		drain += heavy_carry_stamina_drain * (medical.get_medical_carry_stamina_drain_multiplier() if medical != null else 1.0)
+	stamina = exertion.advance(delta, stamina, sprinting, carrying, drain, stamina_regen, sprint_recover_threshold)
+	if exertion.just_exhausted:
+		exhausted.emit(sprinting, carrying)
+	exertion_updated.emit()
+	stamina_changed.emit(stamina)
+
+func get_exertion_save_data() -> Dictionary:
+	return exertion.get_save_data(stamina)
+
+func restore_exertion_save_data(data: Dictionary) -> void:
+	stamina = exertion.restore(data)
+	_sprint_toggle = false
+	stamina_changed.emit(stamina)

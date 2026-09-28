@@ -340,7 +340,7 @@ func _spawn_trip_sparks() -> void:
 # ══════════════════════════════════════════════════════════════════════════════
 
 func get_interact_prompt() -> String:
-	return "Breaker Settings [E]"
+	return "Breaker Settings [E]" + ("\n" + preload("res://scripts/player/medical/MedicalRiskRules.gd").electrical_warning(false, true) if _tripped else "")
 
 
 func on_interact() -> void:
@@ -463,28 +463,24 @@ func _request_restart() -> void:
 	if pm == null or _breaker_id.is_empty():
 		return
 	_close_settings()
-	## Real Burn trigger (Aug 2026) — "resetting a hazardous breaker...
-	## carries a bounded burn chance, scaled visibly by the actual hazard
-	## state involved," per docs/systems/medical/README.md. Captured BEFORE
-	## the reset actually runs, so the chance reflects the hazard the player
-	## was reaching into (this breaker was tripped, by definition — this
-	## method is only ever called while _tripped), not the post-fix state.
-	var grid_state_at_reset: String = pm.get_grid_state_string()
+	# Revalidate the local trip at job completion; another action may reset it.
 	var isys: Node = _resolve_interaction_system()
 	if isys == null or not isys.has_method("start_job"):
-		_finish_restart(pm, grid_state_at_reset)
+		_finish_restart(pm)
 		return
 	isys.start_job(self, InteractionSystem.JOB_DEFAULT_DURATION,
-		Callable(self, "_finish_restart").bind(pm, grid_state_at_reset), "Resetting Breaker...")
+		Callable(self, "_finish_restart").bind(pm), "Resetting Breaker...")
 
 ## Split from _request_restart() so both the job-completion path and the
 ## no-InteractionSystem fallback share exactly one place that actually
 ## resets the breaker and rolls the Burn chance.
-func _finish_restart(pm: PowerManager, grid_state_at_reset: String) -> void:
+func _finish_restart(pm: PowerManager, _legacy_grid_state: String = "") -> void:
+	if not is_instance_valid(pm) or not _tripped:
+		return
 	pm.reset_breaker(_breaker_id)
 	var player_medical: PlayerMedical = get_tree().get_first_node_in_group("player_medical") as PlayerMedical
 	if player_medical != null:
-		player_medical.roll_electrical_burn(grid_state_at_reset)
+		player_medical.roll_device_electrical_burn(false, true)
 
 func _resolve_interaction_system() -> Node:
 	var plr: Node = get_tree().get_first_node_in_group("player")

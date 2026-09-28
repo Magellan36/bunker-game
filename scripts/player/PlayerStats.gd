@@ -264,11 +264,12 @@ func set_elapsed(value: float) -> void:
 
 # ─── Save/Load — survival needs (Save/Load overhaul) ────────────────────────
 ## Captures the player's survival needs + Medical-derived caps for the
-## SaveManager "player_survival" field. Stamina and the transient `sleeping`
-## flag are deliberately NOT saved (stamina is a fast-regen combat/sprint
-## resource; `sleeping` is a SleepOverlay session latch that flips on/off).
+## SaveManager "player_survival" field includes stamina/exertion so reloads
+## cannot erase overdrive exposure. The transient sleeping flag is not saved.
 func get_survival_save_data() -> Dictionary:
+	var player: Player = get_tree().get_first_node_in_group("player") as Player
 	return {
+		"exertion": player.get_exertion_save_data() if player != null else {},
 		"food":      food,
 		"water":     water,
 		"sleep":     sleep,
@@ -285,6 +286,9 @@ func get_survival_save_data() -> Dictionary:
 ## restored conditions right after, so a saved cap from an old save without
 ## conditions is only a temporary value.
 func apply_survival_save_data(d: Dictionary) -> void:
+	var player: Player = get_tree().get_first_node_in_group("player") as Player
+	if player != null:
+		player.restore_exertion_save_data(d.get("exertion", {}))
 	food  = clampf(float(d.get("food", 100.0)), 0.0, 100.0)
 	water = clampf(float(d.get("water", 100.0)), 0.0, 100.0)
 	sleep = clampf(float(d.get("sleep", 100.0)), 0.0, 100.0)

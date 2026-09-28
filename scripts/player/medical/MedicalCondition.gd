@@ -121,6 +121,9 @@ var is_treated: bool = false
 ## vs "cooking" for a Burn) — never read by any tick/severity logic, only
 ## surfaced in tooltips. Empty string = not set / not applicable.
 var cause: String = ""
+## Latest real incident; legacy/debug conditions may have no provenance.
+var incident_description: String = ""
+var incident_game_hour: float = -1.0
 
 ## Open Wound's infection sub-state (Aug 2026, Pass 2) — per
 ## docs/systems/medical/README.md, infection is a MODIFIER on the same
@@ -169,6 +172,8 @@ func get_save_dict() -> Dictionary:
 		"converts_to_id":            converts_to_id,
 		"is_treated":                is_treated,
 		"cause":                     cause,
+		"incident_description": incident_description,
+		"incident_game_hour": incident_game_hour,
 		"is_infected":               is_infected,
 		"infection_severity":        infection_severity,
 		"infection_roll_elapsed_hours": infection_roll_elapsed_hours,
@@ -201,6 +206,8 @@ static func from_save_dict(d: Dictionary) -> MedicalCondition:
 	c.converts_to_id          = str(d.get("converts_to_id", ""))
 	c.is_treated              = bool(d.get("is_treated", false))
 	c.cause                   = str(d.get("cause", ""))
+	c.incident_description = str(d.get("incident_description", ""))
+	c.incident_game_hour = float(d.get("incident_game_hour", -1.0))
 	c.is_infected             = bool(d.get("is_infected", false))
 	c.infection_severity      = float(d.get("infection_severity", 0.0))
 	c.infection_roll_elapsed_hours = float(d.get("infection_roll_elapsed_hours", 0.0))
