@@ -51,6 +51,13 @@ const SHOP_ITEM_INFO: Dictionary = {
 	19: { "name": "Crate",      "price": 40,  "kind": "scene", "scene": "res://scenes/world/TestCrate.tscn" },
 	20: { "name": "Basket",     "price": 100, "kind": "scene", "scene": "res://scenes/world/Basket.tscn" },
 	21: { "name": "Cooking Pot", "price": 120, "kind": "scene", "scene": "res://scenes/world/CookingPot.tscn" },
+	## Weapons (Sep 2026): placeholder price 10, balance pass pending.
+	22: { "name": "Webley Mk II", "price": 10, "kind": "scene", "scene": "res://scenes/weapons/Webley.tscn" },
+	23: { "name": "Knife", "price": 10, "kind": "scene", "scene": "res://scenes/weapons/Knife.tscn" },
+	24: { "name": "Hatchet", "price": 10, "kind": "scene", "scene": "res://scenes/weapons/Hatchet.tscn" },
+	25: { "name": "Steel Pipe", "price": 10, "kind": "scene", "scene": "res://scenes/weapons/Pipe.tscn" },
+	26: { "name": "Baseball Bat", "price": 10, "kind": "scene", "scene": "res://scenes/weapons/Bat.tscn" },
+	27: { "name": "Crowbar", "price": 10, "kind": "scene", "scene": "res://scenes/weapons/Crowbar.tscn" },
 }
 
 func get_item_price(item_id: int) -> int:

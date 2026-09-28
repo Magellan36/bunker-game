@@ -1,10 +1,11 @@
 # Weapons foundation
 
-One Webley Mk II revolver plus knife, hatchet, and steel pipe. Open
+One Webley Mk II revolver plus knife, hatchet, steel pipe, baseball bat and crowbar.
+Who owns what and the API contract: `HANDOFF.md` in this folder. Open
 `tools/tests/WeaponsTest.tscn` and run the current scene (F6) for a standalone room
 using the real player, interaction, inventory, and game camera. Weapons lie on the
-floor in front of the player. They are not automatically spawned into existing saves
-or added to the shop; place `scenes/weapons/*.tscn` wherever desired in authored areas.
+floor in front of the player. All six are sold in the Supply shop (Weapons department, placeholder $10 each).
+They are not spawned into existing saves.
 
 ## Controls
 
@@ -15,10 +16,12 @@ or added to the shop; place `scenes/weapons/*.tscn` wherever desired in authored
 - G stores and mouse wheel selects inventory slots as usual.
 
 Six rounds, twelve spare rounds initially. Semi-automatic: each press commits at most
-one attack. Empty fire never spends ammunition or emits flash/cases. Reload transfers
+one attack. With the revolver empty, each attack is a pistol whip (14 damage, 1.3 m reach),
+with no ammunition, flash or case. Reload transfers
 only available reserve after 1.25 seconds; switching, dropping, or a UI/job/seat/build
 lock cancels it without creating ammunition. Ammo and reserve persist through the
-existing ItemSaveData contract. Melee costs no ammunition. A strike lands after 100ms,
+existing ItemSaveData contract. Melee costs no ammunition. About 30% of melee attacks (never two in a row) are
+flagged as the alternate swing (`attack_started(kind, 1)`) so animation can vary. A strike lands after 100ms,
 checks reach/cone and line of sight, and damages each collider at most once per swing.
 
 ## Boundaries
@@ -59,6 +62,8 @@ for a Webley, whose real cases remain in its cylinder until extraction.
 Webley is the supplied textured model, normalized to 31cm and exported as GLB; source
 provenance/conversion is in `assets/models/weapons/webley/README.md`. The original rig
 and mechanical animation source are preserved in the user's model folder.
+Bat (user-supplied OBJ + wood texture) and crowbar (Clint Bellanger, CC0) are authored
+models; see their READMEs under `assets/models/weapons/`.
 Temporary agent-authored graybox visuals (not final artwork): knife, hatchet, pipe,
 procedural casing, impact dot, and test-room targets. Replace with authored meshes/
 effects before release. Attack/reload animations, melee holding poses and sound are pending.
@@ -82,7 +87,7 @@ Run with isolated user data (see `docs/AGENT_GIT_WORKFLOW.md`):
 XDG_DATA_HOME=$(mktemp -d) XDG_CONFIG_HOME=$(mktemp -d) /path/to/godot --headless --path . res://tools/tests/WeaponsTest.tscn --quit-after 120
 ```
 
-Headless behavior checks (expects `WEAPONS_SMOKE: 31 checks, 0 failures`):
+Headless behavior checks (expects `WEAPONS_SMOKE: 36 checks, 0 failures`):
 
 ```
 XDG_DATA_HOME=$(mktemp -d) XDG_CONFIG_HOME=$(mktemp -d) /path/to/godot --headless --path . res://tools/tests/WeaponsSmoke.tscn

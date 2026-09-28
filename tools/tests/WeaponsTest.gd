@@ -31,9 +31,9 @@ func _ready() -> void:
 	camera.target_path = camera.get_path_to(_player) if camera.is_inside_tree() else NodePath("../" + str(_player.name))
 	camera.current = true
 	add_child(camera)
-	for i: int in 4:
-		var item: RigidBody3D = load("res://scenes/weapons/%s.tscn" % ["Webley", "Knife", "Hatchet", "Pipe"][i]).instantiate()
-		item.position = Vector3(-1.8 + i * 1.2, 0.4, 0.5)
+	for i: int in 6:
+		var item: RigidBody3D = load("res://scenes/weapons/%s.tscn" % ["Webley", "Knife", "Hatchet", "Pipe", "Bat", "Crowbar"][i]).instantiate()
+		item.position = Vector3(-1.8 + i * 1.0, 0.4, 0.5)
 		add_child(item)
 	for x: float in [-3.0, 0.0, 3.0]:
 		var target := StaticBody3D.new()

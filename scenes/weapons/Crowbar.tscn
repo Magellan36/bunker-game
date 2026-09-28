@@ -1,0 +1,11 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/weapons/WeaponItem.gd" id="1"]
+
+[node name="Crowbar" type="RigidBody3D"]
+script = ExtResource("1")
+weapon_kind = "crowbar"
+damage = 26.0
+attack_interval = 0.6
+reach = 1.6
+strike_delay = 0.16

@@ -71,6 +71,8 @@ fine, but it must not drift:
 | `scripts/npc/**`, `scenes/npc/**`, `docs/systems/npc/**` | NPC polish session (cloud, `claude/gifted-planck-32j7ii`) |
 | `scripts/player/Adventurer*`, `scenes/player/AdventurerModel.tscn`, `assets/models/player/anims/**`, `tools/anim_pipeline/**`, player/NPC sit/lie entry points | Animation polish session (local) |
 | `scripts/ui/**`, `scenes/ui/**`, `docs/ui/**`, `PreviewStudio`, `SharedUI` | UI session (local) |
+| `scripts/weapons/**` (except `PistolAnimationLayer.gd`), `scenes/weapons/**`, `assets/models/weapons/**`, `docs/systems/weapons/**` | Weapons session (local); contract in `docs/systems/weapons/HANDOFF.md` |
+| `scripts/weapons/PistolAnimationLayer.gd`, weapon animation clips | Animation polish session (local) |
 | Performance passes (water, power, build, shelving) | Codex FPS work; parked NPC items in `plans/codex-fps-npc-dropped/` |
 
 Shared hot files such as `scripts/world/core/MainWorld.gd`, `project.godot`

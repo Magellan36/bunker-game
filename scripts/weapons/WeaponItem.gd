@@ -1,12 +1,17 @@
 extends PickupableItem
-## Pickup/inventory-compatible weapon. Webley uses the supplied model; melee visuals are temporary graybox proxies.
+## Pickup/inventory-compatible weapon. Webley, bat and crowbar use supplied models; knife/hatchet/pipe are graybox.
 ## Forward is local -Z. Replace Model and keep Muzzle for authored assets.
-signal attack_started(kind: String)
+## kind: weapon_kind, or "pistol_whip" for an empty revolver's strike.
+## variant: 0 = regular attack, 1 = occasional alternate (melee flavor, see
+## attack_variant_chance). Animation plays the matching clip; the hit lands
+## strike_delay later regardless of animation.
+signal attack_started(kind: String, variant: int)
 signal hit_resolved(hit: Dictionary)
 signal dry_fired
 signal aim_changed(aiming: bool)
 
-@export_enum("revolver", "knife", "hatchet", "pipe") var weapon_kind: String = "revolver"
+const KINDS: Array[String] = ["revolver", "knife", "hatchet", "pipe", "bat", "crowbar"]
+@export_enum("revolver", "knife", "hatchet", "pipe", "bat", "crowbar") var weapon_kind: String = "revolver"
 @export var magazine_capacity: int = 6
 @export var ammo: int = 6
 @export var reserve_ammo: int = 12
@@ -16,6 +21,14 @@ signal aim_changed(aiming: bool)
 @export var melee_half_angle: float = 50.0
 @export var recoil_strength: float = 0.13
 @export var reload_duration: float = 1.25
+## Melee contact delay after the press (seconds).
+@export var strike_delay: float = 0.10
+## Chance a melee attack uses the alternate swing (never twice in a row).
+@export var attack_variant_chance: float = 0.3
+## Empty revolver: each attack becomes a pistol whip.
+@export var whip_damage: float = 14.0
+@export var whip_reach: float = 1.3
+@export var whip_interval: float = 0.55
 @export var attack_sound: AudioStream
 @export var empty_sound: AudioStream
 @export var reload_sound: AudioStream
@@ -30,6 +43,8 @@ var _cooldown: float = 0.0
 var _reload_left: float = 0.0
 var _strike_left: float = 0.0
 var _strike_direction: Vector3 = Vector3.FORWARD
+var _strike_kind: String = ""
+var _last_variant: int = 0
 var _kick: float = 0.0
 var _model: Node3D
 var _muzzle: Marker3D
@@ -54,13 +69,16 @@ func is_firearm() -> bool:
 	return weapon_kind == "revolver"
 
 func get_display_name() -> String:
-	return {"revolver": "Webley Mk II", "knife": "Knife", "hatchet": "Hatchet", "pipe": "Steel Pipe"}.get(weapon_kind, "Weapon")
+	return {"revolver": "Webley Mk II", "knife": "Knife", "hatchet": "Hatchet", "pipe": "Steel Pipe",
+		"bat": "Baseball Bat", "crowbar": "Crowbar"}.get(weapon_kind, "Weapon")
 
 func get_use_prompt() -> String:
 	if not is_firearm():
 		return "Hold RMB / Right stick: Aim · LMB / RT: Swing"
 	if _reload_left > 0.0:
 		return "Reloading…"
+	if ammo <= 0:
+		return "Hold RMB / Right stick: Aim · LMB / RT: Pistol whip · [E] Reload  0 / %d" % reserve_ammo
 	return "Hold RMB / Right stick: Aim · LMB / RT: Fire · [E] Reload  %d / %d" % [ammo, reserve_ammo]
 
 func get_inventory_hud_state() -> Dictionary:
@@ -71,7 +89,7 @@ func get_item_save_state() -> Dictionary:
 
 func apply_item_save_state(state: Dictionary) -> void:
 	var kind: String = str(state.get("weapon_kind", weapon_kind))
-	if kind in ["revolver", "knife", "hatchet", "pipe"]:
+	if kind in KINDS:
 		weapon_kind = kind
 	ammo = clampi(int(state.get("ammo", ammo)), 0, magazine_capacity)
 	reserve_ammo = maxi(0, int(state.get("reserve_ammo", reserve_ammo)))
@@ -130,6 +148,8 @@ func _physics_process(delta: float) -> void:
 		if _strike_left == 0.0 and aiming:
 			_melee_hit(_strike_direction)
 	var swing: float = sin(clampf(_cooldown / attack_interval, 0.0, 1.0) * PI) if not is_firearm() else 0.0
+	if grip_anchor != null:
+		swing = 0.0   ## a real hand animation carries the swing
 	_model.rotation = Vector3(_kick * 0.12, swing * 1.4, 0.0)
 	_model.position.z = _kick * 0.045
 
@@ -143,20 +163,29 @@ func try_attack(direction: Vector3) -> bool:
 	if not is_held or not aiming or _cooldown > 0.0 or _reload_left > 0.0 or direction.length_squared() < 0.001:
 		return false
 	_cooldown = attack_interval
-	if is_firearm() and ammo <= 0:
-		_play_sound(empty_sound)
-		dry_fired.emit()
-		return false
-	_kick = 1.0
-	_play_sound(attack_sound)
-	attack_started.emit(weapon_kind)
-	if is_firearm():
+	if is_firearm() and ammo > 0:
+		_kick = 1.0
+		_play_sound(attack_sound)
+		attack_started.emit(weapon_kind, 0)
 		ammo -= 1
 		charge_changed.emit()
 		_fire(direction.normalized())
+		return true
+	if is_firearm():
+		## Out of rounds: the revolver becomes a club. dry_fired still tells
+		## audio/UI the chamber is empty; no ammo or case is involved.
+		_cooldown = whip_interval
+		_strike_kind = "pistol_whip"
+		dry_fired.emit()
+		attack_started.emit(_strike_kind, 0)
 	else:
-		_strike_direction = direction.normalized()
-		_strike_left = 0.10
+		_strike_kind = weapon_kind
+		_last_variant = 1 if _last_variant == 0 and randf() < attack_variant_chance else 0
+		_play_sound(attack_sound)
+		attack_started.emit(_strike_kind, _last_variant)
+	_kick = 1.0
+	_strike_direction = direction.normalized()
+	_strike_left = strike_delay
 	return true
 
 func _exclusions() -> Array[RID]:
@@ -192,8 +221,10 @@ func _fire(direction: Vector3) -> void:
 
 func _melee_hit(direction: Vector3) -> void:
 	var origin: Vector3 = _attack_origin()
+	var whip: bool = _strike_kind == "pistol_whip"
+	var range_: float = whip_reach if whip else reach
 	var shape := SphereShape3D.new()
-	shape.radius = reach
+	shape.radius = range_
 	var query := PhysicsShapeQueryParameters3D.new()
 	query.shape = shape
 	query.transform.origin = origin
@@ -208,7 +239,7 @@ func _melee_hit(direction: Vector3) -> void:
 		if body is CharacterBody3D:
 			target.y = origin.y
 		var offset: Vector3 = target - origin
-		if offset.length_squared() < 0.001 or offset.length() > reach:
+		if offset.length_squared() < 0.001 or offset.length() > range_:
 			continue
 		if direction.dot(offset.normalized()) < cos(deg_to_rad(melee_half_angle)):
 			continue
@@ -216,12 +247,12 @@ func _melee_hit(direction: Vector3) -> void:
 		if hit.is_empty() or hit.collider != body:
 			continue
 		delivered[body.get_instance_id()] = true
-		_deliver_hit(hit, direction)
+		_deliver_hit(hit, direction, whip_damage if whip else damage, _strike_kind)
 		Effects.impact(self, hit.position, hit.normal)
 
-func _deliver_hit(hit: Dictionary, direction: Vector3) -> void:
-	var context: Dictionary = {"damage": damage, "position": hit.position, "direction": direction,
-		"kind": weapon_kind, "source": _get_holder(), "collider": hit.collider}
+func _deliver_hit(hit: Dictionary, direction: Vector3, amount: float = damage, kind: String = weapon_kind) -> void:
+	var context: Dictionary = {"damage": amount, "position": hit.position, "direction": direction,
+		"kind": kind, "source": _get_holder(), "collider": hit.collider}
 	var receiver: Node = hit.collider as Node
 	while receiver != null and not receiver.has_method("receive_weapon_hit"):
 		receiver = receiver.get_parent()
@@ -244,6 +275,19 @@ func _build_proxy() -> void:
 		var authored: Node3D = preload("res://assets/models/weapons/webley/webley_mkii.glb").instantiate()
 		authored.position = Vector3(0, 0.08, -0.06)
 		_model.add_child(authored)
+	elif weapon_kind == "bat":
+		_model.add_child(preload("res://assets/models/weapons/bat/bat.glb").instantiate())
+		size = Vector3(0.075, 0.075, 0.84)
+	elif weapon_kind == "crowbar":
+		var crowbar: Node3D = preload("res://assets/models/weapons/crowbar/crowbar.glb").instantiate()
+		var steel := StandardMaterial3D.new()
+		steel.albedo_color = Color(0.16, 0.17, 0.18)
+		steel.metallic = 0.8
+		steel.roughness = 0.4
+		for mesh: MeshInstance3D in crowbar.find_children("*", "MeshInstance3D", true, false):
+			mesh.material_override = steel
+		_model.add_child(crowbar)
+		size = Vector3(0.05, 0.09, 0.60)
 	else:
 		size = Vector3(0.065, 0.065, 0.65 if weapon_kind != "knife" else 0.32)
 		_box(size, Vector3(0, 0, -size.z * 0.35), metal)
@@ -254,6 +298,10 @@ func _build_proxy() -> void:
 	var shape := BoxShape3D.new()
 	shape.size = size
 	collision.shape = shape
+	if weapon_kind == "bat":
+		collision.position.z = -0.34
+	elif weapon_kind == "crowbar":
+		collision.position.z = -0.19
 	add_child(collision)
 	_muzzle = Marker3D.new()
 	_muzzle.name = "Muzzle"

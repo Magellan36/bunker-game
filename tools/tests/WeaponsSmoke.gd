@@ -53,8 +53,16 @@ func _run() -> void:
 	gun._cooldown = 0.0
 	gun.ammo = 0
 	var cases_before: int = get_tree().get_nodes_in_group("weapon_cases").size()
-	check(not gun.try_attack(Vector3.FORWARD), "empty fire rejected")
-	check(gun.ammo == 0 and get_tree().get_nodes_in_group("weapon_cases").size() == cases_before, "empty fire creates no ammo or case")
+	var whips: Array = []
+	gun.attack_started.connect(func(kind: String, _variant: int) -> void: whips.append(kind))
+	target.position = Vector3(0, 1.8, -5)
+	await ticks(2)
+	var whip_hits: int = target.hits
+	check(gun.try_attack(Vector3.FORWARD), "empty revolver attack becomes a pistol whip")
+	check(whips == ["pistol_whip"], "whip announces its own attack kind")
+	check(gun.ammo == 0 and get_tree().get_nodes_in_group("weapon_cases").size() == cases_before, "whip spends no ammo, ejects no case")
+	await ticks(10)
+	check(target.hits == whip_hits, "whip reach is short (target 3 m away untouched)")
 	gun.reserve_ammo = 2
 	gun.on_use()
 	check(gun._reload_left > 0, "reload starts")
@@ -91,6 +99,20 @@ func _run() -> void:
 	check(not gun.try_attack(Vector3.FORWARD), "un-aimed attacks rejected")
 	wall.queue_free()
 	await ticks(2)
+	# Pistol whip lands at close range with its own damage.
+	gun.ammo = 0
+	gun._cooldown = 0
+	gun.set_aiming(true)
+	target.position = Vector3(0, 1.8, -3)
+	player.position = Vector3(0, 1, -2)
+	await ticks(3)
+	var whip_before: int = target.hits
+	var hit_log: Array = []
+	gun.hit_resolved.connect(func(hit: Dictionary) -> void: hit_log.append(hit))
+	check(gun.try_attack(Vector3.FORWARD), "close whip commits")
+	await ticks(12)
+	check(target.hits == whip_before + 1 and hit_log.size() == 1 and hit_log[0].kind == "pistol_whip" and is_equal_approx(hit_log[0].damage, gun.whip_damage), "whip hits once for whip damage")
+	gun.ammo = 3
 	# Melee: one hit, no ammo, no hit through wall, cancellation before contact.
 	gun.drop(room, Vector3(5, 0.5, 0))
 	var knife: Weapon = room.get_node("Knife")
@@ -104,6 +126,15 @@ func _run() -> void:
 	await ticks(10)
 	check(target.hits == hits_before + 1, "melee hits once during strike")
 	check(knife.ammo == 6, "melee does not spend ammunition")
+	var variants: Array = []
+	knife.attack_started.connect(func(_kind: String, variant: int) -> void: variants.append(variant))
+	knife.attack_variant_chance = 1.0
+	for i: int in 4:
+		knife._cooldown = 0
+		knife.try_attack(Vector3.FORWARD)
+	knife.cancel_action()
+	check(variants == [1, 0, 1, 0], "alternate swing never repeats back to back")
+	await ticks(10)
 	knife._cooldown = 0
 	knife.try_attack(Vector3.FORWARD)
 	knife.cancel_action()

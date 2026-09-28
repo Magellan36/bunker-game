@@ -16,6 +16,7 @@ const CATEGORIES: Dictionary = {
 	"Fuel": [18],
 	"Containers": [19, 20],
 	"Cooking": [21],
+	"Weapons": [22, 23, 24, 25, 26, 27],
 }
 const CATEGORY_ICONS: Dictionary = {
 	"Farming": "plant",
@@ -23,6 +24,7 @@ const CATEGORY_ICONS: Dictionary = {
 	"Fuel": "fuel",
 	"Containers": "storage",
 	"Cooking": "cooking",
+	"Weapons": "warning",
 }
 const SUBCATEGORIES: Dictionary = {
 	"Farming": {
@@ -34,6 +36,7 @@ const SUBCATEGORIES: Dictionary = {
 	"Fuel": {"All": []},
 	"Containers": {"All": [], "Crates": [19], "Baskets": [20]},
 	"Cooking": {"All": []},
+	"Weapons": {"All": [], "Firearms": [22], "Melee": [23, 24, 25, 26, 27]},
 }
 
 var hud: Node

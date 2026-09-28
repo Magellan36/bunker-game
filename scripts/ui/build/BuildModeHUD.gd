@@ -159,6 +159,15 @@ const FARMING_SHOP_ITEMS: Dictionary = {
 		## already applies to new device/item pricing.
 		{ "tile_id": 21, "name": "Cooking Pot", "price": 120 },
 	],
+	## Weapons (Sep 2026): placeholder price 10, balance pass pending.
+	"Weapons": [
+		{ "tile_id": 22, "name": "Webley Mk II", "price": 10 },
+		{ "tile_id": 23, "name": "Knife", "price": 10 },
+		{ "tile_id": 24, "name": "Hatchet", "price": 10 },
+		{ "tile_id": 25, "name": "Steel Pipe", "price": 10 },
+		{ "tile_id": 26, "name": "Baseball Bat", "price": 10 },
+		{ "tile_id": 27, "name": "Crowbar", "price": 10 },
+	],
 }
 
 ## Item preview source per shop item_id (Jul 2026) — mirrors
@@ -195,6 +204,12 @@ const PREVIEW_SOURCES: Dictionary = {
 	19: { "scene": "res://scenes/world/TestCrate.tscn", "is_script": false },
 	20: { "scene": "res://scenes/world/Basket.tscn", "is_script": false },
 	21: { "scene": "res://scenes/world/CookingPot.tscn", "is_script": false },
+	22: { "scene": "res://scenes/weapons/Webley.tscn", "is_script": false },
+	23: { "scene": "res://scenes/weapons/Knife.tscn", "is_script": false },
+	24: { "scene": "res://scenes/weapons/Hatchet.tscn", "is_script": false },
+	25: { "scene": "res://scenes/weapons/Pipe.tscn", "is_script": false },
+	26: { "scene": "res://scenes/weapons/Bat.tscn", "is_script": false },
+	27: { "scene": "res://scenes/weapons/Crowbar.tscn", "is_script": false },
 }
 
 ## Tiles previewed as the wall mesh scaled in Y (see BuildModeController
