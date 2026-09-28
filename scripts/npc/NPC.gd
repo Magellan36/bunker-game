@@ -68,6 +68,7 @@ var job_state: NPCJobState = NPCJobState.new()
 var thoughts: NPCThoughts = NPCThoughts.new()
 var morale_sys: NPCMorale = NPCMorale.new()   ## slow, condition-driven morale (see NPCMorale.gd)
 var bonds: NPCBonds = NPCBonds.new()           ## relationship ledger + remembered big moments
+var social: NPCSocial = NPCSocial.new()        ## how the player's conduct shapes relationships
 var stuck: NPCStuckRecovery = NPCStuckRecovery.new()
 
 ## True once apply_save_dict() has populated this NPC — _ready() must not
@@ -395,6 +396,7 @@ func _tick_social_and_mood(delta: float) -> void:
 	_update_condition_thoughts()
 	_tick_mood(h)
 	bonds.tick(h)
+	social.tick(h)
 	_tick_irritability(h)
 	_tick_relax_day(h)
 	if gift_saturation > 0.0:
@@ -481,6 +483,39 @@ func _adjust_relationship(target_id: String, delta: float) -> float:
 	return new_value - current
 
 ## F7 debug — exact delta, bypassing sociability.
+## Which resident (if any) is holding this item.
+static func holder_of(tree: SceneTree, item: Node) -> NPC:
+	for n: Node in tree.get_nodes_in_group("npc"):
+		if n is NPC and n.held_item == item:
+			return n
+	return null
+
+## Player-facing hooks (resident panel, InteractionSystem).
+func on_player_command(activity: NPCActivity) -> void:
+	social.on_player_command(activity)
+
+func on_player_worked(pos: Vector3) -> void:
+	social.on_player_worked(pos)
+
+## For the medical system (player treating a resident) — ready to call.
+func on_treated_by_player(what: String = "my wounds") -> void:
+	bonds.relate("player", 8.0, "patched up %s" % what, "You patched me up when I was hurt", true)
+	NPCBonds.witnessed(get_tree(), "player", self, 3.0, "took care of %s" % npc_name)
+
+## Carried out of danger, revived, defended from an attacker — ready to call.
+func on_rescued_by_player(what: String = "saved my life") -> void:
+	bonds.relate("player", 20.0, what, "You %s" % what, true)
+	NPCBonds.witnessed(get_tree(), "player", self, 6.0, "saved %s" % npc_name)
+
+func talk_choices() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for c: Dictionary in NPCSocial.TALK_CHOICES:
+		out.append({"id": c["id"], "label": c["label"], "tone": c["tone"], "why_not": social.talk_unavailable_reason(String(c["id"]))})
+	return out
+
+func talk_choice(choice: String) -> Dictionary:
+	return social.talk(choice)
+
 func debug_adjust_relationship(target_id: String, delta: float) -> void:
 	relationships[target_id] = clampf(get_relationship(target_id) + delta, RELATIONSHIP_MIN, RELATIONSHIP_MAX)
 
@@ -667,6 +702,10 @@ func on_item_given(item: Node, giver_id: String = "player", giver_name: String =
 	var applied: float = bonds.relate(giver_id, effective_bonus, "gave me %s%s" % [ctx["what"], ctx["when"]])
 	gift_saturation = minf(GIFT_SATURATION_MAX, gift_saturation + GIFT_SATURATION_PER_GIFT)
 	NPCBonds.witnessed(get_tree(), giver_id, self, 3.0, "shared food with %s" % npc_name)
+	if giver_id == "player":
+		for other: Node in get_tree().get_nodes_in_group("npc"):
+			if other != self and other is NPC:
+				other.social.on_saw_player_feed(self)
 	add_thought("received_gift", giver_name if giver_id != "player" else "You")
 	if giver_id == "player":
 		bark_event("thanks")
@@ -1099,6 +1138,14 @@ func gain_skill(key: String, amount: float = 0.01) -> void:
 func on_work_done(skill_key: String = "") -> void:
 	if skill_key != "":
 		gain_skill(skill_key)
+	## Working alongside someone slowly builds a bond (summed into the
+	## daily "Time together" line, not logged per task).
+	for other: Node in get_tree().get_nodes_in_group("npc"):
+		if other != self and other is NPC and other.brain != null and other.brain.current_activity() != null \
+				and other.brain.current_activity().is_work() \
+				and NPCItemUser.flat_distance(other.global_position, global_position) < 6.0:
+			bonds.relate(other.npc_id, 0.4, "worked alongside me")
+			other.bonds.relate(npc_id, 0.4, "worked alongside me")
 	if _trait("work_ethic") >= 0.5:
 		add_thought("productive")
 
@@ -1227,6 +1274,7 @@ func _ready() -> void:
 	stuck.setup(self)
 	morale_sys.setup(self)
 	bonds.setup(self)
+	social.setup(self)
 	if not morale_sys._loaded:
 		mood = morale_sys.morale   ## fresh resident; a loaded one keeps its saved mood
 	_mood_tick_timer = randf() * MOOD_TICK_INTERVAL   ## stagger across NPCs
@@ -1980,6 +2028,7 @@ func get_save_dict() -> Dictionary:
 		"thoughts": thoughts.to_save(),
 		"morale": morale_sys.to_save(),
 		"bonds": bonds.to_save(),
+		"social": social.to_save(),
 		"action_log": log_out,
 		"last_irritability_label": _last_irritability_label,
 		"last_player_rel_label": _last_player_relationship_label,
@@ -2035,6 +2084,7 @@ func apply_save_dict(d: Dictionary) -> void:
 	thoughts.from_save(d.get("thoughts", []))
 	morale_sys.from_save(d.get("morale", {}))
 	bonds.from_save(d.get("bonds", {}))
+	social.from_save(d.get("social", {}))
 	_last_irritability_label = String(d.get("last_irritability_label", ""))
 	_last_player_relationship_label = String(d.get("last_player_rel_label", get_relationship_label("player")))
 	_action_log.clear()

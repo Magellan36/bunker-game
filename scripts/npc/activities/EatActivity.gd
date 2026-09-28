@@ -120,6 +120,10 @@ func tick(npc: NPC, delta: float) -> void:
 
 	if _loose != null:
 		if not is_instance_valid(_loose) or (("is_held" in _loose) and _loose.is_held) or _loose.is_in_group("shelved"):
+			if is_instance_valid(_loose) and npc.hunger < 35.0:
+				var taker: NPC = NPC.holder_of(npc.get_tree(), _loose)
+				if taker != null and taker != npc:
+					npc.bonds.relate(taker.npc_id, -1.5, "grabbed the food I was going for")
 			_loose = null   ## someone else got it — try another source
 			if _retries < 3:
 				_retries += 1

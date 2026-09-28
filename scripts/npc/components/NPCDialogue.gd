@@ -162,6 +162,31 @@ const CHAT_ABOUT: Dictionary = {
 	"relaxed": ["Took a proper break. Needed it."],
 }
 
+## Replies to the player's Talk choices (NPCSocial.talk). Keyed by outcome.
+const TALK_REPLIES: Dictionary = {
+	"check_in":       ["\"I'm alright. Thanks for asking.\"", "\"Hanging in there.\"", "\"Not bad, all things considered.\""],
+	"check_in_low":   ["\"Honestly? Not great. ...Thanks for asking.\"", "\"It means a lot that you noticed.\"", "\"I've been better. It helps to talk.\""],
+	"encourage_good": ["\"...Yeah. Yeah, you're right. We'll get through this.\"", "\"Thanks. I needed that.\""],
+	"encourage_flat": ["\"Sure. If you say so.\"", "\"Easy for you to say.\""],
+	"joke_good":      ["\"Ha! Okay, that was good.\"", "\"You're an idiot. ...That was funny though.\""],
+	"joke_bad":       ["\"Really? Now?\"", "\"Not in the mood.\"", "\"...Was that supposed to be funny?\""],
+	"vent_hard":      ["\"Right?! I thought it was just me.\"", "\"Finally, someone says it.\""],
+	"vent":           ["\"Yeah, it's not perfect.\"", "\"Could be worse, I guess.\""],
+	"insult":         ["\"Wow. Noted.\"", "\"You know what? Forget you.\"", "\"Say that again. I dare you.\""],
+	"threaten":       ["\"...Okay. Okay. I hear you.\"", "\"You don't scare me.\"", "\"Back off.\""],
+	"promise":        ["\"You mean it? ...Alright. I'll hold you to that.\"", "\"I'll believe it when I see it.\""],
+	"side":           ["\"Thank you. Seriously.\"", "\"Good to know someone's on my side.\""],
+}
+
+static func talk_reply(npc: NPC, outcome: String) -> String:
+	var pool: Array = TALK_REPLIES.get(outcome, [])
+	if pool.is_empty():
+		return greeting(npc)
+	## Fear colours a threat reply: frightened people comply, the rest bristle.
+	if outcome == "threaten":
+		return pool[0] if npc.social != null and npc.social.fear >= 50.0 else _pick(pool.slice(1))
+	return _pick(pool)
+
 static func chat_line(npc: NPC, replying: bool) -> String:
 	if replying and randf() < 0.45:
 		return _pick(SMALL_TALK_REPLY)

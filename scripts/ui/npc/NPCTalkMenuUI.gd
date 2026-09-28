@@ -118,6 +118,7 @@ var _talk_to_button: Button = null
 
 var _dialogue_label: Label = null
 var _talk_topics_box: VBoxContainer = null
+var _talk_choices_box: VBoxContainer = null   ## NPC talk choices / promise / take sides (NPCSocial)
 var _request_feedback_panel: PanelContainer = null
 var _request_feedback_label: Label = null
 var _job_buttons: Array[Button] = []
@@ -672,6 +673,10 @@ func _build_talk(parent: VBoxContainer) -> void:
 	talk_again.custom_minimum_size.x = 170.0
 	talk_again.pressed.connect(_refresh_dialogue)
 	dialogue_row.add_child(talk_again)
+	C.section_header(parent, "SAY SOMETHING", "HOW YOU TREAT THEM MATTERS")
+	_talk_choices_box = VBoxContainer.new()
+	_talk_choices_box.add_theme_constant_override("separation", 6)
+	parent.add_child(_talk_choices_box)
 	C.section_header(parent, "ASK ABOUT", "CURRENT RESIDENTS")
 	_talk_topics_box = VBoxContainer.new()
 	_talk_topics_box.add_theme_constant_override("separation", 6)
@@ -967,7 +972,68 @@ func _rebuild_traits() -> void:
 		row.add_child(_label(word, 10, S.IVORY))
 
 
+## Relationship verbs (NPC session, Sep 2026): the resident's replies and
+## the relationship change they cause go to the dialogue card and the
+## resident's activity log. Options on cooldown show why they're unavailable.
+func _rebuild_talk_choices() -> void:
+	if _talk_choices_box == null:
+		return
+	_clear(_talk_choices_box)
+	if _npc == null or not is_instance_valid(_npc) or not _npc.has_method("talk_choices"):
+		return
+	var row: HBoxContainer = null
+	var i: int = 0
+	for c: Dictionary in _npc.call("talk_choices"):
+		if i % 3 == 0:
+			row = HBoxContainer.new()
+			row.add_theme_constant_override("separation", 7)
+			_talk_choices_box.add_child(row)
+		var why: String = String(c.get("why_not", ""))
+		var b: Button = _request_button(String(c["label"]), "talk", _on_talk_choice.bind(String(c["id"])))
+		b.disabled = why != ""
+		b.tooltip_text = why.capitalize() if why != "" else ""
+		row.add_child(b)
+		i += 1
+	var social: Object = _npc.get("social") as Object
+	if social == null:
+		return
+	var offer: Dictionary = social.call("promise_offer")
+	if not offer.is_empty():
+		var pb: Button = _request_button("Promise: \"%s\"" % String(offer["text"]), "relationship", _on_make_promise)
+		_talk_choices_box.add_child(pb)
+	for f: Dictionary in social.call("feuds"):
+		var sb: Button = _request_button("Take their side against %s" % String(f["name"]), "relationship", _on_take_side.bind(String(f["id"])))
+		sb.disabled = String(social.call("talk_unavailable_reason", "side_" + String(f["id"]))) != ""
+		_talk_choices_box.add_child(sb)
+
+func _on_talk_choice(choice: String) -> void:
+	if _npc == null or not is_instance_valid(_npc):
+		return
+	var result: Dictionary = _npc.call("talk_choice", choice)
+	if _dialogue_label != null and String(result.get("line", "")) != "":
+		_dialogue_label.text = String(result["line"])
+	_rebuild_talk_choices()
+
+func _on_make_promise() -> void:
+	var social: Object = _npc.get("social") as Object if _npc != null else null
+	if social == null:
+		return
+	var line: String = String(social.call("make_promise"))
+	if _dialogue_label != null and line != "":
+		_dialogue_label.text = line
+	_rebuild_talk_choices()
+
+func _on_take_side(other_id: String) -> void:
+	var social: Object = _npc.get("social") as Object if _npc != null else null
+	if social == null:
+		return
+	var line: String = String(social.call("take_side_against", other_id))
+	if _dialogue_label != null and line != "":
+		_dialogue_label.text = line
+	_rebuild_talk_choices()
+
 func _rebuild_talk_topics() -> void:
+	_rebuild_talk_choices()
 	if _talk_topics_box == null:
 		return
 	_clear(_talk_topics_box)
@@ -1018,6 +1084,8 @@ func _issue_command(activity: NPCActivity, action_desc: String, empty_desc: Stri
 	var brain: Object = _npc.get("brain") as Object
 	if brain == null or not brain.has_method("force_command"):
 		return
+	if _npc.has_method("on_player_command"):
+		_npc.call("on_player_command", activity)   ## workload / consideration (NPCSocial)
 	brain.call("force_command", activity)
 	var resident_name: String = String(_npc.get("npc_name"))
 	if activity.done(_npc):

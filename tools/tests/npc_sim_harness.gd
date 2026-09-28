@@ -38,6 +38,7 @@ var _cfg: Dictionary = {
 	"hour": -1.0,         ## start the clock at this hour of day
 	"follow": -1,          ## capture camera frames this resident (index) instead of --cam
 	"force": "",           ## at --bubbles time, force an activity on resident 0 (e.g. "lean")
+	"verbs": -1.0,         ## at this sim time: exercise every talk choice / promise / order on resident 0
 	"bubbles": -1.0,       ## at this sim time: stage a chat + a nap in front of the capture camera
 	"saveload": -1.0,     ## at this sim time: save all NPCs, restore them, verify nothing was lost
 	"player_sleep": 0.0,  ## +1 / -1: at sim t=2 put the PLAYER into the first bed from that side (visual check)
@@ -89,6 +90,7 @@ func _ready() -> void:
 			"hour": _cfg["hour"] = float(v)
 			"saveload": _cfg["saveload"] = float(v)
 			"bubbles": _cfg["bubbles"] = float(v)
+			"verbs": _cfg["verbs"] = float(v)
 			"follow": _cfg["follow"] = int(v)
 			"force": _cfg["force"] = v
 			"debug": NPCDebug.enabled = v != "0"
@@ -142,6 +144,9 @@ func _process(delta: float) -> void:
 			var player: Node3D = get_tree().get_first_node_in_group("player")
 			player.global_position = first.global_position + Vector3(0.0, 0.0, 1.2)
 			first.on_interact()
+		if not _verbs_done and float(_cfg["verbs"]) >= 0.0 and _t - _setup_at >= float(_cfg["verbs"]):
+			_verbs_done = true
+			_exercise_verbs()
 		if not _bubbles_staged and float(_cfg["bubbles"]) >= 0.0 and _t - _setup_at >= float(_cfg["bubbles"]):
 			_bubbles_staged = true
 			_stage_bubbles()
@@ -419,6 +424,25 @@ func _check_spin(delta: float) -> void:
 					"spin" + str(int(_t / 20.0)))
 			tr["spin_acc"] = 0.0; tr["spin_macc"] = 0.0; tr["spin_t"] = 0.0; tr["spin_pos"] = npc.global_position
 			tr["spin_net"] = 0.0; tr["spin_locked"] = 0; tr["spin_frames"] = 0
+
+var _verbs_done: bool = false
+func _exercise_verbs() -> void:
+	var n: NPC = get_tree().get_nodes_in_group("npc")[0]
+	var before: float = n.get_relationship("player")
+	for c: Dictionary in n.talk_choices():
+		var r: Dictionary = n.talk_choice(String(c["id"]))
+		print("[verbs] %-9s -> %+.1f  %s" % [c["id"], float(r.get("delta", 0.0)), r.get("line", "")])
+	print("[verbs] repeat check_in -> %s" % str(n.talk_choice("check_in")))
+	n.morale_sys.values["light"] = -0.9
+	print("[verbs] promise offer: %s -> %s" % [n.social.promise_offer(), n.social.make_promise()])
+	n.energy = 10.0
+	n.on_player_command(CommandCleaningActivity.new())
+	n.on_player_command(CommandRestActivity.new())
+	n.morale_sys.values["light"] = 0.2
+	n.social.tick(0.1)
+	print("[verbs] relationship %.1f -> %.1f, memories: %s" % [before, n.get_relationship("player"), n.bonds.get_memories().map(func(m): return m["text"])])
+	var lines: Array = n.get_action_log().slice(0, 14).map(func(e): return e["text"])
+	print("[verbs] log:\n  " + "\n  ".join(lines))
 
 ## Bubble demo: two residents chat at (-3.4, 8.6), a third naps in the
 ## first bed — framed by --cam=-3.4,2.6,5.6,-3.4,1.6,8.6 or similar.

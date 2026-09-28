@@ -1054,6 +1054,9 @@ func _complete_job() -> void:
 		player.set_job_locked(false)
 	if cb.is_valid() and (target == null or (is_instance_valid(target) and not target.is_queued_for_deletion())):
 		cb.call()
+		## Residents who see the player pitch in think better of them (NPCSocial).
+		if player != null:
+			get_tree().call_group("npc", "on_player_worked", player.global_position)
 	## Mirrors the E-dispatch block's own "held item freed itself as a side
 	## effect" guard (see that block's Aug 2026 comment) — a job's completion
 	## callback can free held_item too (BagOfSoilItem/SeedItem/FertilizerItem/
