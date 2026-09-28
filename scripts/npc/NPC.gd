@@ -304,7 +304,7 @@ func get_work_ethic_job_mult(raw: float = JOB_BASE_SCORE, job_type: String = "")
 	var m: float = lerpf(1.0, 1.3, smoothstep(0.5, 0.9, _trait("work_ethic")))
 	if job_type != "" and is_passion_job(job_type):
 		return m * PASSION_MULT * (1.0 + 2.5 * drive)
-	var sloth: float = get_sloth()
+	var sloth: float = get_sloth() * (1.0 - drive)   ## pushed hard, the excuses run out
 	if sloth > 0.0:
 		m *= 1.0 - 0.45 * sloth
 		m *= 1.0 - 0.6 * sloth * (1.0 - smoothstep(8.0, 15.0, raw))   ## small jobs: not worth getting up for

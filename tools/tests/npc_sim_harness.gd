@@ -267,7 +267,7 @@ func _setup() -> void:
 				pm.set_generator_fuel(str(g.get_instance_id()), gen_fuel)
 
 	if String(_cfg["scenario"]) == "lazy" and float(_cfg["hour"]) < 0.0:
-		_cfg["hour"] = 7.0   ## daytime for every phase
+		_cfg["hour"] = 6.0   ## daytime for every phase
 	if float(_cfg["hour"]) >= 0.0:
 		var stats: Node = get_tree().get_first_node_in_group("player_stats")
 		stats.set_elapsed(float(_cfg["hour"]) * stats._seconds_per_game_hour)
@@ -309,15 +309,16 @@ func _setup() -> void:
 
 ## ─── Lazy resident loop ──────────────────────────────────────────────────
 ## Residents: 0 Lazy, 1 Hard Worker, 2 Steady, 3 Lazy Gourmand, 4 Hard-Working
-## Gardener. Starts 07:00 (run ~15 min so it ends before bed). Phase 1
-## (~10 game hours) measures how much each works on their
+## Gardener. Starts 06:00 (run ~14 min so it ends before bed). Phase 1
+## (~9 game hours) measures how much each works on their
 ## own and at what; then Brannon's loop plays out on the lazy one: orders
 ## get refused -> kindness (encourage) barely helps -> a threat gets them
 ## working.
-const LAZY_P1: float = 600.0
-const LAZY_P2: float = 690.0
+const LAZY_P1: float = 540.0
+const LAZY_P2: float = 630.0
 var _lazy_share: Dictionary = {}   ## phase -> npc name -> {work, leisure, kinds}
 var _lazy_done: Dictionary = {}
+var _lazy_missed: Dictionary = {}   ## Gourmand not cooking while they could: activity -> seconds
 
 func _lazy_phase() -> String:
 	var st: float = _t - _setup_at
@@ -356,6 +357,12 @@ func _tick_lazy() -> void:
 				refused += 1
 		print("[lazy] after the threat, refused %d/5 orders" % refused)
 	var ph: String = _lazy_phase()
+	## Passion check: when a Gourmand could cook and isn't, what are they doing?
+	for n: NPC in npcs:
+		if n.get_passion() == "COOKING" and n.brain.current_activity() != null \
+				and not (n.brain.current_activity() is CookingActivity) and CookingActivity.new().score(n) > 0.0:
+			var lbl: String = n.brain.current_activity().get_script().get_global_name()
+			_lazy_missed[lbl] = float(_lazy_missed.get(lbl, 0.0)) + SAMPLE_DT
 	for n: NPC in npcs:
 		var cur: NPCActivity = n.brain.current_activity()
 		if cur == null or cur.is_need() or n.brain.is_sleeping():
@@ -384,6 +391,7 @@ static func _work_kind(a: NPCActivity) -> String:
 
 func _report_lazy() -> void:
 	var npcs: Array = get_tree().get_nodes_in_group("npc")
+	print("[lazy] Gourmand could cook but was: %s" % str(_lazy_missed))
 	for ph: String in ["1 on their own", "2 after encourage", "3 after threaten"]:
 		for n: NPC in npcs:
 			if ph != "1 on their own" and n != npcs[0]:
