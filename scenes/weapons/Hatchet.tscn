@@ -7,4 +7,5 @@ script = ExtResource("1")
 weapon_kind = "hatchet"
 damage = 28.0
 attack_interval = 0.65
+strike_delay = 0.36
 reach = 1.5

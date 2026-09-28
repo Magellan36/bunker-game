@@ -7,4 +7,5 @@ script = ExtResource("1")
 weapon_kind = "revolver"
 damage = 32.0
 attack_interval = 0.32
+strike_delay = 0.22
 reach = 35.0

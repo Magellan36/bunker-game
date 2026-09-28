@@ -13,6 +13,11 @@ func check(condition: bool, label: String) -> void:
 		_failures += 1
 		push_error("WEAPONS: " + label)
 
+## Physics ticks until a melee/whip strike has landed (strike_delay is tuned
+## to animation contact frames by the animation session, so never hard-code).
+func strike_ticks(weapon: Node) -> int:
+	return ceili(float(weapon.strike_delay) * Engine.physics_ticks_per_second) + 4
+
 func ticks(count: int) -> void:
 	for i: int in count:
 		await get_tree().physics_frame
@@ -61,7 +66,7 @@ func _run() -> void:
 	check(gun.try_attack(Vector3.FORWARD), "empty revolver attack becomes a pistol whip")
 	check(whips == ["pistol_whip"], "whip announces its own attack kind")
 	check(gun.ammo == 0 and get_tree().get_nodes_in_group("weapon_cases").size() == cases_before, "whip spends no ammo, ejects no case")
-	await ticks(10)
+	await ticks(strike_ticks(gun))
 	check(target.hits == whip_hits, "whip reach is short (target 3 m away untouched)")
 	gun.reserve_ammo = 2
 	gun.on_use()
@@ -110,7 +115,7 @@ func _run() -> void:
 	var hit_log: Array = []
 	gun.hit_resolved.connect(func(hit: Dictionary) -> void: hit_log.append(hit))
 	check(gun.try_attack(Vector3.FORWARD), "close whip commits")
-	await ticks(12)
+	await ticks(strike_ticks(gun))
 	check(target.hits == whip_before + 1 and hit_log.size() == 1 and hit_log[0].kind == "pistol_whip" and is_equal_approx(hit_log[0].damage, gun.whip_damage), "whip hits once for whip damage")
 	gun.ammo = 3
 	# Melee: one hit, no ammo, no hit through wall, cancellation before contact.
@@ -123,12 +128,13 @@ func _run() -> void:
 	await ticks(3)
 	hits_before = target.hits
 	check(knife.try_attack(Vector3.FORWARD), "melee starts")
-	await ticks(10)
+	await ticks(strike_ticks(knife))
 	check(target.hits == hits_before + 1, "melee hits once during strike")
 	check(knife.ammo == 6, "melee does not spend ammunition")
 	var variants: Array = []
 	knife.attack_started.connect(func(_kind: String, variant: int) -> void: variants.append(variant))
 	knife.attack_variant_chance = 1.0
+	knife._last_variant = 0   ## the earlier swing may have rolled the alternate
 	for i: int in 4:
 		knife._cooldown = 0
 		knife.try_attack(Vector3.FORWARD)
@@ -138,7 +144,7 @@ func _run() -> void:
 	knife._cooldown = 0
 	knife.try_attack(Vector3.FORWARD)
 	knife.cancel_action()
-	await ticks(10)
+	await ticks(strike_ticks(knife))
 	check(target.hits == hits_before + 1, "interrupted melee has no delayed hit")
 	# Lock gates and cancellation exercised through the real controller.
 	controller.set_physics_process(true)
