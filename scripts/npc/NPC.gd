@@ -1213,6 +1213,9 @@ func _physics_process(delta: float) -> void:
 	if not is_on_floor():
 		velocity.y -= _gravity * delta
 	move_and_slide()
+	if not _movement_locked:
+		var real: Vector3 = get_real_velocity()
+		_turn_toward_travel(Vector2(real.x, real.z), delta)
 	_handle_physics_pushes(delta)
 	stuck.tick(delta)
 
@@ -1415,6 +1418,20 @@ func set_nav_target(world_pos: Vector3) -> void:
 func nav_finished() -> bool:
 	return nav_agent == null or nav_agent.is_navigation_finished()
 
+## Arrival at the END of the computed path counts as arrived even when the
+## requested target lies beyond it (inside furniture, off the navmesh).
+## Otherwise the agent never reports "finished", the last waypoint sits
+## under the resident's feet, and steering toward it flips direction every
+## frame — the resident spins on the spot.
+const PATH_END_ARRIVE: float = 0.45
+func _at_path_end() -> bool:
+	if nav_agent.get_current_navigation_path().is_empty():
+		return false
+	return NPCItemUser.flat_distance(global_position, nav_agent.get_final_position()) < PATH_END_ARRIVE
+
+func _finish_navigation() -> void:
+	nav_agent.target_position = Vector3(global_position.x, 0.5, global_position.z)
+
 ## Forces a fresh path to the current target (stale path after a rebake).
 func repath() -> void:
 	if nav_agent != null:
@@ -1433,7 +1450,11 @@ func nav_steer(delta: float) -> void:
 		_door_wait = 0.0
 		_decelerate(delta)
 		return
-	var next: Vector3 = nav_agent.get_next_path_position()
+	var next: Vector3 = nav_agent.get_next_path_position()   ## also refreshes a dirty path
+	if _at_path_end():
+		_finish_navigation()
+		_decelerate(delta)
+		return
 	if not _door_passage_allows(next, delta):
 		halt_movement(delta)   ## movement lock also pauses stuck detection while queued
 		return
@@ -1456,8 +1477,23 @@ func _on_velocity_computed(safe_velocity: Vector3) -> void:
 	var w: float = minf(acceleration * _last_steer_delta, 1.0)
 	velocity.x = lerp(velocity.x, safe_velocity.x, w)
 	velocity.z = lerp(velocity.z, safe_velocity.z, w)
-	if Vector2(safe_velocity.x, safe_velocity.z).length() > 0.05:
-		rotation.y = lerp_angle(rotation.y, atan2(-safe_velocity.x, -safe_velocity.z), minf(12.0 * _last_steer_delta, 1.0))
+
+## Faces the way the resident ACTUALLY moved this frame (post-collision),
+## at a human turn rate. Pressed against a wall or another resident they
+## barely move, so they don't turn — the old code faced whatever avoidance
+## suggested each frame, and a blocked resident flip-flopped between
+## suggestions: the "spinning in a corner" look. Slow drift (< a third of
+## walking pace) never turns the body, and the rate cap keeps any residual
+## jitter far below a visible spin.
+const TURN_RATE: float = 7.0   ## rad/s (~a full turn in 0.9 s)
+func _turn_toward_travel(dir: Vector2, delta: float) -> void:
+	if dir.length() < maxf(_requested_speed, 0.5) * 0.35:
+		return
+	var target_yaw: float = atan2(-dir.x, -dir.y)
+	var diff: float = angle_difference(rotation.y, target_yaw)
+	var step: float = diff * minf(12.0 * delta, 1.0)
+	var max_step: float = TURN_RATE * delta
+	rotation.y += clampf(step, -max_step, max_step)
 
 func _decelerate(delta: float) -> void:
 	var w: float = minf(acceleration * delta, 1.0)   ## never extrapolate (a >1 weight reverses velocity)
@@ -1669,15 +1705,26 @@ func _get_work_prompt_renderer() -> Node:
 		_work_prompt_renderer = get_tree().get_first_node_in_group("interact_prompt")
 	return _work_prompt_renderer
 
+## DEBUG nameplate ("Name — Activity"). A development overlay only — not
+## part of the shipping look (NPCDebug.show_nameplates turns it off). It
+## steps aside whenever a speech bubble is up so the two never stack.
 var _overhead_label: Label3D = null
-var _indicator_label: Label3D = null
 var _overhead_timer: float = 0.0
 var _speaking: bool = false
-var _indicator_phase: float = 0.0
+var _bubble: NPCSpeechBubble = null
 
-## TalkActivity turn-taking: shows a small "…" bubble over whoever speaks.
+## TalkActivity turn-taking: a small "typing" pill over whoever holds the
+## floor when they aren't saying a readable line.
 func set_speaking(on: bool) -> void:
 	_speaking = on
+
+func _get_bubble() -> NPCSpeechBubble:
+	if _bubble == null:
+		_bubble = NPCSpeechBubble.new()
+		_bubble.name = "SpeechBubble"
+		add_child(_bubble)
+		_bubble.setup(self)
+	return _bubble
 
 # ─── Barks — short floating speech lines ──────────────────────────────────
 ## Event barks (bark()) are rate-limited per NPC; the ambient greeting when
@@ -1687,8 +1734,6 @@ const BARK_DURATION: float = 3.2
 const BARK_MIN_GAP_SEC: float = 6.0
 const GREET_RANGE: float = 3.2
 const GREET_COOLDOWN_HOURS: float = 1.0
-var _bark_label: Label3D = null
-var _bark_left: float = 0.0
 var _last_bark_msec: int = -100000
 var _last_greet_hours: float = -100.0
 var _greet_check: float = 0.0
@@ -1699,25 +1744,18 @@ func bark(text: String, force: bool = false) -> void:
 	if not force and Time.get_ticks_msec() - _last_bark_msec < int(BARK_MIN_GAP_SEC * 1000.0):
 		return
 	_last_bark_msec = Time.get_ticks_msec()
-	if _bark_label == null:
-		_bark_label = _make_label3d(30, 9, Vector3(0.0, 2.3, 0.0), Color(1.0, 0.97, 0.88, 1.0), 0.0007)
-		_bark_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		_bark_label.width = 520.0
-	_bark_label.text = text
-	_bark_label.visible = true
-	_bark_label.modulate.a = 1.0
-	_bark_left = BARK_DURATION
+	_get_bubble().say(text, BARK_DURATION)
+
+## A conversation line: not rate-limited like event barks (TalkActivity
+## paces turns itself).
+func say_line(text: String) -> void:
+	if text != "":
+		_get_bubble().say(text, BARK_DURATION)
 
 func bark_event(kind: String, subject: String = "") -> void:
 	bark(NPCDialogue.bark_line(kind, subject))
 
 func _update_bark(delta: float) -> void:
-	if _bark_left > 0.0:
-		_bark_left -= delta
-		if _bark_label != null:
-			_bark_label.modulate.a = clampf(_bark_left / 0.6, 0.0, 1.0)
-			if _bark_left <= 0.0:
-				_bark_label.visible = false
 	## Ambient greeting: the player walks up to an idle-ish resident.
 	_greet_check -= delta
 	if _greet_check > 0.0:
@@ -1735,33 +1773,31 @@ func _update_bark(delta: float) -> void:
 		bark(NPCDialogue.greeting_bark(self))
 
 func _process(delta: float) -> void:
-	_update_indicator(delta)
+	var bubble: NPCSpeechBubble = _get_bubble()
+	bubble.set_sleeping(brain != null and (brain.is_sleeping() or is_passed_out()))
+	bubble.set_typing(_speaking)
+	bubble.tick(delta)
 	_update_bark(delta)
+	_update_debug_nameplate(delta, bubble.is_showing())
+
+func _update_debug_nameplate(delta: float, bubble_up: bool) -> void:
+	if not NPCDebug.show_nameplates:
+		if _overhead_label != null:
+			_overhead_label.visible = false
+		_update_relationship_debug_label()
+		return
+	if _overhead_label == null:
+		_overhead_label = _make_label3d(26, 6, Vector3(0.0, 1.85, 0.0), Color(0.70, 0.73, 0.76, 0.8), 0.0006)
+	## Fade out of the way while a bubble is up.
+	var target_a: float = 0.0 if bubble_up else 0.8
+	_overhead_label.modulate.a = move_toward(_overhead_label.modulate.a, target_a, delta * 4.0)
+	_overhead_label.visible = _overhead_label.modulate.a > 0.01
 	_overhead_timer -= delta
 	if _overhead_timer > 0.0:
 		return
 	_overhead_timer = 0.5
-	if _overhead_label == null:
-		_overhead_label = _make_label3d(34, 8, Vector3(0.0, 1.85, 0.0), Color(0.88, 0.90, 0.92, 0.95), 0.0007)
 	_overhead_label.text = "%s — %s" % [npc_name, brain.current_label() if brain != null else "Idle"]
 	_update_relationship_debug_label()
-
-func _update_indicator(delta: float) -> void:
-	var text: String = ""
-	if brain != null and (brain.is_sleeping() or is_passed_out()):
-		_indicator_phase += delta
-		text = ["z", "zZ", "zZz"][int(_indicator_phase * 1.2) % 3]
-	elif _speaking:
-		_indicator_phase += delta
-		text = [".", "..", "..."][int(_indicator_phase * 3.0) % 3]
-	if text == "":
-		if _indicator_label != null:
-			_indicator_label.visible = false
-		return
-	if _indicator_label == null:
-		_indicator_label = _make_label3d(40, 10, Vector3(0.0, 2.05, 0.0), Color(1.0, 0.95, 0.8, 0.95), 0.0008)
-	_indicator_label.visible = true
-	_indicator_label.text = text
 
 func _make_label3d(font_size: int, outline: int, pos: Vector3, color: Color, pixel: float) -> Label3D:
 	var l: Label3D = Label3D.new()

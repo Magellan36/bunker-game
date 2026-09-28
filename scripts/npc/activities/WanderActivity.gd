@@ -28,6 +28,9 @@ var _look_timer: float = 0.0
 func score(npc: NPC) -> float:
 	return BASE_SCORE * npc.get_work_ethic_passive_mult()
 
+func attention_target(_npc: NPC) -> Node3D:
+	return _look_target if not _walking and _look_target != null and is_instance_valid(_look_target) else null
+
 func label() -> String:
 	return "Taking a stroll" if leisurely else "Wandering"
 
@@ -94,8 +97,14 @@ func _pick_destination(npc: NPC) -> Vector3:
 				var p: Vector3 = o["pos"]
 				if leisurely:
 					p = npc.global_position.lerp(p, 0.5)   ## shorter hop toward it
-				if attempt == 4 or not _crowded(npc, p):
-					return p
+				## Snap onto walkable floor (a spot "near the stove" can land
+				## inside it) and skip spots this resident can't reach.
+				var snapped: Vector3 = npc.stuck.snap_to_navmesh(p) if npc.stuck != null else p
+				if snapped != Vector3.INF:
+					p = snapped
+				var ok: bool = snapped != Vector3.INF and NPCItemUser.is_reachable(npc, p, 0.6)
+				if attempt == 4 or (ok and not _crowded(npc, p)):
+					return p if ok else fallback
 				break
 	return fallback
 

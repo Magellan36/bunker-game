@@ -41,6 +41,9 @@ func _init(partner: Node = null, is_initiator: bool = true) -> void:
 	_partner = partner
 	_is_initiator = is_initiator
 
+func attention_target(_npc: NPC) -> Node3D:
+	return _partner as Node3D if _partner != null and is_instance_valid(_partner) else null
+
 func label() -> String:
 	if _partner == null or not is_instance_valid(_partner):
 		return "Idle"
@@ -140,7 +143,7 @@ func tick(npc: NPC, delta: float) -> void:
 			## Whoever holds the floor sometimes says something readable.
 			var speaker: NPC = npc if _speaking else _partner
 			if randf() < 0.55:
-				speaker.bark(NPCDialogue.chat_line(speaker, _turns > 0))
+				speaker.say_line(NPCDialogue.chat_line(speaker, _turns > 0))
 			_turns += 1
 	if not _is_initiator:
 		return   ## partner just waits — the initiator's end-of-session clears _partner via end_talk_session()

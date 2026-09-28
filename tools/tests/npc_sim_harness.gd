@@ -22,7 +22,7 @@ extends Node
 ## (runs res://tools/tests/NPCSimHarness.tscn as the main scene so autoloads exist)
 ## Exit code 0 = no invariant violations, 1 = violations (report printed).
 
-const SCENARIOS: Array[String] = ["basic", "farm", "cook", "power", "stress", "scarcity", "door", "all"]
+const SCENARIOS: Array[String] = ["basic", "farm", "cook", "power", "stress", "scarcity", "door", "session", "all"]
 
 var _cfg: Dictionary = {
 	"scenario": "basic",
@@ -36,6 +36,7 @@ var _cfg: Dictionary = {
 	"cam": "",            ## "px,py,pz,lx,ly,lz" camera position + look-at for captures
 	"shots": "",          ## "t0:count:dt" — capture `count` frames starting at sim time t0, every dt seconds
 	"hour": -1.0,         ## start the clock at this hour of day
+	"bubbles": -1.0,       ## at this sim time: stage a chat + a nap in front of the capture camera
 	"saveload": -1.0,     ## at this sim time: save all NPCs, restore them, verify nothing was lost
 	"player_sleep": 0.0,  ## +1 / -1: at sim t=2 put the PLAYER into the first bed from that side (visual check)
 	"open_panel": -1.0,   ## at this sim time open the resident panel (talk menu) on the first NPC
@@ -85,6 +86,8 @@ func _ready() -> void:
 			"shots": _cfg["shots"] = v
 			"hour": _cfg["hour"] = float(v)
 			"saveload": _cfg["saveload"] = float(v)
+			"bubbles": _cfg["bubbles"] = float(v)
+			"debug": NPCDebug.enabled = v != "0"
 			"player_sleep": _cfg["player_sleep"] = float(v)
 			"open_panel": _cfg["open_panel"] = float(v)
 	seed(int(_cfg["seed"]))
@@ -102,6 +105,9 @@ func _process(delta: float) -> void:
 	if _phase < 0:
 		return
 	if _phase == 1:
+		_check_spin(delta)
+		if String(_cfg["scenario"]) == "session" and _sample_timer <= 0.0:
+			_check_session_cooking()
 		_sample_timer -= delta
 		if _sample_timer <= 0.0:
 			_sample_timer = SAMPLE_DT
@@ -126,6 +132,9 @@ func _process(delta: float) -> void:
 			var player: Node3D = get_tree().get_first_node_in_group("player")
 			player.global_position = first.global_position + Vector3(0.0, 0.0, 1.2)
 			first.on_interact()
+		if not _bubbles_staged and float(_cfg["bubbles"]) >= 0.0 and _t - _setup_at >= float(_cfg["bubbles"]):
+			_bubbles_staged = true
+			_stage_bubbles()
 		if not _saveload_done and float(_cfg["saveload"]) >= 0.0 and _t - _setup_at >= float(_cfg["saveload"]):
 			_saveload_done = true
 			_check_save_load()
@@ -140,7 +149,7 @@ func _setup() -> void:
 	var objs: Array = []
 	var items: Array = []   ## [scene_path_or_kind, Vector3, extra]
 	var gen_fuel: float = -1.0
-	var want_all: bool = sc == "all"
+	var want_all: bool = sc == "all" or sc == "session"
 
 	## Room is x ∈ [-12, 3], z ∈ [5, 12] (1 m cells). Research station sits
 	## around the middle — keep furniture on the edges.
@@ -170,7 +179,7 @@ func _setup() -> void:
 		objs.append(_obj(30, Vector3(-3.0, 0.5, 11.5), 0.0))        ## stove (no pot anywhere → must not churn)
 	if sc in ["power"] or want_all:
 		objs.append(_obj(6, Vector3(-9.0, 0.5, 5.6), 0.0))          ## small generator
-		gen_fuel = 20.0
+		gen_fuel = 20.0 if sc != "session" else 80.0
 
 	_bc.restore_placed_objects(objs)
 	if sc == "door":
@@ -232,7 +241,11 @@ func _setup() -> void:
 		var npc: Node3D = npc_scene.instantiate()
 		_world.add_child(npc)
 		npc.global_position = _rand_floor_pos() + Vector3(0.0, 1.0, 0.0)
-		if sc == "scarcity":
+		if sc == "session":
+			npc.hunger = randf_range(82.0, 100.0)   ## well fed: cooking must still happen
+			npc.thirst = randf_range(60.0, 100.0)
+			npc.energy = randf_range(55.0, 100.0)
+		elif sc == "scarcity":
 			npc.hunger = randf_range(35.0, 60.0)
 			npc.thirst = randf_range(35.0, 60.0)
 		else:
@@ -244,10 +257,118 @@ func _setup() -> void:
 			"hold_since": -1.0, "hold_act": "", "last_pos": npc.global_position,
 			"still_since": _t, "reported": {},
 		}
+	if sc == "session":
+		await _wire_first_stove()
 	print("[harness] scenario=%s npcs=%d minutes=%.1f seed=%d objects=%d items=%d" % [
 		sc, int(_cfg["npcs"]), float(_cfg["minutes"]), int(_cfg["seed"]), objs.size(), items.size()])
 	for g in ["chair", "bed", "shelving", "trash_receptacle", "generator", "farming_tray", "stove", "pickup"]:
 		print("[harness]   group %s = %d" % [g, get_tree().get_nodes_in_group(g).size()])
+
+## Session scenario: the stove nearest the generator is wired to it; the
+## other stays unplugged (a pot may go on it, but nobody may cook on it).
+var _wired_stove: Node = null
+var _first_cook_t: float = -1.0
+var _cook_sessions: int = 0
+
+func _wire_first_stove() -> void:
+	for i in 3:
+		await get_tree().physics_frame
+	var pm: Node = get_tree().get_first_node_in_group("power_manager")
+	var gens: Array = get_tree().get_nodes_in_group("generator")
+	var stoves: Array = get_tree().get_nodes_in_group("stove")
+	if pm == null or gens.is_empty() or stoves.is_empty():
+		print("[harness] session wiring FAILED (pm/gen/stove missing)")
+		return
+	var gen: Node3D = gens[0]
+	stoves.sort_custom(func(a: Node3D, b: Node3D) -> bool:
+		return a.global_position.distance_to(gen.global_position) < b.global_position.distance_to(gen.global_position))
+	_wired_stove = stoves[0]
+	var gkey: String = pm._generator_wire_key(str(gen.get_instance_id()))
+	var skey: String = String(_wired_stove.get("_pm_node_key"))
+	pm.register_wire_edge(gkey, skey, null, true)
+	for i in 3:
+		await get_tree().physics_frame
+	for st: Node in stoves:
+		print("[harness] stove at %s connected=%s" % [(st as Node3D).global_position, st.npc_can_power_on()])
+
+func _check_session_cooking() -> void:
+	for st: Node in get_tree().get_nodes_in_group("stove"):
+		var pot: Node = st.pot_ref
+		if pot == null or not is_instance_valid(pot):
+			continue
+		if not st.npc_can_power_on() and pot.count_filled() > 0:
+			_flag("cook_unwired", get_tree().get_nodes_in_group("npc")[0], "ingredients put in a pot on an UNCONNECTED stove", str(st.get_instance_id()))
+	if _first_cook_t < 0.0:
+		for n: Node in get_tree().get_nodes_in_group("npc"):
+			if _act_class(n) == "CookingActivity":
+				_first_cook_t = _t - _setup_at
+				print("[harness] first cooking decision at %.1fs by %s" % [_first_cook_t, n.npc_name])
+				break
+
+## Spin detector: body yaw turning > 1.5 full turns within 4 s while the
+## resident barely moves = spinning in place.
+const SPIN_WINDOW: float = 4.0
+func _check_spin(delta: float) -> void:
+	for id in _track.keys():
+		var tr: Dictionary = _track[id]
+		var raw = tr["npc"]
+		if not is_instance_valid(raw):
+			continue
+		var npc: Node3D = raw
+		var yaw: float = npc.rotation.y
+		var model: Node3D = npc.get_node_or_null("CharacterModel") as Node3D
+		var myaw: float = model.global_rotation.y if model != null else yaw
+		if not tr.has("spin_yaw"):
+			tr["spin_yaw"] = yaw; tr["spin_myaw"] = myaw; tr["spin_acc"] = 0.0; tr["spin_macc"] = 0.0
+			tr["spin_t"] = 0.0; tr["spin_pos"] = npc.global_position
+		tr["spin_acc"] = float(tr["spin_acc"]) + absf(angle_difference(float(tr["spin_yaw"]), yaw))
+		tr["spin_net"] = float(tr.get("spin_net", 0.0)) + angle_difference(float(tr["spin_yaw"]), yaw)
+		tr["spin_locked"] = int(tr.get("spin_locked", 0)) + (1 if npc.is_movement_locked() else 0)
+		tr["spin_frames"] = int(tr.get("spin_frames", 0)) + 1
+		tr["spin_macc"] = float(tr["spin_macc"]) + absf(angle_difference(float(tr["spin_myaw"]), myaw))
+		tr["spin_yaw"] = yaw
+		tr["spin_myaw"] = myaw
+		tr["spin_t"] = float(tr["spin_t"]) + delta
+		if float(tr["spin_t"]) >= SPIN_WINDOW:
+			var moved: float = NPCItemUser.flat_distance(npc.global_position, tr["spin_pos"])
+			var turns: float = maxf(float(tr["spin_acc"]), float(tr["spin_macc"])) / TAU
+			if (absf(float(tr["spin_net"])) / TAU > 1.5 or turns > 2.5) and moved < 1.0:
+				_flag("spinning", npc, "turned %.1f times (net %.1f) in %.0fs while moving %.2fm (model %.1f) locked %d/%d frames pos=%s" % [
+					turns, float(tr["spin_net"]) / TAU, SPIN_WINDOW, moved, float(tr["spin_macc"]) / TAU,
+					int(tr["spin_locked"]), int(tr["spin_frames"]), npc.global_position],
+					"spin" + str(int(_t / 20.0)))
+			tr["spin_acc"] = 0.0; tr["spin_macc"] = 0.0; tr["spin_t"] = 0.0; tr["spin_pos"] = npc.global_position
+			tr["spin_net"] = 0.0; tr["spin_locked"] = 0; tr["spin_frames"] = 0
+
+## Bubble demo: two residents chat at (-3.4, 8.6), a third naps in the
+## first bed — framed by --cam=-3.4,2.6,5.6,-3.4,1.6,8.6 or similar.
+var _bubbles_staged: bool = false
+func _stage_bubbles() -> void:
+	var npcs: Array = get_tree().get_nodes_in_group("npc")
+	if npcs.size() < 3:
+		return
+	var a: NPC = npcs[0]
+	var b: NPC = npcs[1]
+	for n: NPC in [a, b]:
+		n.brain.stop_current()
+		n.hunger = 95.0; n.thirst = 95.0; n.energy = 90.0
+	a.place_standing_at(Vector3(-4.0, 0.5, 8.6))
+	b.place_standing_at(Vector3(-2.8, 0.5, 8.6))
+	a.relationships[b.npc_id] = 40.0
+	b.relationships[a.npc_id] = 40.0
+	var c: NPC = npcs[2]
+	c.energy = 5.0
+	c.brain.stop_current()
+	for attempt: int in 12:
+		for n: NPC in [a, b]:
+			if NPCItemUser.hands_full(n):
+				NPCItemUser.drop_held(n)
+			n._talk_cooldown_until = -1.0 if "_talk_cooldown_until" in n else 0.0
+		if a.debug_force_talk():
+			print("[harness] staged chat started (try %d)" % attempt)
+			return
+		await get_tree().create_timer(1.0).timeout
+	print("[harness] staged chat FAILED: partner=%s avail_b=%s" % [a.find_talk_partner(), b.is_available_to_talk()])
 
 const DOOR_WALL_X: float = -8.5
 const DOOR_WALL_ANGLE: float = 0.0   ## wall run (and door) along world Z
@@ -640,6 +761,18 @@ func _report() -> void:
 		print("VIOLATIONS %s: %d" % [k, arr.size()])
 		for i in mini(arr.size(), 12):
 			print("    " + String(arr[i]))
+	if _cfg["timeline"]:
+		for n: Node in get_tree().get_nodes_in_group("npc"):
+			var lines: Array[String] = []
+			for e: Dictionary in n._action_log:
+				lines.append(String(e.get("text", "")))
+			print("[harness] %s actions: %s" % [n.npc_name, " | ".join(lines.slice(maxi(0, lines.size() - 25)))])
+	if String(_cfg["scenario"]) == "session":
+		print("[harness] first cooking decision: %s" % ("%.1fs" % _first_cook_t if _first_cook_t >= 0.0 else "NEVER"))
+		for st: Node in get_tree().get_nodes_in_group("stove"):
+			var pot: Node = st.pot_ref
+			print("[harness] stove connected=%s pot=%s filled=%d powered=%s" % [st.npc_can_power_on(), pot != null,
+				pot.count_filled() if pot != null else 0, st.powered_on])
 	if String(_cfg["scenario"]) == "door":
 		print("[harness] door crossings: %d, door open/close changes: %d" % [_door_crossings, _door_toggles])
 	print("RESULT: %s (%d violations)" % ["PASS" if bad == 0 else "FAIL", bad])
