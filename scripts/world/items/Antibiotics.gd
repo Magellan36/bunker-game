@@ -183,6 +183,14 @@ func apply_to_target(body_part: int) -> void:
 	if pm == null or not pm.has_method("treat_open_wound_antibiotics"):
 		return
 	pm.treat_open_wound_antibiotics(body_part)
+	spend_charge()
+
+## Treating a RESIDENT — see Bandage.NPC_TREATMENT / NPC.receive_treatment().
+const NPC_TREATMENT: String = "antibiotics"
+
+func spend_charge() -> void:
+	if _is_empty:
+		return
 	_charges_left -= 1
 	charge_changed.emit()
 	if _charges_left <= 0:

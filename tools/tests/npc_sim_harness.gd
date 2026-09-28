@@ -38,6 +38,7 @@ var _cfg: Dictionary = {
 	"hour": -1.0,         ## start the clock at this hour of day
 	"follow": -1,          ## capture camera frames this resident (index) instead of --cam
 	"force": "",           ## at --bubbles time, force an activity on resident 0 (e.g. "lean")
+	"treat": -1.0,         ## at this sim time: injure resident 0 and treat them with real medical items
 	"verbs": -1.0,         ## at this sim time: exercise every talk choice / promise / order on resident 0
 	"bubbles": -1.0,       ## at this sim time: stage a chat + a nap in front of the capture camera
 	"saveload": -1.0,     ## at this sim time: save all NPCs, restore them, verify nothing was lost
@@ -91,6 +92,7 @@ func _ready() -> void:
 			"saveload": _cfg["saveload"] = float(v)
 			"bubbles": _cfg["bubbles"] = float(v)
 			"verbs": _cfg["verbs"] = float(v)
+			"treat": _cfg["treat"] = float(v)
 			"follow": _cfg["follow"] = int(v)
 			"force": _cfg["force"] = v
 			"debug": NPCDebug.enabled = v != "0"
@@ -150,6 +152,9 @@ func _process(delta: float) -> void:
 				## Tour the tabs for captures: Talk at +0.5 s, Activity Log at +1.0 s.
 				get_tree().create_timer(0.5).timeout.connect(func() -> void: if is_instance_valid(tm): tm.call("_set_tab", 1, false))
 				get_tree().create_timer(1.0).timeout.connect(func() -> void: if is_instance_valid(tm): tm.call("_set_tab", 4, false))
+		if not _treat_done and float(_cfg["treat"]) >= 0.0 and _t - _setup_at >= float(_cfg["treat"]):
+			_treat_done = true
+			_exercise_treatment()
 		if not _verbs_done and float(_cfg["verbs"]) >= 0.0 and _t - _setup_at >= float(_cfg["verbs"]):
 			_verbs_done = true
 			_exercise_verbs()
@@ -435,6 +440,25 @@ func _check_spin(delta: float) -> void:
 					"spin" + str(int(_t / 20.0)))
 			tr["spin_acc"] = 0.0; tr["spin_macc"] = 0.0; tr["spin_t"] = 0.0; tr["spin_pos"] = npc.global_position
 			tr["spin_net"] = 0.0; tr["spin_locked"] = 0; tr["spin_frames"] = 0
+
+var _treat_done: bool = false
+func _exercise_treatment() -> void:
+	var n: NPC = get_tree().get_nodes_in_group("npc")[0]
+	n.medical.spawn_bleeding(MedicalCondition.BodyPart.LEFT_ARM)
+	n.medical.spawn_fractured(MedicalCondition.BodyPart.RIGHT_LEG)
+	for path: String in ["res://scenes/world/Bandage.tscn", "res://scenes/world/Splint.tscn"]:
+		var item: Node = FarmingShopHelper.spawn_scene_settled(_world, path, n.global_position + Vector3(1, 0.5, 0))
+		if item == null:
+			print("[treat] could not spawn %s" % path)
+			continue
+		var before: float = n.get_relationship("player")
+		var prompt: String = n.treatment_prompt(item)
+		var ok: bool = n.receive_treatment(item)
+		print("[treat] %s prompt='%s' applied=%s rel %+.1f -> %+.1f charges_left=%s" % [path.get_file(), prompt, ok, before,
+			n.get_relationship("player"), item.get("_charges_left") if is_instance_valid(item) else "used up"])
+	print("[treat] second bandage prompt (nothing left to bandage): '%s'" % n.treatment_prompt(
+		FarmingShopHelper.spawn_scene_settled(_world, "res://scenes/world/Bandage.tscn", n.global_position + Vector3(1, 0.5, 0))))
+	print("[treat] log: %s" % str(n.get_action_log().slice(0, 5).map(func(e): return e["text"])))
 
 var _verbs_done: bool = false
 func _exercise_verbs() -> void:

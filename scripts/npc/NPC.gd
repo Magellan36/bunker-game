@@ -536,8 +536,57 @@ func debug_roll_crash_out(h: float) -> bool:
 func on_player_worked(pos: Vector3) -> void:
 	social.on_player_worked(pos)
 
-## For the medical system (player treating a resident) — ready to call.
-func on_treated_by_player(what: String = "my wounds") -> void:
+# ─── Player treating this resident (Bandage / Antibiotics / Splint) ────────
+## Medical items declare NPC_TREATMENT; the player holding one near an
+## injured resident sees "[E] Bandage Mara's left arm" and E applies it to
+## the worst eligible injury (InteractionSystem), then the item spends its
+## own charge. The resident remembers who patched them up.
+const TREATMENTS: Dictionary = {
+	"bleeding":    {"targets": "get_eligible_bleeding_targets", "apply": "treat_bleeding", "prompt": "[E] Bandage %s's %s", "what": "my bleeding %s"},
+	"antibiotics": {"targets": "get_eligible_antibiotic_targets", "apply": "treat_open_wound_antibiotics", "prompt": "[E] Give %s antibiotics (%s wound)", "what": "the wound on my %s"},
+	"splint":      {"targets": "get_eligible_splint_targets", "apply": "apply_splint", "prompt": "[E] Splint %s's %s", "what": "my %s"},
+}
+var _last_treated_hours: float = -100.0
+
+func _treatment_target(item: Node) -> Dictionary:
+	if item == null or not is_instance_valid(item) or not ("NPC_TREATMENT" in item) or medical == null:
+		return {}
+	var def: Dictionary = TREATMENTS.get(String(item.NPC_TREATMENT), {})
+	if def.is_empty() or (item.has_method("has_charges_left") and not item.has_charges_left()):
+		return {}
+	var targets: Array = medical.call(String(def["targets"]))
+	if targets.is_empty():
+		return {}
+	return {"def": def, "target": targets[0]}   ## worst first (NPCMedical sorts by severity)
+
+## "" when this item can't help this resident right now.
+func treatment_prompt(item: Node) -> String:
+	var t: Dictionary = _treatment_target(item)
+	if t.is_empty():
+		return ""
+	return String(t["def"]["prompt"]) % [npc_name, String(t["target"]["label"]).to_lower()]
+
+func receive_treatment(item: Node) -> bool:
+	var t: Dictionary = _treatment_target(item)
+	if t.is_empty():
+		return false
+	var part: int = int(t["target"]["body_part"])
+	medical.call(String(t["def"]["apply"]), part)
+	var where: String = String(t["target"]["label"]).to_lower()
+	if item.has_method("spend_charge"):
+		item.spend_charge()
+	log_event("care", "Treated by you: %s" % (String(t["def"]["what"]) % where))
+	bark_event("thanks")
+	## Being cared for matters most the first time; repeat care still counts.
+	var repeat: bool = NPCClock.now() - _last_treated_hours < 12.0
+	_last_treated_hours = NPCClock.now()
+	on_treated_by_player(String(t["def"]["what"]) % where, repeat)
+	return true
+
+func on_treated_by_player(what: String = "my wounds", repeat: bool = false) -> void:
+	if repeat:
+		bonds.relate("player", 3.0, "took care of %s again" % what)
+		return
 	bonds.relate("player", 8.0, "patched up %s" % what, "You patched me up when I was hurt", true)
 	NPCBonds.witnessed(get_tree(), "player", self, 3.0, "took care of %s" % npc_name)
 

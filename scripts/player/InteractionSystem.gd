@@ -653,6 +653,22 @@ func _unhandled_input(event: InputEvent) -> void:
 			_try_use_held_cookpot(held_item)
 			get_viewport().set_input_as_handled()
 			return
+		## Medical item held + an injured resident in range → E treats them
+		## (NPC.receive_treatment picks their worst eligible injury and the
+		## item spends its own charge). Takes priority over self-treatment.
+		if held_item != null and ("NPC_TREATMENT" in held_item):
+			var patient: Node = _find_nearest_npc()
+			if patient != null and patient.has_method("treatment_prompt") and patient.treatment_prompt(held_item) != "":
+				patient.receive_treatment(held_item)
+				if not is_instance_valid(held_item) or held_item.is_queued_for_deletion():
+					if _held_from_slot != -1 and inventory != null:
+						inventory.clear_slot(_held_from_slot)
+					held_item       = null
+					_held_from_slot = -1
+					_is_holding_e   = false
+					_update_hud_selection()
+				get_viewport().set_input_as_handled()
+				return
 		## Giveable item held + an NPC in range → E gives it instead of
 		## normal item use.
 		if held_item != null and NPCItemUser.is_giveable(held_item) and _find_nearest_npc() != null:
@@ -1272,6 +1288,18 @@ func _update_prompt() -> void:
 						entries.append({"text": stove_txt, "world_pos": stove_pos, "dist": 0.0})
 				if nearby_stove.has_method("has_open_slot") and nearby_stove.has_open_slot():
 					entries.append({"text": "[F] Place Cooking Pot", "world_pos": stove_pos, "dist": 0.0})
+
+		# Treat a resident — holding a medical item near someone it can help.
+		if held_item != null and ("NPC_TREATMENT" in held_item):
+			for npc: Node in get_tree().get_nodes_in_group("npc"):
+				if not is_instance_valid(npc) or not npc.has_method("treatment_prompt"):
+					continue
+				var td: float = (npc as Node3D).global_position.distance_to(player.global_position)
+				if td > MAX_PROMPT_DIST:
+					continue
+				var tp: String = npc.treatment_prompt(held_item)
+				if tp != "":
+					entries.append({"text": tp, "world_pos": (npc as Node3D).global_position + Vector3(0.0, 1.8, 0.0), "dist": td})
 
 		# Give to NPC — holding a giveable item (dish, produce, can, or
 		# bottle) → "[E] Give <item> to <name>" over each nearby NPC.

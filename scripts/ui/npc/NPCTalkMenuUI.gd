@@ -1368,6 +1368,8 @@ func _log_kind_color(entry: Dictionary) -> Color:
 			return S.RED
 		"memory":
 			return S.BRASS.lightened(0.25)
+		"care":
+			return S.GREEN
 		"morale":
 			return ENERGY_COLOR
 		"bond":
