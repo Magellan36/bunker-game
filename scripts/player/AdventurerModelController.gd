@@ -119,15 +119,23 @@ const XF_TO_SLEEP: float = 1.2
 const XF_WAKE: float = 0.9
 const XF_EXIT: float = 0.45
 const XF_DEATH: float = 0.2
+## Wall lean: blend in/out of the loop (no transition clips exist, so these
+## are long enough to read as settling back / pushing off).
+const XF_LEAN_IN: float = 0.75
+const XF_LEAN_OUT: float = 0.6
+## Keep the capsule this much further from the wall than its radius.
+const LEAN_CAPSULE_GAP: float = 0.02
 const XF_DEATH_TURN: float = 0.35
 ## Free floor wanted beyond the dying clip's own travel (m).
 const DEATH_CLEARANCE: float = 0.3
 
-enum Stage { NONE, APPROACH, PIVOT, SIT_DOWN, SEATED, LIE_DOWN, SLEEP, GET_UP, STAND_UP, DEAD }
+enum Stage { NONE, APPROACH, PIVOT, SIT_DOWN, SEATED, LIE_DOWN, SLEEP, GET_UP, STAND_UP, DEAD, LEAN }
 
 ## A furniture-use plan: every target the stages need, computed once.
 class FurniturePlan:
 	var is_bed: bool = false
+	var is_lean: bool = false
+	var lean_base: Transform3D       ## world placement of the lean loop
 	var approach_pos: Vector3        ## world floor point the clip starts from
 	var approach_yaw: float
 	var seat_hips: Vector3           ## world hip target when seated
@@ -192,6 +200,10 @@ var _xfade_act: float = 0.3
 var _last_visual_world: Transform3D = Transform3D.IDENTITY
 var _lie_slot_backup: ActionSlot = null
 var _stand_end_known: bool = false
+## Wall lean request (begin_lean / end_lean).
+var _lean_request: bool = false
+var _lean_point: Vector3 = Vector3.ZERO
+var _lean_normal: Vector3 = Vector3.BACK
 
 # ─── Setup ───────────────────────────────────────────────────────────────────
 func _ready() -> void:
@@ -356,16 +368,23 @@ func _update_stage(delta: float) -> void:
 		Stage.NONE:
 			if furniture != null:
 				_begin_furniture(furniture)
+			elif _lean_request:
+				_plan = _plan_lean()
+				_stand_end_known = true
+				_stage = Stage.APPROACH
 		Stage.APPROACH:
-			if furniture == null:
+			if _released(furniture):
 				_finish_sequence()
 			else:
 				_tick_approach(delta)
 		Stage.PIVOT:
-			if furniture == null:
+			if _released(furniture):
 				_finish_sequence()
 			else:
 				_tick_pivot(delta)
+		Stage.LEAN:
+			if not _lean_request:
+				_finish_sequence()
 		Stage.SIT_DOWN:
 			if _slot_done():
 				sit_animation_finished.emit()
@@ -451,7 +470,7 @@ func _update_procedural_pose(speed: float, delta: float) -> void:
 
 func _update_look(delta: float) -> void:
 	var want: float = 0.0
-	var target: Node3D = _look_target() if _stage == Stage.NONE or _stage == Stage.SEATED else null
+	var target: Node3D = _look_target() if _stage in [Stage.NONE, Stage.SEATED, Stage.LEAN] else null
 	if target != null:
 		var point: Vector3 = target.global_position + Vector3.UP * LOOK_HEIGHT
 		var to: Vector3 = point - _visual.global_position
@@ -476,6 +495,10 @@ func _look_target() -> Node3D:
 		if activity != null and activity.has_method("attention_target"):
 			target = activity.attention_target(_player)
 	return target as Node3D if is_instance_valid(target) and target is Node3D else null   ## validity first: `is` on a freed object errors
+
+## True once whatever started the current sequence has been let go.
+func _released(furniture: Node3D) -> bool:
+	return not _lean_request if _plan != null and _plan.is_lean else furniture == null
 
 # ─── Furniture planning ──────────────────────────────────────────────────────
 func _parent_furniture() -> Node3D:
@@ -573,7 +596,10 @@ func _tick_pivot(delta: float) -> void:
 	_speed = lerpf(_speed, absf(step) / maxf(delta, 0.0001) * 0.18, clampf(10.0 * delta, 0.0, 1.0))
 	if absf(diff) < 0.02:
 		_speed = 0.0
-		_start_sit_down()
+		if _plan.is_lean:
+			_start_lean()
+		else:
+			_start_sit_down()
 
 func _start_sit_down() -> void:
 	_stage = Stage.SIT_DOWN
@@ -652,8 +678,49 @@ func _start_stand_up() -> void:
 	var anim: Animation = _lib.get_animation("sit_to_stand")
 	slot.base = _placement(_plan.seat_yaw - _clip_yaw(anim, 0.0), _meta_at(anim, "hips", 0.0), _plan.seat_hips)
 
+## Wall lean plan: the lean clip's back surface (bake meta "wall_back", the
+## rear-most point of the skinned body) goes on the wall plane, facing out
+## along the wall normal. The capsule waits at the hips' floor point, but no
+## closer to the wall than its own radius.
+func _plan_lean() -> FurniturePlan:
+	var p := FurniturePlan.new()
+	p.is_lean = true
+	var anim: Animation = _lib.get_animation("lean")
+	var n := Vector3(_lean_normal.x, 0.0, _lean_normal.z).normalized()
+	var yaw: float = _yaw_of(n)
+	var wall := Vector3(_lean_point.x, _floor_y(), _lean_point.z)
+	p.lean_base = _placement(yaw, Vector3(0.0, 0.0, float(anim.get_meta("wall_back", 0.0))), wall)
+	var hips: Vector3 = p.lean_base * _meta_at(anim, "hips", 0.0)
+	var stand := Vector3(hips.x, _floor_y(), hips.z)
+	var min_gap: float = _capsule_radius() + LEAN_CAPSULE_GAP
+	var gap: float = (stand - wall).dot(n)
+	if gap < min_gap:
+		stand += n * (min_gap - gap)
+	p.approach_pos = stand
+	p.approach_yaw = yaw
+	p.stand_end_pos = stand
+	p.stand_end_yaw = yaw
+	return p
+
+func _start_lean() -> void:
+	_stage = Stage.LEAN
+	var slot: ActionSlot = _push_slot(&"lean", 1.0, true, XF_LEAN_IN)
+	slot.base = _plan.lean_base
+	slot.world = slot.base
+	## Desynchronise neighbours leaning at the same time.
+	slot.time = randf() * slot.length
+	_act_target = 1.0
+	_xfade_act = XF_LEAN_IN
+
+func _capsule_radius() -> float:
+	var shape_node: Node = _player.get_node_or_null("CollisionShape3D")
+	if shape_node is CollisionShape3D and (shape_node as CollisionShape3D).shape is CapsuleShape3D:
+		return ((shape_node as CollisionShape3D).shape as CapsuleShape3D).radius
+	return 0.35
+
 func _finish_sequence() -> void:
 	var was_active: bool = _stage != Stage.NONE
+	var from_lean: bool = _plan != null and _plan.is_lean
 	if _stage == Stage.STAND_UP:
 		## Hand the body back to the capsule exactly where the clip left it.
 		var s: ActionSlot = _slots[_active_slot]
@@ -676,13 +743,15 @@ func _finish_sequence() -> void:
 		_visual_yaw = _plan.stand_end_yaw
 	_stage = Stage.NONE
 	_act_target = 0.0
-	_xfade_act = XF_EXIT
+	_xfade_act = XF_LEAN_OUT if from_lean else XF_EXIT
+	_lean_request = false
 	_speed = 0.0
 	_lie_slot_backup = null
 	if was_active:
 		stand_animation_finished.emit()
 
 func _enter_death() -> void:
+	_lean_request = false
 	if _stage in [Stage.SIT_DOWN, Stage.SEATED, Stage.LIE_DOWN, Stage.SLEEP, Stage.GET_UP, Stage.STAND_UP]:
 		## Dying on furniture: stay where the body is (slumped in the chair,
 		## still in bed) instead of snapping to a standing collapse.
@@ -877,7 +946,30 @@ static func _yaw_of(dir: Vector3) -> float:
 static func _signed_yaw(from: Vector3, to: Vector3) -> float:
 	return wrapf(_yaw_of(to) - _yaw_of(from), -PI, PI)
 
-# ─── Public API ──────────────────────────────────────────────────────────────
+# ─── Public API ───────────────────────────────────────────────────────────────
+## NPC wall lean. `wall_point` is any point on the wall's surface (its floor
+## projection is where the back rests; pick it along the wall where the NPC
+## should stand) and `wall_normal` the wall's outward normal (pointing into
+## the room). The body walks there, turns its back to the wall and settles
+## into the looping lean; end_lean() blends back to standing on the spot.
+## While this runs, is_sit_sequence_active() is true (so NPC physics stays
+## frozen) and get_stand_end_position() is where the capsule will be.
+## Returns false if the body is busy (furniture, dying, already sequencing).
+func begin_lean(wall_point: Vector3, wall_normal: Vector3) -> bool:
+	if _player == null or _stage != Stage.NONE or _parent_furniture() != null:
+		return false
+	_lean_point = wall_point
+	_lean_normal = wall_normal
+	_lean_request = true
+	return true
+
+func end_lean() -> void:
+	_lean_request = false
+
+## True while settled in the lean loop (after the approach and turn).
+func is_leaning() -> bool:
+	return _stage == Stage.LEAN
+
 ## True from the moment furniture use starts until the stand-up has finished.
 func is_sit_sequence_active() -> bool:
 	return _stage != Stage.NONE and _stage != Stage.DEAD
