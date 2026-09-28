@@ -118,6 +118,33 @@ Weighted destinations (near friends, near used furniture, random), pauses
 that look at nearby people (the player first), and a stroll ends after 2–4
 legs so relaxing/chatting/chores get a natural look-in.
 
+### Overhead presentation
+`NPCSpeechBubble` (child "SpeechBubble") is the shipping look: speech
+bubbles in the UIKit palette (drawn once per line into a small SubViewport),
+a typing pill for conversation turns and rising "z"s for sleep. It is
+anchored to the Head bone, so it follows sitting and lying. The
+"Name — Activity" nameplate is a DEBUG overlay only
+(`NPCDebug.show_nameplates`). It fades out whenever a bubble is up. Barks go
+through `NPC.bark()` (rate-limited); conversation lines use `NPC.say_line()`.
+Activities can return `attention_target(npc)` to drive the procedural head
+look-at (Talk: partner, Wander: whoever they're watching, Cooking: stove,
+Gardening: tray).
+
+### Movement feel
+- Reaching the end of the computed path counts as arrived, even when the
+  target lies inside furniture. Otherwise the last waypoint sits underfoot
+  and the heading flips every frame, which looked like spinning.
+- Body yaw follows the REAL post-collision motion at up to 7 rad/s, so a
+  resident pressed into a corner doesn't twist between avoidance suggestions.
+- Wander spots are snapped to walkable, reachable floor.
+
+### Cooking rules
+Meal prep: someone cooks whenever ingredients are in reach and no cooked
+meal is waiting, sooner when anyone is getting hungry. Ingredients are only
+loaded into, and a stove only switched on for, a pot on a CONNECTED stove
+(`NPCJobQueries.stove_connected`). A pot may be set on an unplugged stove,
+ready for later.
+
 ### Doors
 `BunkerDoor` adds a NavigationLink through its opening, so routes may cross a
 closed door. `NPC.nav_steer()` notices when the route crosses a door plane
@@ -142,14 +169,19 @@ All cooldowns are in game hours via `NPCClock.now()` (pause-, fast-forward-
 and save-safe). Short physical actions still use frame delta.
 
 ### Testing: headless simulation harness
-`tools/tests/run_npc_sim.sh --scenario=basic|farm|cook|power|stress|scarcity|door|all
+`tools/tests/run_npc_sim.sh --scenario=basic|farm|cook|power|stress|scarcity|door|session|all
 --minutes=10 --npcs=4 --seed=1 [--timeline] [--scores=15] [--saveload=300]`
 boots the real MainWorld headless, furnishes it through
 `BuildModeController.restore_placed_objects()`, spawns items and NPCs and
 flags: ghost/stuck/orphaned held items, churn loops, frozen NPCs, escapes
 from the bunker, leaked reservations, starving-with-food-available, and
 save/load field drift. `door` splits the room with a closed bunker door
-(shut again every 30 s) and reports crossings. Exit code 0 = clean. Rendered frame capture:
+(shut again every 30 s) and reports crossings. `session` mirrors a full
+playthrough: every job station, a pot and ingredients on the floor, one stove
+wired to the generator and one unplugged, and well-fed residents. It checks
+the time to the first cooking decision and that nothing is cooked on the
+unplugged stove. A spin detector runs in every scenario. `--bubbles=<t>`
+stages a chat in front of `--cam` for rendered checks. Exit code 0 = clean. Rendered frame capture:
 `tools/tests/run_npc_visual.sh` (Xvfb + software GL; see script header).
 
 ---
