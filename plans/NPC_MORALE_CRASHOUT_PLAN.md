@@ -1,6 +1,6 @@
 # NPC morale, relationships & crash-outs — design plan (Sep 2026)
 
-Status: **phases 1–5 implemented (Sep 2026)**. Remaining: combat hook-up (attacks, killing = game over), NPC medical treatment calling `on_treated_by_player()`, rescue events. It
+Status: **phases 1–5 implemented (Sep 2026)**. Player treatment of residents (held Bandage/Splint/Antibiotics → `NPC.receive_treatment`) and laziness/harsh-leadership payoffs are in. Remaining: combat hook-up (attacks, killing = game over), rescue events. It
 comes from Brannon's brief (2026-09-28) plus an audit of the current code.
 
 ## The brief, in one paragraph

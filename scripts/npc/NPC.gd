@@ -1777,9 +1777,17 @@ func lock_movement() -> void:
 func face_toward(world_pos: Vector3, weight: float) -> void:
 	var d: Vector3 = world_pos - global_position
 	d.y = 0.0
-	if d.length() < 0.05:
+	if d.length() < 0.4:
+		return   ## something underfoot: its bearing flips as we shift — don't chase it (spin)
+	var target_yaw: float = atan2(-d.x, -d.z)
+	if weight >= 0.999:
+		rotation.y = target_yaw   ## deliberate one-shot facing (arriving at a job)
 		return
-	rotation.y = lerp_angle(rotation.y, atan2(-d.x, -d.z), clampf(weight, 0.0, 1.0))
+	## Gradual facing is capped at a human turn rate so repeated re-facing
+	## (tracking someone walking around) can't whip the body around.
+	var diff: float = angle_difference(rotation.y, target_yaw) * clampf(weight, 0.0, 1.0)
+	var max_step: float = TURN_RATE * get_physics_process_delta_time() * 1.5
+	rotation.y += clampf(diff, -max_step, max_step)
 
 ## Travel speed the NPC should currently achieve (for stall detection).
 func get_expected_travel_speed() -> float:
