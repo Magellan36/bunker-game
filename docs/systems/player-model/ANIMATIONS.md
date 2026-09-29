@@ -270,7 +270,9 @@ the idle, in right-hand space).
   slot and the other fades out over 0.12 s, so combos, interrupts and hit
   reactions never swap a clip in place. Fade-in is 0.10 s (reactions
   0.12 s), fade-out is the last 0.25 s of the clip, and weights are
-  smoothstepped. The melee stance and the fist guard (`punch_idle`) have
+  smoothstepped. Hit reactions are deliberately understated (colony sim,
+  not an action game): upper body only at 65 % weight, a flinch rather
+  than a stagger. The melee stance and the fist guard (`punch_idle`) have
   separate hold chains fading at 4/s, so switching between them cross-fades.
   Engine.time_scale hit-stop freezes these too (the tree advances on the
   scaled process delta).

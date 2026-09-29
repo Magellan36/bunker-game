@@ -39,6 +39,9 @@ const STRIKE_FADE_IN: float = 0.1
 ## Hit reactions start from wherever the body is; a slightly longer blend
 ## keeps the snap in the clip itself rather than in the blend.
 const REACTION_FADE_IN: float = 0.12
+## Colony sim, not an action game: hit reactions are a flinch in the torso,
+## head and arms at partial weight, never a full-body stagger.
+const REACTION_WEIGHT: float = 0.65
 const STRIKE_FADE_OUT: float = 0.25
 ## A strike that starts while another is still showing cross-fades against
 ## it (combo, interrupt, hit reaction) instead of swapping the clip in place.
@@ -59,6 +62,7 @@ class Strike:
 	var upper_only: bool = false
 	var retiring: bool = false   ## being replaced: fade out over STRIKE_XFADE
 	var fade_in: float = STRIKE_FADE_IN
+	var max_w: float = 1.0
 
 var weapons: AnimationLibrary
 var _melee_basis := Basis.IDENTITY
@@ -246,7 +250,7 @@ func _start_timed_strike(clip: StringName, delay: float) -> void:
 ## Starts a strike in the quieter slot; the other one (if still showing)
 ## fades out over STRIKE_XFADE underneath/over it — a cross-fade, never a pop.
 func _start_strike(clip: StringName, from: float, rate: float, until: float, upper_only: bool = false,
-		fade_in: float = STRIKE_FADE_IN) -> void:
+		fade_in: float = STRIKE_FADE_IN, max_w: float = 1.0) -> void:
 	var slot: int = 0 if _strikes[0].w <= _strikes[1].w else 1
 	var other: Strike = _strikes[1 - slot]
 	if other.clip != &"":
@@ -258,6 +262,7 @@ func _start_strike(clip: StringName, from: float, rate: float, until: float, upp
 	s.end = until
 	s.upper_only = upper_only
 	s.fade_in = fade_in
+	s.max_w = max_w
 	## Starts from zero: the slot picked is the quieter one, and inheriting its
 	## weight would snap that much of the old clip to the new one.
 	_strikes[slot] = s
@@ -285,7 +290,7 @@ func play_hit_reaction(ctx: Dictionary) -> void:
 			clip = &"hit_head"
 		elif y >= chest:
 			clip = &"hit_rib"
-	_start_strike(clip, 0.0, 1.0, weapons.get_animation(clip).length, false, REACTION_FADE_IN)
+	_start_strike(clip, 0.0, 1.0, weapons.get_animation(clip).length, true, REACTION_FADE_IN, REACTION_WEIGHT)
 
 ## Each hold stance has its own chain and fades on its own, so switching
 ## between the fist guard and a weapon stance cross-fades.
@@ -322,7 +327,7 @@ func _update_strikes(delta: float, free: bool) -> void:
 				s.retiring = false
 				s.clip = &""
 		var name: String = "strike_a" if slot == 0 else "strike_b"
-		var w: float = smoothstep(0.0, 1.0, s.w)
+		var w: float = smoothstep(0.0, 1.0, s.w) * s.max_w
 		var upper: float = 1.0 if s.upper_only else moving
 		for part: String in ["_full", "_upper"]:
 			tree.set("parameters/%s%s_seek/seek_request" % [name, part], minf(s.time, s.end))
