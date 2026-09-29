@@ -650,6 +650,7 @@ func receive_treatment(item: Node) -> bool:
 	if t.is_empty():
 		return false
 	var part: int = int(t["target"]["body_part"])
+	var was_critical: bool = combat.is_critical()
 	medical.call(String(t["def"]["apply"]), part)
 	var where: String = String(t["target"]["label"]).to_lower()
 	if item.has_method("spend_charge"):
@@ -659,6 +660,9 @@ func receive_treatment(item: Node) -> bool:
 	## Being cared for matters most the first time; repeat care still counts.
 	var repeat: bool = NPCClock.now() - _last_treated_hours < 12.0
 	_last_treated_hours = NPCClock.now()
+	## Patching up someone at death's door is a rescue, not just care.
+	if was_critical and combat.credit_rescue("kept me alive when I was dying"):
+		return true
 	on_treated_by_player(String(t["def"]["what"]) % where, repeat)
 	return true
 
@@ -678,7 +682,9 @@ func on_treated_by_player(what: String = "my wounds", repeat: bool = false) -> v
 	bonds.relate("player", 8.0, "patched up %s" % what, "You patched me up when I was hurt", true)
 	NPCBonds.witnessed(get_tree(), "player", self, 3.0, "took care of %s" % npc_name)
 
-## Carried out of danger, revived, defended from an attacker — ready to call.
+## Carried out of danger, revived, defended from an attacker. Called via
+## NPCCombat.credit_rescue (defended from an attacker, treated while
+## critical); carrying/pulling from danger still needs a player-side verb.
 func on_rescued_by_player(what: String = "saved my life") -> void:
 	bonds.relate("player", 20.0, what, "You %s" % what, true)
 	NPCBonds.witnessed(get_tree(), "player", self, 6.0, "saved %s" % npc_name)

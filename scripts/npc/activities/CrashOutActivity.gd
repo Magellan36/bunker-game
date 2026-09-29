@@ -148,6 +148,7 @@ func done(npc: NPC) -> bool:
 
 func exit(npc: NPC) -> void:
 	npc.combat.rushing = false
+	npc.combat.attacking_id = ""
 	if _weapon != null and is_instance_valid(_weapon):
 		if _weapon.has_method("set_aiming"):
 			_weapon.set_aiming(false)
@@ -198,6 +199,7 @@ func _start_attack_or_sabotage(npc: NPC) -> void:
 		_to(Phase.SABOTAGE if _sabotage_done < MAX_SABOTAGE else Phase.PACE)
 		return
 	_attack_left = randf_range(ATTACK_SECONDS.x, ATTACK_SECONDS.y)
+	npc.combat.attacking_id = npc.crash.target_id
 	_weapon = npc.held_item if npc.held_item != null and "weapon_kind" in npc.held_item else _find_weapon(npc)
 	if _weapon != null and npc.held_item != _weapon:
 		NPCItemUser.claim_item(_weapon, npc)
@@ -262,6 +264,7 @@ func _tick_attack(npc: NPC, delta: float) -> void:
 	var target_down: bool = t == null or (t.has_method("is_dead") and t.is_dead())
 	if target_down or _attack_left <= 0.0:
 		npc.combat.rushing = false
+		npc.combat.attacking_id = ""
 		if _weapon != null and is_instance_valid(_weapon):
 			_weapon.set_aiming(false)
 		_to(Phase.PACE)

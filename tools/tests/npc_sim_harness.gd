@@ -361,6 +361,43 @@ func _tick_combat() -> void:
 			a.is_in_group("npc"), a.is_in_group("npc_dead"), dead_saved, a.combat.describe_death()])
 		for o: NPC in all.slice(1):
 			print("[combat]   %s now: rel(player) %.1f, fear %.0f, morale %.1f" % [o.npc_name, o.get_relationship("player"), o.social.fear, o.morale_sys.morale])
+	## Rescue events: treating a dying resident, and stepping in when one
+	## resident attacks another (fists — no weapon nearby).
+	if st >= 13.0 and not _combat_done.has("revive"):
+		_combat_done["revive"] = true
+		b.health = 20.0
+		b.medical.spawn_bleeding(MedicalCondition.BodyPart.LEFT_ARM)
+		var rel_b: float = b.get_relationship("player")
+		var bandage: Node = FarmingShopHelper.spawn_scene_settled(_world, "res://scenes/world/Bandage.tscn", b.global_position + Vector3(1, 0.5, 0))
+		var ok: bool = bandage != null and b.receive_treatment(bandage)
+		print("[combat] revive %s at 20 health: treated=%s rel %.1f -> %.1f, memories: %s" % [b.npc_name, ok, rel_b, b.get_relationship("player"),
+			str(b.bonds.get_memories("player").map(func(m): return m["text"]))])
+		if b.get_relationship("player") - rel_b < 8.0:
+			_flag("combat_no_revive_credit", b, "treating a dying resident didn't count as a rescue", "cnr")
+	if all.size() >= 4:
+		var c: NPC = all[2]
+		var d: NPC = all[3]
+		if st >= 13.0 and not _combat_done.has("feud"):
+			_combat_done["feud"] = true
+			c.relationships[d.npc_id] = -80.0
+			c.crash.target_id = d.npc_id
+			c.crash.begin(NPCCrashOut.Mode.HOSTILE)
+			print("[combat] %s crashes out at %s (escalated)" % [c.npc_name, d.npc_name])
+		if _combat_done.has("feud") and not _combat_done.has("defend") and c.combat.attacking_id == d.npc_id:
+			_combat_done["defend"] = true
+			var rel_d: float = d.get_relationship("player")
+			_combat_hit(c, 10.0, "bat")
+			_combat_hit(c, 10.0, "bat")   ## a second blow must not stack a second rescue
+			print("[combat] player stepped in on %s attacking %s: %s rel(player) %.1f -> %.1f, memories: %s" % [c.npc_name, d.npc_name, d.npc_name,
+				rel_d, d.get_relationship("player"), str(d.bonds.get_memories("player").map(func(m): return m["text"]))])
+			## One rescue (+20, scaled by sociability), however many blows it took.
+			var gain: float = d.get_relationship("player") - rel_d
+			var credits: int = d.bonds.get_memories("player").filter(func(m): return String(m["text"]).begins_with("You stopped")).size()
+			if gain <= 0.0 or credits != 1:
+				_flag("combat_defend_credit", d, "defended resident: relationship %+.1f, %d rescue memories (want 1)" % [gain, credits], "cdc")
+		if _combat_done.has("feud") and not _combat_done.has("defend") and st >= 58.0:
+			_combat_done["defend"] = true
+			_flag("combat_feud_no_attack", c, "an escalated crash-out at a resident never attacked", "cfa")
 	if st >= 20.0 and not _combat_done.has("rage"):
 		_combat_done["rage"] = true
 		_combat_player_hp = float(stats.health)

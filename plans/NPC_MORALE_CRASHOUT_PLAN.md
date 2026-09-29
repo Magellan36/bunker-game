@@ -1,6 +1,6 @@
 # NPC morale, relationships & crash-outs — design plan (Sep 2026)
 
-Status: **phases 1–5 implemented (Sep 2026)**. Player treatment of residents (held Bandage/Splint/Antibiotics → `NPC.receive_treatment`) and laziness/harsh-leadership payoffs are in. Combat is hooked up (NPCCombat: hits, injuries, death, escalated hostile crash-outs attack with weapons; the player can be killed = game over). Remaining: rescue events. It
+Status: **phases 1–5 implemented (Sep 2026)**. Player treatment of residents (held Bandage/Splint/Antibiotics → `NPC.receive_treatment`) and laziness/harsh-leadership payoffs are in. Combat is hooked up (NPCCombat: hits, injuries, death, escalated hostile crash-outs attack with weapons; the player can be killed = game over). Rescue events are in for defending a resident from an attacker and treating a dying one (`NPCCombat.credit_rescue`). Remaining: carrying a passed-out resident / pulling one from danger (needs a player verb). It
 comes from Brannon's brief (2026-09-28) plus an audit of the current code.
 
 ## The brief, in one paragraph

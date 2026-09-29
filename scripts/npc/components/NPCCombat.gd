@@ -39,7 +39,15 @@ var killed_by: String = ""                  ## "player", an npc_id, or ""
 var attacked_by: String = ""                ## last attacker (fight-back/flee target)
 var flee_until_msec: int = 0
 var rushing: bool = false                   ## charging at someone (CrashOutActivity) — runs
+var attacking_id: String = ""               ## who they're arming for / attacking right now (CrashOutActivity)
+var last_rescued_hours: float = -100.0
 var _last_hit_at: Dictionary = {}           ## attacker id -> game hour
+
+## Rescue events (NPC.on_rescued_by_player): the player stepping in while
+## a resident is being attacked, or treating one who is at death's door.
+## One rescue credit per RESCUE_REPEAT_H, so a long fight doesn't stack.
+const RESCUE_HEALTH: float = 25.0
+const RESCUE_REPEAT_H: float = 12.0
 
 var _npc: NPC = null
 
@@ -75,6 +83,13 @@ func receive_hit(ctx: Dictionary) -> void:
 	var src_id: String = id_of(src)
 	var hit_pos: Vector3 = ctx.get("position", _npc.global_position + Vector3.UP)
 	var part: int = _body_part_at(hit_pos)
+	## The player hitting someone who is attacking another resident is
+	## stepping in, not starting a fight.
+	var defended: NPC = null
+	if src_id == "player" and attacking_id != "" and attacking_id != "player":
+		defended = _npc.crash._find(attacking_id)
+		if defended != null and defended.is_dead():
+			defended = null
 	_npc.health = maxf(0.0, _npc.health - dmg)
 	var injury: String = _injure(kind, part, dmg)
 	## Knocked back a little.
@@ -99,7 +114,12 @@ func receive_hit(ctx: Dictionary) -> void:
 				"%s attacked me with a %s" % [who, weapon_name(kind)], true)
 		if src_id == "player":
 			_npc.social.fear = minf(100.0, _npc.social.fear + 25.0)
-		_witnesses_react(src_id, src, "attacked %s" % _npc.npc_name, -4.0, 12.0, 0.15)
+		## Bystanders don't blame the player for stopping an attack (only
+		## those who care about the attacker still mind), and the one being
+		## attacked is grateful rather than a witness.
+		_witnesses_react(src_id, src, "attacked %s" % _npc.npc_name, 0.0 if defended != null else -4.0, 12.0, 0.15, defended)
+		if defended != null:
+			defended.combat.credit_rescue("stopped %s attacking me" % _npc.npc_name)
 	if _npc.health <= 0.0:
 		die(kind, src_id)
 		return
@@ -121,6 +141,21 @@ func _react(src_id: String, hate: float) -> void:
 	_npc.bark_event("flee")
 	if _npc.brain != null:
 		_npc.brain.stop_current()
+
+## A rescue by the player: false (and nothing happens) when they were
+## already credited with one in the last RESCUE_REPEAT_H game hours.
+func credit_rescue(what: String) -> bool:
+	if dead or NPCClock.now() - last_rescued_hours < RESCUE_REPEAT_H:
+		return false
+	last_rescued_hours = NPCClock.now()
+	_npc.log_event("care", "You %s" % what)
+	_npc.bark_event("thanks")
+	_npc.on_rescued_by_player(what)
+	return true
+
+## At death's door: low enough health that treating them is saving them.
+func is_critical() -> bool:
+	return not dead and (_npc.health <= RESCUE_HEALTH or _npc.is_passed_out())
 
 ## Head / torso / arm / leg from where the blow landed on the body.
 func _body_part_at(pos: Vector3) -> int:
@@ -160,9 +195,9 @@ func _injure(kind: String, part: int, dmg: float) -> String:
 ## Everyone who sees violence reacts: a little against the attacker even as
 ## a bystander, much more if they cared about the victim; the player being
 ## violent also makes people afraid (which, like threats, buys compliance).
-func _witnesses_react(actor_id: String, actor: Node, what: String, base: float, care_mult: float, shock: float) -> void:
+func _witnesses_react(actor_id: String, actor: Node, what: String, base: float, care_mult: float, shock: float, skip: NPC = null) -> void:
 	for w: Node in _npc.get_tree().get_nodes_in_group("npc"):
-		if not (w is NPC) or w == _npc or (w as NPC).npc_id == actor_id:
+		if not (w is NPC) or w == _npc or w == skip or (w as NPC).npc_id == actor_id:
 			continue
 		var wn: NPC = w as NPC
 		if wn.global_position.distance_to(_npc.global_position) > WITNESS_RANGE or not wn._can_see(_npc):
@@ -180,6 +215,7 @@ func die(cause: String, killer_id: String = "", quiet: bool = false) -> void:
 	dead = true
 	death_cause = cause
 	killed_by = killer_id
+	attacking_id = ""
 	if _npc.brain != null:
 		_npc.brain.stop_current()
 	if _npc.held_item != null:
@@ -284,7 +320,7 @@ func apply_player_hit(ctx: Dictionary) -> void:
 
 # ─── Save / load ────────────────────────────────────────────────────────────
 func to_save() -> Dictionary:
-	return {"dead": dead, "cause": death_cause, "killer": killed_by, "attacker": attacked_by}
+	return {"dead": dead, "cause": death_cause, "killer": killed_by, "attacker": attacked_by, "rescued": last_rescued_hours}
 
 func from_save(d: Dictionary) -> void:
 	if d.is_empty():
@@ -292,6 +328,7 @@ func from_save(d: Dictionary) -> void:
 	death_cause = String(d.get("cause", ""))
 	killed_by = String(d.get("killer", ""))
 	attacked_by = String(d.get("attacker", ""))
+	last_rescued_hours = float(d.get("rescued", -100.0))
 	if bool(d.get("dead", false)):
 		## Applied once the resident is in the tree (NPC._ready → apply_loaded_death).
 		_pending_dead = true

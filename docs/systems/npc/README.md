@@ -229,6 +229,15 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   resident: "[E] Bandage Hana's left arm" treats the worst eligible injury
   (`NPC.receive_treatment`), +8 and a memory the first time (+3 for repeat
   care within 12 h).
+- **Rescues** (`NPCCombat.credit_rescue` → `NPC.on_rescued_by_player`,
+  +20 and a memory, witnesses +6; at most once per 12 game hours per
+  resident, saved): hitting a resident while they're arming for or
+  attacking another resident (`NPCCombat.attacking_id`) counts as stepping
+  in: the victim remembers "You stopped Ossian attacking me", and
+  bystanders only hold it against you if they care about the attacker.
+  Treating a resident at ≤ 25 health or passed out is "kept me alive when I
+  was dying" instead of ordinary treatment. Carrying someone or pulling
+  them out of danger still needs a player-side verb. Harness: `combat`.
 - **Crash-outs** (`components/NPCCrashOut.gd` + `CrashOutActivity`): risk
   only below morale 25, trait-scaled, 36 h cooldown. HOSTILE (despises
   someone): confront and rant, then sabotage (generator off, food thrown
