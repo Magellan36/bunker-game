@@ -265,6 +265,15 @@ the idle, in right-hand space).
   between stances at the fire rate.
 - **Grip:** melee weapons anchor to the right palm with `melee_grip`; the
   Webley keeps its pistol grip.
+- **No pops (polish pass, 2026-09-28):** strikes, shots, punches and hit
+  reactions run in two cross-fading slots (A/B). A new one takes the quieter
+  slot and the other fades out over 0.12 s, so combos, interrupts and hit
+  reactions never swap a clip in place. Fade-in is 0.10 s (reactions
+  0.12 s), fade-out is the last 0.25 s of the clip, and weights are
+  smoothstepped. The melee stance and the fist guard (`punch_idle`) have
+  separate hold chains fading at 4/s, so switching between them cross-fades.
+  Engine.time_scale hit-stop freezes these too (the tree advances on the
+  scaled process delta).
 
 ### Procedural pose (`AdventurerProceduralPose`, a SkeletonModifier3D)
 
