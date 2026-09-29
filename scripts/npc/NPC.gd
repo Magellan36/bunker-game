@@ -1866,6 +1866,36 @@ func lock_movement() -> void:
 	velocity.x = 0.0
 	velocity.z = 0.0
 
+## Close-quarters footwork (fighting): walk straight toward `target`
+## and settle at `stop_at` metres from it, easing off as the gap closes;
+## step back a little if crowded. Bypasses the navmesh and avoidance
+## (they'd steer around the very person being approached) and leaves
+## facing to the caller (face_toward), so the body doesn't turn with the
+## small corrective steps. Only for short distances in open floor.
+func steer_direct(target: Vector3, stop_at: float, delta: float) -> void:
+	_steered_this_frame = true
+	_movement_locked = true   ## ignore stale avoidance answers; facing is the caller's
+	var to: Vector3 = target - global_position
+	to.y = 0.0
+	var dist: float = to.length()
+	var gap: float = dist - stop_at
+	var want: Vector3 = Vector3.ZERO
+	if dist > 0.01:
+		var pace: float = move_speed * get_status_speed_multiplier()
+		if gap > 0.05:
+			want = to / dist * pace * clampf(gap / 0.6, 0.2, 1.0)
+		elif gap < -0.12:
+			want = -to / dist * minf(0.6, pace * 0.5)   ## crowded: ease back
+	var w: float = minf(acceleration * delta, 1.0)
+	velocity.x = lerp(velocity.x, want.x, w)
+	velocity.z = lerp(velocity.z, want.z, w)
+	if nav_agent != null:
+		## Others still avoid us; our own avoidance answer is ignored (locked).
+		nav_agent.avoidance_priority = AVOIDANCE_PRIORITY_MOVING
+		nav_agent.set_velocity(Vector3(velocity.x, 0.0, velocity.z))
+		_published_moving = want != Vector3.ZERO
+		_requested_speed = want.length()
+
 ## Smoothly turn to face a world point (weight 1.0 = snap).
 func face_toward(world_pos: Vector3, weight: float) -> void:
 	var d: Vector3 = world_pos - global_position

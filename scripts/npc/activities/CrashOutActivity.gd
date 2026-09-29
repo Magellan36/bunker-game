@@ -17,7 +17,7 @@ class_name CrashOutActivity
 ##            down) and fall apart, sobbing now and then.
 ## Not interruptible — like RimWorld mental breaks, it runs its course.
 
-enum Phase { START, APPROACH, RANT, SABOTAGE, PACE, FIND_SPOT, SLUMP, STAND, ARM, ATTACK }
+enum Phase { START, APPROACH, RANT, SABOTAGE, PACE, FIND_SPOT, SLUMP, STAND, ARM, ATTACK, GLARE }
 
 const RANT_SECONDS: Vector2 = Vector2(9.0, 14.0)
 const APPROACH_TIMEOUT: float = 18.0
@@ -29,6 +29,14 @@ const GUN_RANGE: float = 7.0
 const BRAWL_BELOW: float = -50.0         ## hatred between this and ESCALATE_BELOW: a fist fight, not sabotage
 const BRAWL_SECONDS: Vector2 = Vector2(6.0, 10.0)
 const BRAWL_STOP_HEALTH: float = 45.0    ## a brawl stops once the target is beaten down to this
+## Fight feel. Capsules touch at 0.8 m between centres; fists reach 1.1 m.
+const CLOSE_IN_AT: float = 2.4           ## within this, walk straight in (avoidance would steer around them)
+const MIN_SPACING: float = 0.9           ## never crowd closer than this (centre to centre)
+const SQUARE_UP: Vector2 = Vector2(0.45, 0.8)   ## guard up and facing before the first blow
+const FACING_OK: float = 0.6             ## rad (~35°): only strike when roughly facing them
+const FIGHT_TURN: float = 10.0           ## face_toward weight per second while fighting (rate-capped)
+const BRAWL_GIVE_UP: float = 2.5         ## s with the target out of reach (got away): the brawl ends
+const GLARE_SECONDS: Vector2 = Vector2(0.9, 1.5)  ## disengage: hold ground, glaring, before pacing off
 
 var _phase: Phase = Phase.START
 var _timer: float = 0.0
@@ -43,6 +51,9 @@ var _brawl: bool = false
 var _weapon = null   ## WeaponItem (untyped: the weapon script has no class_name)
 var _attack_left: float = 0.0
 var _swing_gap: float = 0.0
+var _squared: bool = false
+var _combo: int = 0
+var _out_of_reach: float = 0.0
 
 func score(npc: NPC) -> float:
 	if npc.crash != null and npc.crash.active() and npc.crash.mode in [NPCCrashOut.Mode.HOSTILE, NPCCrashOut.Mode.BREAKDOWN]:
@@ -116,6 +127,14 @@ func tick(npc: NPC, delta: float) -> void:
 			_tick_arm(npc, delta)
 		Phase.ATTACK:
 			_tick_attack(npc, delta)
+		Phase.GLARE:
+			## Disengaging: hold ground and stare them down, then storm off.
+			var t: Node3D = npc.crash.target_node()
+			npc.halt_movement(delta)
+			if t != null:
+				npc.face_toward(t.global_position, minf(FIGHT_TURN * delta, 0.99))
+			if _timer >= 0.0:
+				_to(Phase.PACE)
 		Phase.PACE:
 			## Seething: short fast legs, muttering.
 			npc.nav_steer(delta)
@@ -175,7 +194,7 @@ func exit(npc: NPC) -> void:
 	_sabotage_target = null
 
 func attention_target(npc: NPC) -> Node3D:
-	return npc.crash.target_node() if _phase in [Phase.APPROACH, Phase.RANT, Phase.ATTACK] else null
+	return npc.crash.target_node() if _phase in [Phase.APPROACH, Phase.RANT, Phase.ATTACK, Phase.GLARE] else null
 
 func _to(p: Phase) -> void:
 	_phase = p
@@ -267,6 +286,10 @@ func _begin_attack(npc: NPC) -> void:
 		npc.combat.raise_fists()
 	var who: String = "you" if npc.crash.target_id == "player" else String(t.get("npc_name")) if t != null else "someone"
 	npc.bark_event("attack")
+	_squared = false
+	_combo = 0
+	_out_of_reach = 0.0
+	npc.combat.escalate = false
 	if _brawl:
 		npc.log_event("crash", "Started a fist fight with %s" % who)
 	else:
@@ -286,51 +309,84 @@ func _tick_attack(npc: NPC, delta: float) -> void:
 	var t: Node3D = npc.crash.target_node()
 	_attack_left -= delta
 	var target_down: bool = t == null or (t.has_method("is_dead") and t.is_dead())
+	var who: String = "you" if npc.crash.target_id == "player" else String(t.get("npc_name")) if t != null else "them"
 	if _brawl and not target_down and NPCCombat.health_of(t) <= BRAWL_STOP_HEALTH:
 		target_down = true   ## beaten down: a brawl stops there
-		npc.log_event("crash", "Beat %s down" % ("you" if npc.crash.target_id == "player" else String(t.get("npc_name"))))
-	if target_down or _attack_left <= 0.0:
-		npc.combat.rushing = false
-		npc.combat.attacking_id = ""
+		npc.log_event("crash", "Beat %s down" % who)
+	## The target answered a fist fight with a real weapon: now it's serious.
+	if _brawl and npc.combat.escalate:
+		npc.combat.escalate = false
+		_brawl = false
+		_will_attack = true
 		npc.combat.put_fists_away()
-		if _weapon != null and is_instance_valid(_weapon):
-			_weapon.set_aiming(false)
-		_to(Phase.PACE)
+		npc.log_event("crash", "Went for a weapon")
+		_start_attack_or_sabotage(npc)
+		return
+	if target_down or _attack_left <= 0.0 or (_brawl and _out_of_reach > BRAWL_GIVE_UP):
+		_disengage(npc)
 		return
 	var d: float = NPCItemUser.flat_distance(npc.global_position, t.global_position)
 	var reach: float = _attack_range()
-	if d > reach * 0.8:
-		npc.combat.rushing = true
+	var gun: bool = _weapon != null and is_instance_valid(_weapon) and _weapon.is_firearm() and _weapon.ammo > 0
+	_out_of_reach = _out_of_reach + delta if d > reach + 1.5 else 0.0
+	## Getting there: pathfind from afar; up close walk straight in and hold
+	## a fighting distance (a gun just stops once in range).
+	if (gun and d > reach * 0.9) or (not gun and d > maxf(CLOSE_IN_AT, reach + 0.4)):
+		npc.combat.rushing = d > 4.0
 		npc.set_nav_target(t.global_position)
 		npc.nav_steer(delta)
+		_squared = false
 		return
 	npc.combat.rushing = false
-	npc.halt_movement(delta)
-	npc.face_toward(t.global_position, 1.0)
+	if gun:
+		npc.halt_movement(delta)
+	else:
+		npc.steer_direct(t.global_position, maxf(reach * 0.8, MIN_SPACING), delta)
+	npc.face_toward(t.global_position, minf(FIGHT_TURN * delta, 0.99))
+	if not _squared:
+		_squared = true   ## guard up, sizing them up, before the first blow
+		_swing_gap = maxf(_swing_gap, randf_range(SQUARE_UP.x, SQUARE_UP.y))
 	_swing_gap -= delta
-	if _swing_gap > 0.0:
+	if _swing_gap > 0.0 or d > reach * 0.95 or absf(_facing_error(npc, t.global_position)) > FACING_OK:
 		return
 	if _bark_timer <= 0.0:
 		_bark_timer = randf_range(4.0, 7.0)
 		npc.bark_event("attack")
 	var aim_at: Vector3 = t.global_position + Vector3.UP * 0.35
+	var dir: Vector3 = Vector3(t.global_position.x - npc.global_position.x, 0.0, t.global_position.z - npc.global_position.z)
 	if _weapon != null and is_instance_valid(_weapon) and npc.held_item == _weapon:
 		## Melee swings from the body toward the target (the held weapon sits
 		## ahead of the body, so aiming from it goes sideways up close); guns
 		## aim from the weapon, with shaky hands (some shots miss).
-		var dir: Vector3 = Vector3(t.global_position.x - npc.global_position.x, 0.0, t.global_position.z - npc.global_position.z)
-		if _weapon.is_firearm() and _weapon.ammo > 0:
+		if gun:
 			dir = (aim_at - _weapon.global_position).normalized().rotated(Vector3.UP, randf_range(-0.07, 0.07))
 		if _weapon.try_attack(dir):
 			_swing_gap = randf_range(0.5, 1.1)   ## wind-up between blows; gives the victim a chance
 	else:
-		## Fists (weapons session's Fists node): jab/cross combos, then a
-		## breather so the other one gets a chance.
+		## Fists (weapons session's Fists node): a jab, usually followed by
+		## a cross, then a breather so the other one gets a chance.
 		_weapon = null
 		var fists: Node = npc.combat.raise_fists()
-		var dir: Vector3 = Vector3(t.global_position.x - npc.global_position.x, 0.0, t.global_position.z - npc.global_position.z)
 		if fists != null and fists.try_attack(dir):
-			_swing_gap = randf_range(0.35, 0.5) if randf() < 0.6 else randf_range(0.9, 1.4)
+			_combo += 1
+			var follow_up: bool = _combo % 2 == 1 and randf() < 0.75
+			_swing_gap = randf_range(0.3, 0.42) if follow_up else randf_range(0.9, 1.5)
+
+## Stop fighting: lower the guard, then a moment's glare before storming off.
+func _disengage(npc: NPC) -> void:
+	npc.combat.rushing = false
+	npc.combat.attacking_id = ""
+	npc.combat.put_fists_away()
+	if _weapon != null and is_instance_valid(_weapon):
+		_weapon.set_aiming(false)
+	_to(Phase.GLARE)
+	_timer = -randf_range(GLARE_SECONDS.x, GLARE_SECONDS.y)
+	npc.bark_event("seething")
+
+## Signed yaw from where they face to `pos` (radians).
+func _facing_error(npc: NPC, pos: Vector3) -> float:
+	var d: Vector3 = pos - npc.global_position
+	return angle_difference(npc.rotation.y, atan2(-d.x, -d.z))
 
 # ─── Sabotage ───────────────────────────────────────────────────────────────
 func _tick_sabotage(npc: NPC, delta: float) -> void:

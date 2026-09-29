@@ -41,11 +41,11 @@ func done(npc: NPC) -> bool:
 	return not npc.combat.is_fleeing()
 
 func attention_target(npc: NPC) -> Node3D:
-	return npc.combat.attacker_node()
+	return npc.combat.threat_node()
 
 ## The cleared floor cell farthest from the attacker (of a few samples).
 func _away_point(npc: NPC) -> Vector3:
-	var threat: Node3D = npc.combat.attacker_node()
+	var threat: Node3D = npc.combat.threat_node()
 	var from: Vector3 = threat.global_position if threat != null else npc.global_position
 	var world: Node = npc.get_tree().get_first_node_in_group("main_world")
 	var best: Vector3 = npc.global_position + (npc.global_position - from).normalized() * 6.0

@@ -37,6 +37,8 @@ var death_cause: String = ""
 var killed_by: String = ""                  ## "player", an npc_id, or ""
 var attacked_by: String = ""                ## last attacker (fight-back/flee target)
 var last_hit_kind: String = ""              ## "punch" hits start fist fights, not lethal ones
+var flee_from: String = ""                  ## who they're running from (an attacker, or a fight nearby)
+var escalate: bool = false                  ## mid fist fight, the target used a real weapon (CrashOutActivity)
 var flee_until_msec: int = 0
 var rushing: bool = false                   ## charging at someone (CrashOutActivity) — runs
 var attacking_id: String = ""               ## who they're arming for / attacking right now (CrashOutActivity)
@@ -105,9 +107,16 @@ static func play_hit_reaction(body: Node, ctx: Dictionary) -> void:
 			return
 
 func attacker_node() -> Node3D:
-	if attacked_by == "player":
+	return _node_of(attacked_by)
+
+## Who they're running from (FleeActivity).
+func threat_node() -> Node3D:
+	return _node_of(flee_from if flee_from != "" else attacked_by)
+
+func _node_of(id: String) -> Node3D:
+	if id == "player":
 		return _npc.get_tree().get_first_node_in_group("player") as Node3D
-	return _npc.crash._find(attacked_by) if attacked_by != "" else null
+	return _npc.crash._find(id) if id != "" else null
 
 # ─── Taking a hit ───────────────────────────────────────────────────────────
 func receive_hit(ctx: Dictionary) -> void:
@@ -128,11 +137,14 @@ func receive_hit(ctx: Dictionary) -> void:
 			defended = null
 	_npc.health = maxf(0.0, _npc.health - dmg)
 	var injury: String = _injure(kind, part, dmg)
-	## Knocked back a little.
+	## Knocked back a little: a jab rocks them, a bat sends them stumbling.
 	var dir: Vector3 = ctx.get("direction", Vector3.ZERO)
 	dir.y = 0.0
 	if dir.length_squared() > 0.001:
-		_npc.velocity += dir.normalized() * 2.5
+		_npc.velocity += dir.normalized() * clampf(dmg * 0.12, 0.4, 2.5)
+	var punch: bool = kind in ["punch", "fists"]
+	if not punch and src_id != "" and _npc.crash.active() and _npc.crash.target_id == src_id:
+		escalate = true
 	## Fight or flight is decided by how they felt about the attacker BEFORE this.
 	var prior_hate: float = (_npc.get_relationship(src_id) + _npc.bonds.grudge_against(src_id) * 0.5) if src_id != "" else 0.0
 	var who: String = "You" if src_id == "player" else (_npc.bonds.display_name(src_id) if src_id != "" else "Someone")
@@ -155,6 +167,8 @@ func receive_hit(ctx: Dictionary) -> void:
 		## those who care about the attacker still mind), and the one being
 		## attacked is grateful rather than a witness.
 		_witnesses_react(src_id, src, "attacked %s" % _npc.npc_name, 0.0 if defended != null else -4.0, 12.0, 0.15, defended)
+		if defended == null:   ## stepping in to stop a fight isn't a new threat
+			_bystanders_clear_out(src_id, src, punch)
 		if defended != null:
 			defended.combat.credit_rescue("stopped %s attacking me" % _npc.npc_name)
 	if _npc.health <= 0.0:
@@ -174,10 +188,37 @@ func _react(src_id: String, hate: float) -> void:
 		_npc.crash.target_id = src_id
 		_npc.crash.begin(NPCCrashOut.Mode.HOSTILE)
 		return
+	flee_from = src_id
 	flee_until_msec = Time.get_ticks_msec() + int(FLEE_SECONDS * 1000.0)
 	_npc.bark_event("flee")
 	if _npc.brain != null:
 		_npc.brain.stop_current()
+
+## People near a fight get out of the way: anyone right beside a brawl
+## steps clear; a weapon attack sends the faint-hearted running (the
+## brave stay put and just react). Only bystanders who aren't busy with
+## something they can't drop (a crash-out, sleeping, already running).
+const CLEAR_OUT_BRAWL: float = 1.8
+const CLEAR_OUT_WEAPON: float = 6.0
+func _bystanders_clear_out(actor_id: String, actor: Node, punch: bool) -> void:
+	if actor == null or not (actor is Node3D):
+		return
+	var radius: float = CLEAR_OUT_BRAWL if punch else CLEAR_OUT_WEAPON
+	for w: Node in _npc.get_tree().get_nodes_in_group("npc"):
+		if not (w is NPC) or w == _npc or w == actor:
+			continue
+		var wn: NPC = w as NPC
+		if wn.combat.is_fleeing() or wn.crash.active() or wn.is_passed_out() or (wn.brain != null and wn.brain.is_sleeping()):
+			continue
+		if wn.global_position.distance_to(_npc.global_position) > radius:
+			continue
+		var nerve: float = wn._trait("resilience") - wn.social.fear / 200.0
+		if not punch and nerve > 0.55:
+			continue
+		wn.combat.flee_from = actor_id
+		wn.combat.flee_until_msec = Time.get_ticks_msec() + int((1.6 if punch else 4.5) * 1000.0)
+		if wn.brain != null and wn.brain.is_current_interruptible():
+			wn.brain.stop_current()
 
 ## A rescue by the player: false (and nothing happens) when they were
 ## already credited with one in the last RESCUE_REPEAT_H game hours.

@@ -383,6 +383,7 @@ func _tick_combat() -> void:
 			c.relationships[d.npc_id] = -55.0
 			c.crash.target_id = d.npc_id
 			c.crash.begin(NPCCrashOut.Mode.HOSTILE)
+			_combat_done["d_hp"] = d.health
 			print("[combat] %s crashes out at %s (light hatred: fist fight)" % [c.npc_name, d.npc_name])
 		if _combat_done.has("feud") and not _combat_done.has("defend") and c.combat.attacking_id == d.npc_id:
 			_combat_done["defend"] = true
@@ -405,6 +406,10 @@ func _tick_combat() -> void:
 				_flag("combat_no_brawl", c, "light hatred didn't start a fist fight", "cnb")
 			if d.is_dead():
 				_flag("combat_brawl_killed", d, "a fist fight killed someone", "cbk")
+			var landed: int = d._action_log.filter(func(e): return String(e.get("text", "")).contains("with a fist")).size()
+			print("[combat] brawl: %d punches landed on %s (health %.0f -> %.0f)" % [landed, d.npc_name, float(_combat_done["d_hp"]), d.health])
+			if landed == 0:
+				_flag("combat_punches_missed", c, "brawled but no punch ever connected", "cpm")
 		if _combat_done.has("feud") and not _combat_done.has("defend") and st >= 58.0:
 			_combat_done["defend"] = true
 			_flag("combat_feud_no_attack", c, "an escalated crash-out at a resident never attacked", "cfa")

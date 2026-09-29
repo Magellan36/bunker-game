@@ -227,6 +227,22 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
     kill for 12–20 s via `WeaponItem.set_aiming/try_attack` (melee aimed
     from the body, pistol with some spread from 7 m), pausing 0.5–1.1 s
     between blows.
+  Fight feel: from afar they pathfind (running beyond 4 m); inside 2.4 m
+  they walk straight in with `NPC.steer_direct` (no avoidance detour) and
+  hold 0.8 × reach, never closer than 0.9 m between centres (capsules touch
+  at 0.8), easing back if crowded. They turn at the capped human rate, square
+  up for 0.45–0.8 s before the first blow, and only strike when within
+  ~35° of facing and inside 0.95 × reach. Fists throw a jab, usually
+  followed by a cross, then take a 0.9–1.5 s breather. A brawl ends when the
+  target is beaten down, when time runs out, or once the target has been
+  out of reach for 2.5 s; if the target answers with a real weapon, the
+  brawl escalates to the weapon attack (`NPCCombat.escalate`). Ending
+  either kind is a GLARE beat: guard down, stare for 0.9–1.5 s, then pace
+  off. Knockback scales with damage (a jab rocks, a bat staggers).
+  Bystanders (`_bystanders_clear_out`): within 1.8 m of a brawl they step
+  clear for 1.6 s; within 6 m of a weapon attack the faint-hearted run for
+  4.5 s (`combat.flee_from`, `FleeActivity` uses `threat_node()`). Nobody
+  scatters when the player steps in to stop a fight.
   The player has no `receive_weapon_hit()`, so NPC hits on the player
   are applied by `NPCCombat.apply_player_hit` (PlayerStats health →
   game over at 0, plus a PlayerMedical injury; none for punches); it steps
