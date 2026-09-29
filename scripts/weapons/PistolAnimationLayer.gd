@@ -14,6 +14,11 @@ extends RefCounted
 ##                      play at the rate that lands its measured contact frame on
 ##                      the weapon's strike_delay, so the hit and the animation
 ##                      always agree. All clips human-made; timing is code.
+##   fists              Fists (a child of the character named "Fists", same API
+##                      as WeaponItem): "Punching Idle" guard while aiming,
+##                      "Punch Jab"/"Punch Cross" on attack_started("punch", 0/1).
+##   hit reactions      play_hit_reaction(ctx): head/rib/stomach hit by the hit
+##                      height, or "Aiming Pistol Hit" while aiming a firearm.
 const KEYS: Array[String] = ["walk", "walk_backward", "strafe_left", "strafe_right"]
 const POINTS: Array[Vector2] = [Vector2(0, 1), Vector2(0, -1), Vector2(-1, 0), Vector2(1, 0)]
 var model: Node3D
@@ -48,6 +53,7 @@ var _strike_rate: float = 1.0
 var _strike_w: float = 0.0
 var _strike_upper_only: bool = false
 var _melee: bool = false
+var _hold_clip: StringName = &"melee_idle"
 var _signal_weapon: Node = null
 
 func install(owner_model: Node3D) -> void:
@@ -143,8 +149,12 @@ func update(delta: float) -> void:
 	_melee = melee
 	if is_instance_valid(_weapon):
 		_weapon.grip_anchor = grip
-	_watch_attacks(held if held != null and held.has_signal("attack_started") else null)
-	_update_melee(delta, melee, free)
+	## Empty hands: the character's Fists node (player or NPC) is the weapon.
+	var fists: Node = model._player.get_node_or_null("Fists") if held == null else null
+	var guard: bool = free and fists != null and bool(fists.get("aiming"))
+	_watch_attacks(held if held != null and held.has_signal("attack_started") else fists)
+	_set_hold_clip(&"punch_idle" if guard else &"melee_idle")
+	_update_melee(delta, melee or guard, free)
 	weight = move_toward(weight, 1.0 if active else 0.0, delta * 8.0)
 	tree.set("parameters/pistol_mix/blend_amount", weight)
 	if weight <= 0.0:
@@ -183,8 +193,14 @@ func _watch_attacks(weapon: Node) -> void:
 func _on_attack_started(kind: String, variant: int) -> void:
 	if model._stage != 0:
 		return
-	var delay: float = float(_signal_weapon.get("strike_delay")) if is_instance_valid(_signal_weapon) else 0.2
+	var delay: float = float(_signal_weapon.get("strike_delay")) if is_instance_valid(_signal_weapon) \
+		and "strike_delay" in _signal_weapon else 0.2
 	match kind:
+		"punch":
+			var cross: bool = variant == 1
+			var punch_delay: float = float(_signal_weapon.get("cross_strike_delay" if cross else "jab_strike_delay")) \
+				if is_instance_valid(_signal_weapon) else 0.2
+			_start_timed_strike(&"punch_cross" if cross else &"punch_jab", punch_delay)
 		"revolver":
 			var shot: Animation = weapons.get_animation("pistol_shoot")
 			var kick: float = float(shot.get_meta("contact_time", 0.3))
@@ -216,8 +232,37 @@ func _start_strike(clip: StringName, from: float, rate: float, until: float) -> 
 	for layer: String in ["strike_full", "strike_upper"]:
 		(graph.get_node(layer + "_clip") as AnimationNodeAnimation).animation = StringName("weapons/" + clip)
 
+## Hit reaction chosen from the hit height on this body (or the aiming
+## flinch while holding a firearm up). Called via
+## AdventurerModelController.play_hit_reaction(ctx).
+func play_hit_reaction(ctx: Dictionary) -> void:
+	if model._stage != 0:
+		return
+	var held: Node = model._player.get_held_item() if model._player.has_method("get_held_item") else null
+	var clip: StringName = &"hit_stomach"
+	if held != null and held.has_method("is_firearm") and held.is_firearm() and bool(held.get("aiming")):
+		clip = &"hit_aiming"
+	else:
+		var sk: Skeleton3D = model._skeleton
+		var y: float = (ctx.get("position", model._visual.global_position) as Vector3).y
+		var neck: float = (sk.global_transform * sk.get_bone_global_pose(sk.find_bone("Neck")).origin).y
+		var chest: float = (sk.global_transform * sk.get_bone_global_pose(sk.find_bone("Chest")).origin).y
+		if y >= neck - 0.05:
+			clip = &"hit_head"
+		elif y >= chest:
+			clip = &"hit_rib"
+	_start_strike(clip, 0.0, 1.0, weapons.get_animation(clip).length)
+
+func _set_hold_clip(clip: StringName) -> void:
+	if clip == _hold_clip:
+		return
+	_hold_clip = clip
+	var graph: AnimationNodeBlendTree = tree.tree_root
+	for layer: String in ["melee_full", "melee_upper"]:
+		(graph.get_node(layer + "_clip") as AnimationNodeAnimation).animation = StringName("weapons/" + clip)
+
 func _update_melee(delta: float, melee: bool, free: bool) -> void:
-	var idle: Animation = weapons.get_animation("melee_idle")
+	var idle: Animation = weapons.get_animation(_hold_clip)
 	_melee_time = fposmod(_melee_time + delta, idle.length)
 	_melee_w = move_toward(_melee_w, 1.0 if melee else 0.0, delta * MELEE_FADE_RATE)
 	var moving: float = clampf(model._move_w, 0.0, 1.0)

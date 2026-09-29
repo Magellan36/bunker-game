@@ -20,8 +20,8 @@ var weapon_kind: String = "fists"
 @export var jab_interval: float = 0.32
 @export var cross_interval: float = 0.45
 ## Press-to-contact seconds; tuned to the punch clips by the animation session.
-@export var jab_strike_delay: float = 0.12
-@export var cross_strike_delay: float = 0.18
+@export var jab_strike_delay: float = 0.2
+@export var cross_strike_delay: float = 0.3
 var aiming: bool = false
 var is_held: bool = true
 var grip_anchor: Node3D   ## unused (no object in hand); parity only

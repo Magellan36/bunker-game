@@ -1006,6 +1006,15 @@ func end_lean() -> void:
 func is_leaning() -> bool:
 	return _stage == Stage.LEAN
 
+## Hit reaction for a non-fatal hit (called by NPC combat for NPC victims and
+## for the player). ctx is the standard weapon hit context {damage, position,
+## direction, kind, source, collider}; the clip is picked from the hit height
+## (head / rib / stomach) or the aiming flinch while holding a firearm up.
+## Ignored while dead or using furniture.
+func play_hit_reaction(ctx: Dictionary) -> void:
+	if _pistol_layer != null and _stage == Stage.NONE:
+		_pistol_layer.play_hit_reaction(ctx)
+
 ## True from the moment furniture use starts until the stand-up has finished.
 func is_sit_sequence_active() -> bool:
 	return _stage != Stage.NONE and _stage != Stage.DEAD
