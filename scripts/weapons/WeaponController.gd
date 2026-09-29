@@ -17,10 +17,6 @@ const ATTACK_BUFFER: float = 0.18
 const ASSIST_FIREARM_DEG: float = 10.0
 const ASSIST_MELEE_DEG: float = 32.0
 const ASSIST_FIREARM_RANGE: float = 12.0
-## Hit-stop on the player's own confirmed melee/fist hits (real seconds).
-const HIT_STOP: float = 0.05
-const HIT_STOP_SCALE: float = 0.08
-const HIT_SHAKE: float = 0.05
 const Melee = preload("res://scripts/weapons/MeleeStrike.gd")
 var _buffer_left: float = 0.0
 var _aim_yaw: float = 0.0
@@ -182,15 +178,3 @@ func _on_hit(hit: Dictionary) -> void:
 	if not _is_receiver(hit.collider as Node):
 		return
 	_reticle.hit_time = 0.15
-	if _weapon == null or _weapon.is_firearm() or hit.get("kind", "") == "revolver":
-		return
-	## Melee/fist impact weight: a tiny camera jolt plus a brief hit-stop. Never
-	## touches time while sleep fast-forward or the dev warp owns time_scale.
-	var camera: Camera3D = get_viewport().get_camera_3d()
-	if camera != null and camera.has_method("add_trauma"):
-		camera.call("add_trauma", HIT_SHAKE)
-	if Engine.time_scale == 1.0:
-		Engine.time_scale = HIT_STOP_SCALE
-		await get_tree().create_timer(HIT_STOP, true, false, true).timeout
-		if Engine.time_scale == HIT_STOP_SCALE:
-			Engine.time_scale = 1.0

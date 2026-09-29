@@ -56,9 +56,8 @@ Polish pass (2026-09-28):
 - Gamepad aim assist (mouse is never assisted): a stick direction within 10°
   (firearm, 12 m) or 32° (melee/fists, reach + 0.6 m) of a hittable target with a
   clear line snaps to it.
-- The player's own confirmed melee/fist hits add a 0.05 camera jolt and a 50 ms
-  hit-stop (time ×0.08). This only happens at normal speed, so it never fights
-  sleep fast-forward or the dev warp.
+- No hit-stop or melee screen shake: combat is a rare emergency in a colony sim,
+  so feedback stays quiet (a reticle tick on a confirmed hit).
 - Hits push loose RigidBody props (impulse ≈ damage × 0.08, clamped 0.3–3).
 - The reticle reads "Empty · E reload" / "Empty" when the revolver is dry.
 - Only the player's own shots give full recoil shake; others' shots nearby give a
