@@ -215,9 +215,27 @@ func _fire(direction: Vector3) -> void:
 	if not hit.is_empty():
 		_deliver_hit(hit, direction)
 		Effects.impact(self, hit.position, hit.normal)
+	_shake_camera()
+
+## Full recoil shake only for the player's own shots. Someone else's shot nearby
+## gives a faint, distance-faded jolt (none beyond NEARBY_SHOT_RANGE).
+const NEARBY_SHOT_RANGE: float = 8.0
+const NEARBY_SHOT_SCALE: float = 0.35
+func _shake_camera() -> void:
 	var camera: Camera3D = get_viewport().get_camera_3d()
-	if camera != null and camera.has_method("add_trauma"):
+	if camera == null or not camera.has_method("add_trauma"):
+		return
+	var holder: CharacterBody3D = _get_holder()
+	if holder != null and holder.is_in_group("player"):
 		camera.call("add_trauma", recoil_strength)
+		return
+	var player: Node3D = get_tree().get_first_node_in_group("player") as Node3D
+	if player == null:
+		return
+	var shooter: Node3D = holder if holder != null else self
+	var falloff: float = 1.0 - player.global_position.distance_to(shooter.global_position) / NEARBY_SHOT_RANGE
+	if falloff > 0.0:
+		camera.call("add_trauma", recoil_strength * NEARBY_SHOT_SCALE * falloff)
 
 func _melee_hit(direction: Vector3) -> void:
 	var origin: Vector3 = _attack_origin()
