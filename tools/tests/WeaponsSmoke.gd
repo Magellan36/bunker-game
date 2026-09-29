@@ -181,6 +181,16 @@ func _run() -> void:
 	controller._unhandled_input(trigger)
 	await ticks(2)
 	check(gun.ammo == 2, "held trigger does not repeat")
+	var release := InputEventJoypadMotion.new()
+	release.axis = JOY_AXIS_TRIGGER_RIGHT
+	release.axis_value = 0.0
+	controller._input(release)
+	gun._cooldown = 0.1
+	controller._unhandled_input(trigger)
+	await ticks(1)
+	check(gun.ammo == 2, "press during recovery waits")
+	await ticks(9)
+	check(gun.ammo == 1, "buffered press fires once recovery ends")
 	Input.action_release("aim_right")
 	await ticks(2)
 	check(not gun.aiming, "release stick returns to carry")

@@ -9,7 +9,20 @@ var interaction: Node
 var _weapon: Node
 var _fists: Node3D
 var _mouse_aim: bool = false
-var _attack_pending: bool = false
+## Seconds a press stays queued, so a press during recovery lands the moment
+## the weapon is ready (combos feel continuous instead of eating inputs).
+const ATTACK_BUFFER: float = 0.18
+## Gamepad aim assist: a stick direction within this cone of a valid target
+## snaps to it (firearm narrower than melee). Mouse aim is never assisted.
+const ASSIST_FIREARM_DEG: float = 10.0
+const ASSIST_MELEE_DEG: float = 32.0
+const ASSIST_FIREARM_RANGE: float = 12.0
+## Hit-stop on the player's own confirmed melee/fist hits (real seconds).
+const HIT_STOP: float = 0.05
+const HIT_STOP_SCALE: float = 0.08
+const HIT_SHAKE: float = 0.05
+const Melee = preload("res://scripts/weapons/MeleeStrike.gd")
+var _buffer_left: float = 0.0
 var _aim_yaw: float = 0.0
 var _was_aiming: bool = false
 var _trigger_down: bool = false
@@ -34,7 +47,7 @@ func _notification(what: int) -> void:
 
 func _reset() -> void:
 	_mouse_aim = false
-	_attack_pending = false
+	_buffer_left = 0.0
 	_was_aiming = false
 	_trigger_down = false
 	for device: int in Input.get_connected_joypads():
@@ -58,12 +71,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			_mouse_aim = event.pressed
 			get_viewport().set_input_as_handled()
 		elif event.button_index == MOUSE_BUTTON_LEFT and event.pressed and _mouse_aim:
-			_attack_pending = true
+			_buffer_left = ATTACK_BUFFER
 			get_viewport().set_input_as_handled()
 	elif event is InputEventJoypadMotion and event.axis == JOY_AXIS_TRIGGER_RIGHT:
 		var pressed: bool = event.axis_value > 0.55
 		if pressed and not _trigger_down:
-			_attack_pending = true
+			_buffer_left = ATTACK_BUFFER
 		_trigger_down = pressed
 		if pressed:
 			get_viewport().set_input_as_handled()
@@ -100,7 +113,7 @@ func _physics_process(delta: float) -> void:
 			if point != null:
 				target_direction = point - Vector3(player.global_position.x, plane.d, player.global_position.z)
 	elif aim:
-		target_direction = Vector3(stick.x, 0, stick.y).rotated(Vector3.UP, player.camera_yaw_rad)
+		target_direction = _assist(player, Vector3(stick.x, 0, stick.y).rotated(Vector3.UP, player.camera_yaw_rad))
 	if aim:
 		if not _was_aiming:
 			_aim_yaw = player.rotation.y
@@ -110,9 +123,13 @@ func _physics_process(delta: float) -> void:
 		_direction = -player.global_basis.z
 	_weapon.set_aiming(aim)
 	_weapon.sync_held_pose()
-	if _attack_pending and aim:
-		_weapon.try_attack(_direction)
-	_attack_pending = false
+	if _buffer_left > 0.0 and aim:
+		if _weapon.try_attack(_direction):
+			_buffer_left = 0.0
+		else:
+			_buffer_left = maxf(0.0, _buffer_left - delta)
+	elif not aim:
+		_buffer_left = 0.0
 	_was_aiming = aim
 	_reticle.visible = aim
 	if aim:
@@ -120,12 +137,60 @@ func _physics_process(delta: float) -> void:
 		if camera != null:
 			_reticle.aim_position = get_viewport().get_mouse_position() if _mouse_aim else camera.unproject_position(_weapon.global_position + _direction * minf(_weapon.reach, 7.0))
 		_reticle.empty = _weapon.is_firearm() and _weapon.ammo == 0
-		_reticle.rounds = ("Reloading…" if _weapon._reload_left > 0.0 else "%d / %d" % [_weapon.ammo, _weapon.reserve_ammo]) if _weapon.is_firearm() else ""
+		_reticle.rounds = _rounds_text() if _weapon.is_firearm() else ""
+
+func _rounds_text() -> String:
+	if _weapon._reload_left > 0.0:
+		return "Reloading…"
+	if _weapon.ammo == 0:
+		return "Empty · E reload" if _weapon.reserve_ammo > 0 else "Empty"
+	return "%d / %d" % [_weapon.ammo, _weapon.reserve_ammo]
+
+## Closest valid target to the stick direction inside the assist cone, with a
+## clear line; otherwise the raw direction.
+func _assist(player: CharacterBody3D, raw: Vector3) -> Vector3:
+	if raw.length_squared() < 0.01:
+		return raw
+	var firearm: bool = _weapon.is_firearm()
+	var range_: float = ASSIST_FIREARM_RANGE if firearm else float(_weapon.reach) + 0.6
+	var cone: float = ASSIST_FIREARM_DEG if firearm else ASSIST_MELEE_DEG
+	var origin: Vector3 = _weapon.get_aim_origin()
+	var exclude: Array[RID] = [player.get_rid()]
+	if _weapon is CollisionObject3D:
+		exclude.append((_weapon as CollisionObject3D).get_rid())
+	var best: Vector3 = raw
+	var best_angle: float = deg_to_rad(cone)
+	for hit: Dictionary in Melee.find(player.get_world_3d(), origin, raw.normalized(), range_, cone, exclude, 1):
+		if not _is_receiver(hit.collider as Node):
+			continue
+		var to: Vector3 = (hit.collider as Node3D).global_position - origin
+		to.y = 0.0
+		var angle: float = raw.angle_to(to)
+		if angle < best_angle:
+			best_angle = angle
+			best = to
+	return best
+
+func _is_receiver(node: Node) -> bool:
+	while node != null:
+		if node.has_method("receive_weapon_hit"):
+			return true
+		node = node.get_parent()
+	return false
 
 func _on_hit(hit: Dictionary) -> void:
-	var receiver: Node = hit.collider as Node
-	while receiver != null:
-		if receiver.has_method("receive_weapon_hit"):
-			_reticle.hit_time = 0.15
-			return
-		receiver = receiver.get_parent()
+	if not _is_receiver(hit.collider as Node):
+		return
+	_reticle.hit_time = 0.15
+	if _weapon == null or _weapon.is_firearm() or hit.get("kind", "") == "revolver":
+		return
+	## Melee/fist impact weight: a tiny camera jolt plus a brief hit-stop. Never
+	## touches time while sleep fast-forward or the dev warp owns time_scale.
+	var camera: Camera3D = get_viewport().get_camera_3d()
+	if camera != null and camera.has_method("add_trauma"):
+		camera.call("add_trauma", HIT_SHAKE)
+	if Engine.time_scale == 1.0:
+		Engine.time_scale = HIT_STOP_SCALE
+		await get_tree().create_timer(HIT_STOP, true, false, true).timeout
+		if Engine.time_scale == HIT_STOP_SCALE:
+			Engine.time_scale = 1.0

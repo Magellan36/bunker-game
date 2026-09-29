@@ -50,6 +50,20 @@ this pass does not include final weapon audio or mechanical cylinder/reload anim
 
 ## Feel and feedback
 
+Polish pass (2026-09-28):
+- 0.18 s attack input buffer: a press during recovery fires the moment the weapon is
+  ready, so combos never eat inputs.
+- Gamepad aim assist (mouse is never assisted): a stick direction within 10°
+  (firearm, 12 m) or 32° (melee/fists, reach + 0.6 m) of a hittable target with a
+  clear line snaps to it.
+- The player's own confirmed melee/fist hits add a 0.05 camera jolt and a 50 ms
+  hit-stop (time ×0.08). This only happens at normal speed, so it never fights
+  sleep fast-forward or the dev warp.
+- Hits push loose RigidBody props (impulse ≈ damage × 0.08, clamped 0.3–3).
+- The reticle reads "Empty · E reload" / "Empty" when the revolver is dry.
+- Only the player's own shots give full recoil shake; others' shots nearby give a
+  faint distance-faded jolt.
+
 24/s exponential aim smoothing, 0.32s revolver recovery, 0.34/0.65/0.48s knife/hatchet/
 pipe recovery. Brief 45ms warm OmniLight3D muzzle flash, 0.13 camera trauma through
 GameCamera (quadratic scale: very small shake), visual recoil, reticle ammo count,
@@ -88,7 +102,7 @@ Run with isolated user data (see `docs/AGENT_GIT_WORKFLOW.md`):
 XDG_DATA_HOME=$(mktemp -d) XDG_CONFIG_HOME=$(mktemp -d) /path/to/godot --headless --path . res://tools/tests/WeaponsTest.tscn --quit-after 120
 ```
 
-Headless behavior checks (expects `WEAPONS_SMOKE: 41 checks, 0 failures`):
+Headless behavior checks (expects `WEAPONS_SMOKE: 43 checks, 0 failures`):
 
 ```
 XDG_DATA_HOME=$(mktemp -d) XDG_CONFIG_HOME=$(mktemp -d) /path/to/godot --headless --path . res://tools/tests/WeaponsSmoke.tscn

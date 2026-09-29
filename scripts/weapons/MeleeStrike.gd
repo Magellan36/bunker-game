@@ -35,8 +35,15 @@ static func find(world: World3D, origin: Vector3, direction: Vector3, reach: flo
 		hits.append(hit)
 	return hits
 
+const IMPULSE_PER_DAMAGE: float = 0.08
+
 ## Walks up from the collider to the first node implementing receive_weapon_hit.
 static func deliver(context: Dictionary) -> Node:
+	## Loose props react physically (a knocked can, a shoved crate).
+	var body := context.collider as RigidBody3D
+	if body != null and not body.freeze:
+		body.apply_impulse(context.direction * clampf(float(context.damage) * IMPULSE_PER_DAMAGE, 0.3, 3.0),
+			context.position - body.global_position)
 	var receiver: Node = context.collider as Node
 	while receiver != null and not receiver.has_method("receive_weapon_hit"):
 		receiver = receiver.get_parent()
