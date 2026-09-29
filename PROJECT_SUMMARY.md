@@ -122,6 +122,7 @@ before starting any of these):**
 | Farming (trays, plants, grow lights, seeds/soil/produce items) | `docs/systems/farming/README.md` | migrated |
 | NPC (wandering, talk UI, admin spawn) | `docs/systems/npc/README.md` | migrated |
 | Main Menu + surface backdrop (boot scene, storm/wind scene, asset slots, AI-content release gate) | `docs/systems/main-menu/README.md` | migrated |
+| Surface Hatch & Expeditions (hatch fixture, scavenging runs, loot/hazard tables, hatch inspector) | `docs/systems/hatch/README.md` | migrated |
 
 **All 11 systems now migrated (Aug 2026, NPC added).** 
 

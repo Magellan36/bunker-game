@@ -330,6 +330,14 @@ relax budget, cooldowns (game-time), thoughts, action log, home bed and
 medical conditions (`NPCMedical.to_save/from_save`). Old saves load with
 fresh values for missing keys.
 
+### Surface expeditions (Sep 2026)
+Residents can be sent topside from the Surface Hatch. While away they are
+NOT in the scene: `SurfaceHatch` serializes them with `get_save_dict()`,
+frees them (stop activity → drop held → leave "npc" group), and re-instances
+them on return through `apply_save_dict()`, the same path as a save load.
+Two thoughts exist for it: `went_topside` (+4) and `rough_trip_topside` (−6).
+Full rules: `docs/systems/hatch/README.md`.
+
 ### Time
 All cooldowns are in game hours via `NPCClock.now()` (pause-, fast-forward-
 and save-safe). Short physical actions still use frame delta.
