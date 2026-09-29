@@ -52,6 +52,7 @@ var _flash: OmniLight3D
 var _flash_left: float = 0.0
 const Effects = preload("res://scripts/weapons/WeaponEffects.gd")
 const Melee = preload("res://scripts/weapons/MeleeStrike.gd")
+const MELEE_CHEST_HEIGHT: float = 0.35   ## matches Fists.CHEST_HEIGHT
 
 func _ready() -> void:
 	super._ready()
@@ -165,6 +166,7 @@ func try_attack(direction: Vector3) -> bool:
 		return false
 	_cooldown = attack_interval
 	if is_firearm() and ammo > 0:
+		_strike_kind = weapon_kind
 		_kick = 1.0
 		_play_sound(attack_sound)
 		attack_started.emit(weapon_kind, 0)
@@ -202,7 +204,13 @@ func _ray(from: Vector3, to: Vector3) -> Dictionary:
 
 func _attack_origin() -> Vector3:
 	var holder: CharacterBody3D = _get_holder()
-	return Vector3(holder.global_position.x, _muzzle.global_position.y if is_firearm() else global_position.y, holder.global_position.z) if holder != null else global_position
+	if holder == null:
+		return global_position
+	## Shots leave the muzzle; melee (and the whip) strikes from the holder's
+	## chest, never the animated weapon height (a raised bat would sail the
+	## line-of-sight ray over the target's capsule).
+	var y: float = _muzzle.global_position.y if is_firearm() and _strike_kind != "pistol_whip" else holder.global_position.y + MELEE_CHEST_HEIGHT
+	return Vector3(holder.global_position.x, y, holder.global_position.z)
 
 func _fire(direction: Vector3) -> void:
 	var muzzle_position: Vector3 = _muzzle.global_position
