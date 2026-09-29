@@ -232,8 +232,10 @@ func _ready() -> void:
 	_lib = load(LIBRARY_PATHS.get(_gender, LIBRARY_PATHS["male"])) as AnimationLibrary
 	_read_gait_metadata()
 	_build_tree()
-	# NPCs retain their existing tree; weapon input/locomotion is player-owned.
-	if _player != null and not randomize_gender:
+	## Weapon layer (pistol locomotion, melee hold, strikes) for every
+	## character body: the player and armed NPCs read the same held weapon's
+	## attack_started. Previews (no CharacterBody3D parent) skip it.
+	if _player != null:
 		_pistol_layer = PistolLayer.new()
 		_pistol_layer.install(self)
 	_last_visual_world = _visual.global_transform
