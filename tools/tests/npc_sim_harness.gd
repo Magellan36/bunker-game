@@ -402,13 +402,19 @@ func _tick_combat() -> void:
 			var clog: Array = c._action_log.map(func(e): return String(e.get("text", "")))
 			print("[combat] brawl: %s health %.0f dead=%s; %s log: %s" % [d.npc_name, d.health, d.is_dead(), c.npc_name,
 				" | ".join(clog.slice(maxi(0, clog.size() - 6)))])
-			if not clog.any(func(t): return t.begins_with("Started a fist fight")):
+			## De-escalation is a legitimate outcome (a friend talked them down,
+			## the target backed down, a peacemaker pulled them apart).
+			var calmed: bool = clog.any(func(t): return t.contains("talked me down") or t.contains("backed down") \
+				or t.contains("pulled me off") or t.begins_with("Held back"))
+			if calmed:
+				print("[combat] brawl de-escalated: %s" % " | ".join(clog.filter(func(t): return t.contains("talked me down") or t.contains("backed down") or t.contains("pulled me off") or t.begins_with("Held back"))))
+			if not calmed and not clog.any(func(t): return t.begins_with("Started a fist fight")):
 				_flag("combat_no_brawl", c, "light hatred didn't start a fist fight", "cnb")
 			if d.is_dead():
 				_flag("combat_brawl_killed", d, "a fist fight killed someone", "cbk")
 			var landed: int = d._action_log.filter(func(e): return String(e.get("text", "")).contains("with a fist")).size()
 			print("[combat] brawl: %d punches landed on %s (health %.0f -> %.0f)" % [landed, d.npc_name, float(_combat_done["d_hp"]), d.health])
-			if landed == 0:
+			if landed == 0 and not calmed:
 				_flag("combat_punches_missed", c, "brawled but no punch ever connected", "cpm")
 		if _combat_done.has("feud") and not _combat_done.has("defend") and st >= 58.0:
 			_combat_done["defend"] = true

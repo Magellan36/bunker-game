@@ -243,6 +243,20 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   clear for 1.6 s; within 6 m of a weapon attack the faint-hearted run for
   4.5 s (`combat.flee_from`, `FleeActivity` uses `threat_node()`). Nobody
   scatters when the player steps in to stop a fight.
+- **Fights in a colony** (a rare emergency, not the point). Fist fights are
+  held back when the colony had a fight in the last 8 game hours
+  (`NPCCombat.FIGHT_COOLDOWN_H`, colony-wide, not saved), when the target
+  backs down (0.3 × (1 − neuroticism), +0.2 if afraid), or when a friend
+  within 8 m (they like the angry one ≥ 40, and are liked back ≥ 30) talks
+  them out of it (50%). Being punched first overrides all of this. During a
+  brawl, a brave onlooker (nerve ≥ 0.45) who cares about either fighter
+  (≥ 25), within 10 m, may walk over and pull the brawler off
+  (`BreakUpFightActivity` via `combat.break_up_id` → `combat.separated`):
+  the victim +12 with a memory, onlookers who care about the victim think
+  well of the peacemaker, and the brawler minds it unless they're friends.
+  Aftermath: for 48 h a resident won't work within 5 m of someone who
+  attacked them (work scores ×0.3, "Won't work next to X";
+  `NPCCombat.shuns`), on top of the grudge, fear and morale shock.
   The player has no `receive_weapon_hit()`, so NPC hits on the player
   are applied by `NPCCombat.apply_player_hit` (PlayerStats health →
   game over at 0, plus a PlayerMedical injury; none for punches); it steps

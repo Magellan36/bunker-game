@@ -395,7 +395,8 @@ func work_score(job_type: String, urgency_mult: float = 1.0, base: float = JOB_B
 	var raw: float = base * get_job_priority_weight(job_type) * urgency_mult
 	if not is_passion_job(job_type) and _passion_holder_free(job_type):
 		raw *= 0.6   ## "that's Ruth's thing" — leave it to the Gourmand/Gardener
-	return raw * get_work_ethic_job_mult(raw, job_type) * skill_pref * willingness * overdrive
+	var shun: float = combat.shun_work_mult() if combat != null else 1.0   ## not beside someone who attacked them
+	return raw * get_work_ethic_job_mult(raw, job_type) * skill_pref * willingness * overdrive * shun
 
 ## How fast this resident gets physical work done (age, injuries, skill).
 ## Every job's work timer multiplies its delta by this.

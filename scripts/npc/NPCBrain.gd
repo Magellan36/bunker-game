@@ -61,6 +61,7 @@ func setup(npc: NPC) -> void:
 	_candidates = [
 		CrashOutActivity.new(),
 		FleeActivity.new(),
+		preload("res://scripts/npc/activities/BreakUpFightActivity.gd").new(),
 		WanderActivity.new(),
 		LeanActivity.new(),
 		SitActivity.new(),

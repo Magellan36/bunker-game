@@ -39,6 +39,21 @@ var attacked_by: String = ""                ## last attacker (fight-back/flee ta
 var last_hit_kind: String = ""              ## "punch" hits start fist fights, not lethal ones
 var flee_from: String = ""                  ## who they're running from (an attacker, or a fight nearby)
 var escalate: bool = false                  ## mid fist fight, the target used a real weapon (CrashOutActivity)
+var break_up_id: String = ""                ## the brawler this resident is stepping in to stop (BreakUpFightActivity)
+var separated: bool = false                 ## pulled off their target by a peacemaker (CrashOutActivity disengages)
+var separated_by: String = ""
+var _shun_logged_at: float = -100.0
+
+## Colony-scale rarity: after a fight, the next fist fight within this many
+## game hours stays a shouting match (everyone's shaken; nobody wants
+## another). Escalated (weapon) attacks aren't held back by it.
+const FIGHT_COOLDOWN_H: float = 8.0
+static var last_fight_hours: float = -100.0
+## Aftermath: they won't work within SHUN_RANGE of someone who attacked
+## them in the last SHUN_HOURS (they find something else to do).
+const SHUN_HOURS: float = 48.0
+const SHUN_RANGE: float = 5.0
+const SHUN_WORK_MULT: float = 0.3
 var flee_until_msec: int = 0
 var rushing: bool = false                   ## charging at someone (CrashOutActivity) — runs
 var attacking_id: String = ""               ## who they're arming for / attacking right now (CrashOutActivity)
@@ -230,6 +245,31 @@ func credit_rescue(what: String) -> bool:
 	_npc.bark_event("thanks")
 	_npc.on_rescued_by_player(what)
 	return true
+
+## A resident who attacked this one recently (a named memory of it) and
+## isn't forgiven yet.
+func shuns(other: NPC) -> bool:
+	if other.is_dead() or _npc.get_relationship(other.npc_id) > -20.0:
+		return false
+	var now: float = NPCClock.now()
+	for m: Dictionary in _npc.bonds.get_memories(other.npc_id):
+		if float(m.get("amount", 0.0)) <= -20.0 and now - float(m.get("stamp", -999.0)) < SHUN_HOURS \
+				and String(m.get("text", "")).contains("attacked me"):
+			return true
+	return false
+
+## Work scores ×SHUN_WORK_MULT while someone they shun is right there.
+func shun_work_mult() -> float:
+	for o: Node in _npc.get_tree().get_nodes_in_group("npc"):
+		if o == _npc or not (o is NPC):
+			continue
+		if NPCItemUser.flat_distance(o.global_position, _npc.global_position) > SHUN_RANGE or not shuns(o as NPC):
+			continue
+		if NPCClock.now() - _shun_logged_at > 2.0:
+			_shun_logged_at = NPCClock.now()
+			_npc.log_event("bond", "Won't work next to %s" % (o as NPC).npc_name)
+		return SHUN_WORK_MULT
+	return 1.0
 
 ## At death's door: low enough health that treating them is saving them.
 func is_critical() -> bool:

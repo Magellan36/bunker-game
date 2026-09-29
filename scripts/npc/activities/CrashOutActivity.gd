@@ -37,6 +37,12 @@ const FACING_OK: float = 0.6             ## rad (~35°): only strike when roughl
 const FIGHT_TURN: float = 10.0           ## face_toward weight per second while fighting (rate-capped)
 const BRAWL_GIVE_UP: float = 2.5         ## s with the target out of reach (got away): the brawl ends
 const GLARE_SECONDS: Vector2 = Vector2(0.9, 1.5)  ## disengage: hold ground, glaring, before pacing off
+## De-escalation (colony first: fights are rare). Before a fist fight the
+## target may back down, or a friend nearby may talk them out of it; during
+## one, a brave friend of either may walk over and pull them apart.
+const TALK_DOWN_RANGE: float = 8.0
+const PEACEMAKER_RANGE: float = 10.0
+const PEACEMAKER_CHANCE: float = 0.35    ## per second, per fight, until someone steps in
 
 var _phase: Phase = Phase.START
 var _timer: float = 0.0
@@ -54,6 +60,8 @@ var _swing_gap: float = 0.0
 var _squared: bool = false
 var _combo: int = 0
 var _out_of_reach: float = 0.0
+var _peace_check: float = 0.0
+var _peacemaker_called: bool = false
 
 func score(npc: NPC) -> float:
 	if npc.crash != null and npc.crash.active() and npc.crash.mode in [NPCCrashOut.Mode.HOSTILE, NPCCrashOut.Mode.BREAKDOWN]:
@@ -231,7 +239,16 @@ func _start_attack_or_sabotage(npc: NPC) -> void:
 	if npc.crash.target_node() == null or not (_will_attack or _brawl):
 		_to(Phase.SABOTAGE if _sabotage_done < MAX_SABOTAGE else Phase.PACE)
 		return
+	if _brawl:
+		var punched_first: bool = npc.combat.attacked_by == npc.crash.target_id and npc.combat.last_hit_kind in ["punch", "fists"]
+		var held_back: String = _held_back(npc, punched_first)
+		if held_back != "":
+			npc.log_event("crash", held_back)
+			_brawl = false
+			_to(Phase.SABOTAGE if _sabotage_done < MAX_SABOTAGE else Phase.PACE)
+			return
 	npc.combat.attacking_id = npc.crash.target_id
+	NPCCombat.last_fight_hours = NPCClock.now()
 	if _brawl:
 		## A fist fight: no weapon, shorter, and it stops short of killing.
 		_attack_left = randf_range(BRAWL_SECONDS.x, BRAWL_SECONDS.y)
@@ -289,7 +306,10 @@ func _begin_attack(npc: NPC) -> void:
 	_squared = false
 	_combo = 0
 	_out_of_reach = 0.0
+	_peace_check = 1.0
+	_peacemaker_called = false
 	npc.combat.escalate = false
+	npc.combat.separated = false
 	if _brawl:
 		npc.log_event("crash", "Started a fist fight with %s" % who)
 	else:
@@ -313,6 +333,17 @@ func _tick_attack(npc: NPC, delta: float) -> void:
 	if _brawl and not target_down and NPCCombat.health_of(t) <= BRAWL_STOP_HEALTH:
 		target_down = true   ## beaten down: a brawl stops there
 		npc.log_event("crash", "Beat %s down" % who)
+	## Someone got between them.
+	if npc.combat.separated:
+		npc.combat.separated = false
+		npc.log_event("crash", "%s pulled me off %s" % [npc.combat.separated_by, who])
+		_disengage(npc)
+		return
+	if _brawl and not _peacemaker_called:
+		_peace_check -= delta
+		if _peace_check <= 0.0:
+			_peace_check = 1.0
+			_call_peacemaker(npc, t)
 	## The target answered a fist fight with a real weapon: now it's serious.
 	if _brawl and npc.combat.escalate:
 		npc.combat.escalate = false
@@ -382,6 +413,60 @@ func _disengage(npc: NPC) -> void:
 	_to(Phase.GLARE)
 	_timer = -randf_range(GLARE_SECONDS.x, GLARE_SECONDS.y)
 	npc.bark_event("seething")
+
+## Why this fist fight doesn't happen ("" = it does): the colony just had
+## one, the target backs down, or a friend talks them out of it. Being
+## punched first overrides all of it (they defend themselves).
+func _held_back(npc: NPC, punched_first: bool) -> String:
+	if punched_first:
+		return ""
+	if NPCClock.now() - NPCCombat.last_fight_hours < NPCCombat.FIGHT_COOLDOWN_H:
+		return "Held back — nobody wants another fight"
+	var t: Node3D = npc.crash.target_node()
+	if t is NPC and not (t as NPC).crash.active():
+		var tn: NPC = t as NPC
+		var back_down: float = 0.3 * (1.0 - tn._trait("neuroticism")) + (0.2 if tn.social.fear > 40.0 else 0.0)
+		if randf() < back_down:
+			tn.log_event("crash", "Backed down from a fight with %s" % npc.npc_name)
+			return "%s backed down" % tn.npc_name
+	for o: Node in npc.get_tree().get_nodes_in_group("npc"):
+		var on: NPC = o as NPC
+		if on == null or on == npc or on == t or not _free_to_act(on):
+			continue
+		if on.global_position.distance_to(npc.global_position) > TALK_DOWN_RANGE or not on._can_see(npc):
+			continue
+		if on.get_relationship(npc.npc_id) >= 40.0 and npc.get_relationship(on.npc_id) >= 30.0 and randf() < 0.5:
+			on.log_event("bond", "Talked %s out of a fight" % npc.npc_name)
+			npc.bonds.relate(on.npc_id, 4.0, "talked me down")
+			return "%s talked me down" % on.npc_name
+	return ""
+
+## Someone brave who cares about one of them walks over to stop it.
+func _call_peacemaker(npc: NPC, victim: Node3D) -> void:
+	var best: NPC = null
+	var best_d: float = PEACEMAKER_RANGE
+	var victim_id: String = NPCCombat.id_of(victim)
+	for o: Node in npc.get_tree().get_nodes_in_group("npc"):
+		var on: NPC = o as NPC
+		if on == null or on == npc or on == victim or not _free_to_act(on) or on.combat.break_up_id != "":
+			continue
+		var d: float = on.global_position.distance_to(npc.global_position)
+		if d > best_d or not on._can_see(npc):
+			continue
+		var nerve: float = on._trait("resilience") - on.social.fear / 200.0
+		var care: float = maxf(on.get_relationship(npc.npc_id), on.get_relationship(victim_id) if victim_id != "" else -100.0)
+		if nerve >= 0.45 and care >= 25.0:
+			best = on
+			best_d = d
+	if best != null and randf() < PEACEMAKER_CHANCE:
+		_peacemaker_called = true
+		best.combat.break_up_id = npc.npc_id
+		best.log_event("bond", "Stepping in between %s and %s" % [npc.npc_name, victim.get("npc_name") if victim is NPC else "you"])
+
+## Up and about, not caught up in something of their own.
+static func _free_to_act(n: NPC) -> bool:
+	return not n.is_dead() and not n.crash.active() and not n.combat.is_fleeing() and not n.is_passed_out() \
+		and not (n.brain != null and n.brain.is_sleeping())
 
 ## Signed yaw from where they face to `pos` (radians).
 func _facing_error(npc: NPC, pos: Vector3) -> float:
