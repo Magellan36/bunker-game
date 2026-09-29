@@ -7,11 +7,12 @@ class_name CrashOutActivity
 ## HOSTILE:   storm over to whoever they're furious at and rant at them;
 ##            then lash out at the bunker — shut the generator off, throw
 ##            food away, hurl things around; then pace, seething, until it
-##            passes. When it has ESCALATED (a repeat crash-out, a deep
-##            hatred, or the target hit them first) they go for a weapon
-##            lying within reach (or their fists) and attack instead of
-##            sabotaging (NPCCombat; weapons contract in
-##            docs/systems/weapons/HANDOFF.md).
+##            passes. Lighter hatred (BRAWL_BELOW) turns the rant into a
+##            fist fight instead (Fists, until the target is beaten down or
+##            it blows over). When it has ESCALATED (a repeat crash-out, a
+##            deep hatred, or the target hit them first) they go for a
+##            weapon lying within reach (or their fists) and try to kill
+##            (NPCCombat; weapons contract in docs/systems/weapons/HANDOFF.md).
 ## BREAKDOWN: go somewhere alone, slump against a wall (the lean rig, head
 ##            down) and fall apart, sobbing now and then.
 ## Not interruptible — like RimWorld mental breaks, it runs its course.
@@ -25,6 +26,9 @@ const WEAPON_SEARCH: float = 14.0
 const ATTACK_SECONDS: Vector2 = Vector2(12.0, 20.0)
 const ESCALATE_BELOW: float = -65.0      ## relationship (incl. half the grudge) that turns a rant into an attack
 const GUN_RANGE: float = 7.0
+const BRAWL_BELOW: float = -50.0         ## hatred between this and ESCALATE_BELOW: a fist fight, not sabotage
+const BRAWL_SECONDS: Vector2 = Vector2(6.0, 10.0)
+const BRAWL_STOP_HEALTH: float = 45.0    ## a brawl stops once the target is beaten down to this
 
 var _phase: Phase = Phase.START
 var _timer: float = 0.0
@@ -35,6 +39,7 @@ var _sabotage_kind: String = ""
 var _leaning: bool = false
 var _spot: Dictionary = {}
 var _will_attack: bool = false
+var _brawl: bool = false
 var _weapon = null   ## WeaponItem (untyped: the weapon script has no class_name)
 var _attack_left: float = 0.0
 var _swing_gap: float = 0.0
@@ -66,6 +71,9 @@ func enter(npc: NPC) -> void:
 	if npc.crash.mode == NPCCrashOut.Mode.HOSTILE:
 		var t: Node3D = npc.crash.target_node()
 		_will_attack = NPCCrashOut.attack_enabled and t != null and _escalated(npc)
+		## Punched first: they punch back.
+		_brawl = not _will_attack and NPCCrashOut.attack_enabled and t != null \
+			and (_hatred(npc) <= BRAWL_BELOW or npc.combat.attacked_by == npc.crash.target_id)
 		_npc_desc = "furious at %s" % ("you" if npc.crash.target_id == "player" else String(t.get("npc_name")) if t != null else "everyone")
 		if npc.crash.confronted or t == null:
 			_phase = Phase.SABOTAGE if _sabotage_done < MAX_SABOTAGE else Phase.PACE
@@ -88,7 +96,7 @@ func tick(npc: NPC, delta: float) -> void:
 			npc.nav_steer(delta)
 			if NPCItemUser.flat_distance(npc.global_position, t.global_position) < 2.2:
 				_to(Phase.RANT)
-				_timer = -randf_range(RANT_SECONDS.x, RANT_SECONDS.y) * (0.5 if _will_attack else 1.0)
+				_timer = -randf_range(RANT_SECONDS.x, RANT_SECONDS.y) * (0.5 if _will_attack or _brawl else 1.0)
 				_on_confront(npc, t)
 		Phase.RANT:
 			var t: Node3D = npc.crash.target_node()
@@ -149,6 +157,7 @@ func done(npc: NPC) -> bool:
 func exit(npc: NPC) -> void:
 	npc.combat.rushing = false
 	npc.combat.attacking_id = ""
+	npc.combat.put_fists_away()
 	if _weapon != null and is_instance_valid(_weapon):
 		if _weapon.has_method("set_aiming"):
 			_weapon.set_aiming(false)
@@ -191,15 +200,26 @@ func _attack(_npc: NPC, _target: Node3D) -> void:
 ## hatred runs very deep, or the target hit them first.
 func _escalated(npc: NPC) -> bool:
 	var id: String = npc.crash.target_id
-	var score: float = npc.get_relationship(id) + npc.bonds.grudge_against(id) * 0.5
-	return npc.crash.count >= 2 or score <= ESCALATE_BELOW or npc.combat.attacked_by == id
+	var hit_first: bool = npc.combat.attacked_by == id
+	return npc.crash.count >= 2 or _hatred(npc) <= ESCALATE_BELOW or (hit_first and npc.combat.last_hit_kind != "punch")
+
+## Relationship plus half the grudge toward the target (lower = worse).
+func _hatred(npc: NPC) -> float:
+	var id: String = npc.crash.target_id
+	return npc.get_relationship(id) + npc.bonds.grudge_against(id) * 0.5
 
 func _start_attack_or_sabotage(npc: NPC) -> void:
-	if not _will_attack or npc.crash.target_node() == null:
+	if npc.crash.target_node() == null or not (_will_attack or _brawl):
 		_to(Phase.SABOTAGE if _sabotage_done < MAX_SABOTAGE else Phase.PACE)
 		return
-	_attack_left = randf_range(ATTACK_SECONDS.x, ATTACK_SECONDS.y)
 	npc.combat.attacking_id = npc.crash.target_id
+	if _brawl:
+		## A fist fight: no weapon, shorter, and it stops short of killing.
+		_attack_left = randf_range(BRAWL_SECONDS.x, BRAWL_SECONDS.y)
+		_weapon = null
+		_begin_attack(npc)
+		return
+	_attack_left = randf_range(ATTACK_SECONDS.x, ATTACK_SECONDS.y)
 	_weapon = npc.held_item if npc.held_item != null and "weapon_kind" in npc.held_item else _find_weapon(npc)
 	if _weapon != null and npc.held_item != _weapon:
 		NPCItemUser.claim_item(_weapon, npc)
@@ -244,11 +264,15 @@ func _begin_attack(npc: NPC) -> void:
 		npc.combat.watch_weapon(_weapon)
 	else:
 		_weapon = null
+		npc.combat.raise_fists()
+	var who: String = "you" if npc.crash.target_id == "player" else String(t.get("npc_name")) if t != null else "someone"
 	npc.bark_event("attack")
-	npc.log_event("crash", "Attacked %s%s" % ["you" if npc.crash.target_id == "player" else String(t.get("npc_name")) if t != null else "someone",
-		" with a %s" % NPCCombat.weapon_name(String(_weapon.weapon_kind)) if _weapon != null else ""])
+	if _brawl:
+		npc.log_event("crash", "Started a fist fight with %s" % who)
+	else:
+		npc.log_event("crash", "Attacked %s%s" % [who, " with a %s" % NPCCombat.weapon_name(String(_weapon.weapon_kind)) if _weapon != null else ""])
 	NotificationManager.notify(UIKit.Domain.NEUTRAL, NotificationManager.Severity.CRITICAL,
-		"%s is attacking %s!" % [npc.npc_name, "you" if npc.crash.target_id == "player" else String(t.get("npc_name")) if t != null else "someone"])
+		("%s is fighting %s!" if _brawl else "%s is attacking %s!") % [npc.npc_name, who])
 	_to(Phase.ATTACK)
 
 func _attack_range() -> float:
@@ -262,9 +286,13 @@ func _tick_attack(npc: NPC, delta: float) -> void:
 	var t: Node3D = npc.crash.target_node()
 	_attack_left -= delta
 	var target_down: bool = t == null or (t.has_method("is_dead") and t.is_dead())
+	if _brawl and not target_down and NPCCombat.health_of(t) <= BRAWL_STOP_HEALTH:
+		target_down = true   ## beaten down: a brawl stops there
+		npc.log_event("crash", "Beat %s down" % ("you" if npc.crash.target_id == "player" else String(t.get("npc_name"))))
 	if target_down or _attack_left <= 0.0:
 		npc.combat.rushing = false
 		npc.combat.attacking_id = ""
+		npc.combat.put_fists_away()
 		if _weapon != null and is_instance_valid(_weapon):
 			_weapon.set_aiming(false)
 		_to(Phase.PACE)
@@ -296,15 +324,13 @@ func _tick_attack(npc: NPC, delta: float) -> void:
 		if _weapon.try_attack(dir):
 			_swing_gap = randf_range(0.5, 1.1)   ## wind-up between blows; gives the victim a chance
 	else:
+		## Fists (weapons session's Fists node): jab/cross combos, then a
+		## breather so the other one gets a chance.
 		_weapon = null
-		_swing_gap = NPCCombat.FIST_INTERVAL
-		if d <= NPCCombat.FIST_REACH:
-			var ctx: Dictionary = {"damage": NPCCombat.FIST_DAMAGE, "position": aim_at, "direction": (t.global_position - npc.global_position).normalized(),
-				"kind": "fists", "source": npc, "collider": t}
-			if t.has_method("receive_weapon_hit"):
-				t.receive_weapon_hit(ctx)
-			elif t.is_in_group("player"):
-				npc.combat.apply_player_hit(ctx)
+		var fists: Node = npc.combat.raise_fists()
+		var dir: Vector3 = Vector3(t.global_position.x - npc.global_position.x, 0.0, t.global_position.z - npc.global_position.z)
+		if fists != null and fists.try_attack(dir):
+			_swing_gap = randf_range(0.35, 0.5) if randf() < 0.6 else randf_range(0.9, 1.4)
 
 # ─── Sabotage ───────────────────────────────────────────────────────────────
 func _tick_sabotage(npc: NPC, delta: float) -> void:

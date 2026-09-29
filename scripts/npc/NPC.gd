@@ -670,6 +670,8 @@ func receive_treatment(item: Node) -> bool:
 ## on the resident it hit. NPCCombat decides what the hit means.
 func receive_weapon_hit(context: Dictionary) -> void:
 	combat.receive_hit(context)
+	if not combat.dead:
+		NPCCombat.play_hit_reaction(self, context)
 
 ## Read by the shared AdventurerModelController: true plays the dying clip.
 func is_dead() -> bool:

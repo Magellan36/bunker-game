@@ -362,7 +362,8 @@ func _tick_combat() -> void:
 		for o: NPC in all.slice(1):
 			print("[combat]   %s now: rel(player) %.1f, fear %.0f, morale %.1f" % [o.npc_name, o.get_relationship("player"), o.social.fear, o.morale_sys.morale])
 	## Rescue events: treating a dying resident, and stepping in when one
-	## resident attacks another (fists — no weapon nearby).
+	## resident attacks another. The feud is light hatred (-55): a fist
+	## fight with the weapons session's Fists, which stops short of killing.
 	if st >= 13.0 and not _combat_done.has("revive"):
 		_combat_done["revive"] = true
 		b.health = 20.0
@@ -379,10 +380,10 @@ func _tick_combat() -> void:
 		var d: NPC = all[3]
 		if st >= 13.0 and not _combat_done.has("feud"):
 			_combat_done["feud"] = true
-			c.relationships[d.npc_id] = -80.0
+			c.relationships[d.npc_id] = -55.0
 			c.crash.target_id = d.npc_id
 			c.crash.begin(NPCCrashOut.Mode.HOSTILE)
-			print("[combat] %s crashes out at %s (escalated)" % [c.npc_name, d.npc_name])
+			print("[combat] %s crashes out at %s (light hatred: fist fight)" % [c.npc_name, d.npc_name])
 		if _combat_done.has("feud") and not _combat_done.has("defend") and c.combat.attacking_id == d.npc_id:
 			_combat_done["defend"] = true
 			var rel_d: float = d.get_relationship("player")
@@ -395,6 +396,15 @@ func _tick_combat() -> void:
 			var credits: int = d.bonds.get_memories("player").filter(func(m): return String(m["text"]).begins_with("You stopped")).size()
 			if gain <= 0.0 or credits != 1:
 				_flag("combat_defend_credit", d, "defended resident: relationship %+.1f, %d rescue memories (want 1)" % [gain, credits], "cdc")
+		if _combat_done.has("defend") and not _combat_done.has("brawl") and st >= 50.0:
+			_combat_done["brawl"] = true
+			var clog: Array = c._action_log.map(func(e): return String(e.get("text", "")))
+			print("[combat] brawl: %s health %.0f dead=%s; %s log: %s" % [d.npc_name, d.health, d.is_dead(), c.npc_name,
+				" | ".join(clog.slice(maxi(0, clog.size() - 6)))])
+			if not clog.any(func(t): return t.begins_with("Started a fist fight")):
+				_flag("combat_no_brawl", c, "light hatred didn't start a fist fight", "cnb")
+			if d.is_dead():
+				_flag("combat_brawl_killed", d, "a fist fight killed someone", "cbk")
 		if _combat_done.has("feud") and not _combat_done.has("defend") and st >= 58.0:
 			_combat_done["defend"] = true
 			_flag("combat_feud_no_attack", c, "an escalated crash-out at a resident never attacked", "cfa")

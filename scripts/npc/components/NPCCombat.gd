@@ -26,9 +26,8 @@ class_name NPCCombat
 const FLEE_SECONDS: float = 7.0
 const REPEAT_HIT_WINDOW_H: float = 1.0      ## further hits in this window cost less relationship
 const WITNESS_RANGE: float = 14.0
-const FIST_DAMAGE: float = 7.0
-const FIST_REACH: float = 1.3
-const FIST_INTERVAL: float = 1.1
+const FIST_REACH: float = 1.1               ## Fists.reach (weapons session)
+const FISTS_SCRIPT: GDScript = preload("res://scripts/weapons/Fists.gd")
 ## Deaths from neglect (starvation, dehydration, untreated bleeding) —
 ## the same rule as violence: health at 0 is death.
 const NEGLECT_DEATHS: bool = true
@@ -37,11 +36,13 @@ var dead: bool = false
 var death_cause: String = ""
 var killed_by: String = ""                  ## "player", an npc_id, or ""
 var attacked_by: String = ""                ## last attacker (fight-back/flee target)
+var last_hit_kind: String = ""              ## "punch" hits start fist fights, not lethal ones
 var flee_until_msec: int = 0
 var rushing: bool = false                   ## charging at someone (CrashOutActivity) — runs
 var attacking_id: String = ""               ## who they're arming for / attacking right now (CrashOutActivity)
 var last_rescued_hours: float = -100.0
 var _last_hit_at: Dictionary = {}           ## attacker id -> game hour
+var _fists: Node = null                     ## Fists, created on first use as a child of the NPC
 
 ## Rescue events (NPC.on_rescued_by_player): the player stepping in while
 ## a resident is being attacked, or treating one who is at death's door.
@@ -56,7 +57,7 @@ func setup(npc: NPC) -> void:
 
 static func weapon_name(kind: String) -> String:
 	return {"revolver": "revolver", "pistol_whip": "pistol", "knife": "knife", "hatchet": "hatchet",
-		"pipe": "pipe", "bat": "bat", "crowbar": "crowbar", "fists": "fists"}.get(kind, "weapon")
+		"pipe": "pipe", "bat": "bat", "crowbar": "crowbar", "fists": "fists", "punch": "fist"}.get(kind, "weapon")
 
 static func id_of(node: Node) -> String:
 	if node == null or not is_instance_valid(node):
@@ -67,6 +68,41 @@ static func id_of(node: Node) -> String:
 
 func is_fleeing() -> bool:
 	return not dead and Time.get_ticks_msec() < flee_until_msec
+
+## Current health of a resident or the player (100 if unknown).
+static func health_of(n: Node) -> float:
+	if n is NPC:
+		return (n as NPC).health
+	if n != null and n.is_in_group("player"):
+		var stats: Node = n.get_tree().get_first_node_in_group("player_stats")
+		return float(stats.health) if stats != null else 100.0
+	return 100.0
+
+## Fists (scripts/weapons/Fists.gd, weapons session): same API as a weapon;
+## the animation session plays the punch clips off its signals.
+func raise_fists() -> Node:
+	if _fists == null or not is_instance_valid(_fists):
+		_fists = FISTS_SCRIPT.new()
+		_npc.add_child(_fists)
+		watch_weapon(_fists)
+	_fists.set_aiming(true)
+	return _fists
+
+func put_fists_away() -> void:
+	if _fists != null and is_instance_valid(_fists):
+		_fists.set_aiming(false)
+
+## Hit reaction clip on the victim's model (animation session's API; a
+## no-op until the model has it). Residents' model is "CharacterModel",
+## the player's "PlayerModel".
+static func play_hit_reaction(body: Node, ctx: Dictionary) -> void:
+	if body == null or not is_instance_valid(body):
+		return
+	for path: String in ["CharacterModel", "PlayerModel"]:
+		var model: Node = body.get_node_or_null(path)
+		if model != null and model.has_method("play_hit_reaction"):
+			model.play_hit_reaction(ctx)
+			return
 
 func attacker_node() -> Node3D:
 	if attacked_by == "player":
@@ -104,6 +140,7 @@ func receive_hit(ctx: Dictionary) -> void:
 	_npc.morale_sys.note_shock(0.4)
 	if src_id != "":
 		attacked_by = src_id
+		last_hit_kind = kind
 		var now: float = NPCClock.now()
 		var repeat: bool = now - float(_last_hit_at.get(src_id, -99.0)) < REPEAT_HIT_WINDOW_H
 		_last_hit_at[src_id] = now
@@ -216,6 +253,7 @@ func die(cause: String, killer_id: String = "", quiet: bool = false) -> void:
 	death_cause = cause
 	killed_by = killer_id
 	attacking_id = ""
+	put_fists_away()
 	if _npc.brain != null:
 		_npc.brain.stop_current()
 	if _npc.held_item != null:
@@ -300,6 +338,8 @@ func apply_player_hit(ctx: Dictionary) -> void:
 	var kind: String = String(ctx.get("kind", "fists"))
 	stats.health = maxf(0.0, float(stats.health) - dmg)
 	stats.health_changed.emit(stats.health)   ## 0 → MainWorld opens the game over
+	if float(stats.health) > 0.0:
+		play_hit_reaction(player, ctx)
 	var pm: Node = _npc.get_tree().get_first_node_in_group("player_medical")
 	if pm != null and float(stats.health) > 0.0:
 		var parts: Array = [MedicalCondition.BodyPart.TORSO, MedicalCondition.BodyPart.LEFT_ARM,
@@ -310,7 +350,7 @@ func apply_player_hit(ctx: Dictionary) -> void:
 			pm.spawn_bleeding(part)
 		elif kind in ["knife", "hatchet"] and pm.has_method("spawn_bleeding"):
 			pm.spawn_bleeding(part)
-		elif kind != "fists" and part != MedicalCondition.BodyPart.TORSO and randf() < 0.25 and pm.has_method("spawn_fractured"):
+		elif not kind in ["fists", "punch"] and part != MedicalCondition.BodyPart.TORSO and randf() < 0.25 and pm.has_method("spawn_fractured"):
 			pm.spawn_fractured(part)
 	var camera: Camera3D = _npc.get_viewport().get_camera_3d()
 	if camera != null and camera.has_method("add_trauma"):

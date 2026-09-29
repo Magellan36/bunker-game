@@ -215,16 +215,25 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   for `npc_dead` (saved by MainWorld, restored as a body, walk-through), and
   everyone grieves; the killer gets −25…−75 and a memory from each
   resident, and killing makes people afraid of you (+20/+35 fear).
-- **Attacking** (`CrashOutActivity` ARM/ATTACK): a hostile crash-out that has
-  ESCALATED (repeat crash-out, relationship+grudge ≤ −65, or the target hit
-  them first) grabs the nearest loose weapon within 14 m (or uses fists, 7
-  damage) and attacks for 12–20 s via `WeaponItem.set_aiming/try_attack`
-  (melee aimed from the body, pistol with some spread from 7 m), pausing
-  0.5–1.1 s between blows. Otherwise it rants and sabotages as before. The
-  player has no `receive_weapon_hit()`, so NPC weapon hits on the player
+- **Attacking** (`CrashOutActivity` ARM/ATTACK), by how deep the hatred
+  runs (relationship + half the grudge toward the target):
+  - −40…−50: rant, then sabotage (no violence).
+  - −50…−65, or they were punched first: a **fist fight** after a shorter
+    rant. They use the weapons session's `Fists` node (`NPCCombat.raise_fists()`,
+    a child of the NPC; jab 5 / cross 8, reach 1.1 m) for 6–10 s, and stop
+    once the target is down to 45 health. Nobody dies in a brawl.
+  - ≤ −65, a repeat crash-out, or hit first with a real weapon: ESCALATED.
+    They grab the nearest loose weapon within 14 m (else fists) and try to
+    kill for 12–20 s via `WeaponItem.set_aiming/try_attack` (melee aimed
+    from the body, pistol with some spread from 7 m), pausing 0.5–1.1 s
+    between blows.
+  The player has no `receive_weapon_hit()`, so NPC hits on the player
   are applied by `NPCCombat.apply_player_hit` (PlayerStats health →
-  game over at 0, plus a PlayerMedical injury); it steps aside if the
-  player ever implements the method. Harness: `--scenario=combat`.
+  game over at 0, plus a PlayerMedical injury; none for punches); it steps
+  aside if the player ever implements the method. Hit reactions:
+  `NPCCombat.play_hit_reaction(body, ctx)` calls the model's
+  `play_hit_reaction(ctx)` (animation session) on `CharacterModel` /
+  `PlayerModel` for every non-fatal hit. Harness: `--scenario=combat`.
 - **Treating residents**: hold a Bandage/Antibiotics/Splint near an injured
   resident: "[E] Bandage Hana's left arm" treats the worst eligible injury
   (`NPC.receive_treatment`), +8 and a memory the first time (+3 for repeat
