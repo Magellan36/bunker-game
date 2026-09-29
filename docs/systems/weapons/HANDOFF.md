@@ -1,4 +1,16 @@
-# Weapons handoff (2026-09-28)
+# Weapons handoff (2026-09-28, fists added later that day)
+
+## Working agreement (Brannon, 2026-09-28)
+
+Three sessions, one feature: Weapons (local), Animation polish (local), NPC system
+polish review (local). Work as one team:
+
+- Each session builds and verifies its own area once, then commits and pushes.
+  Don't re-verify another session's pushed work, and skip checks that are ~99%
+  certain to pass. Brannon tests game loads and small tweaks himself.
+- Message only when it changes someone else's work: a new or changed API, a
+  request, or a real bug you found. No "looks good" review rounds.
+- Never edit another session's files; ask the owner instead.
 
 Brannon split the remaining weapons work three ways. This file is the contract
 between the sessions, so nobody edits someone else's area.
@@ -42,6 +54,34 @@ Empty revolver: every attack is a pistol whip (14 damage, 1.3 m reach, 0.55 s
 interval, no ammo, no case). Reloading (E) still works; a reload animation clip is
 still to come from Brannon.
 
+## Fists (unarmed combat, owned by the weapons session)
+
+`scripts/weapons/Fists.gd`: a Node3D you add as a child of any CharacterBody3D.
+It has the same API as WeaponItem (`set_aiming`, `try_attack(dir)`, `cancel_action`,
+`aiming`, `attack_started`, `hit_resolved`, `aim_changed`).
+
+- Player: `WeaponController` creates one automatically. With empty hands, holding
+  RMB (or the right stick) aims and LMB (or RT) punches.
+- `attack_started("punch", variant)`: variant 0 is a jab, 1 is a cross. They
+  alternate, and a pause over 0.9 s starts again at the jab.
+- Hit context: `kind = "punch"`, `variant`, `damage` (jab 5, cross 8), reach 1.1 m,
+  and `source`, `position`, `collider` as for weapons.
+- `jab_strike_delay` / `cross_strike_delay` (exports, placeholders 0.12 / 0.18 s):
+  the animation session sets them to the clips' contact frames.
+- NPCs: `var fists = preload("res://scripts/weapons/Fists.gd").new(); npc.add_child(fists)`,
+  then `fists.set_aiming(true)` and `fists.try_attack(dir)`, exactly like a weapon.
+
+## Hit reactions (animation + NPC sessions)
+
+Clips (male/female): `PUNCHING HEAD HIT`, `PUNCHING RIB HIT`, `PUNCHING STOMACH HIT`,
+`AIMING PISTOL HIT`, in the same source folder.
+
+- Animation session: add a model API such as `play_hit_reaction(context)`. It picks
+  the clip from the hit height (`context.position` against the body) and uses
+  `AIMING PISTOL HIT` while the victim is aiming a firearm.
+- NPC session: call it from `NPC.receive_weapon_hit` and from
+  `NPCCombat.apply_player_hit` (player victims).
+
 ## Animation session: what to wire
 
 Human-made source clips, male and female each, in
@@ -59,9 +99,17 @@ of the FEMALE one). No reload clip yet.
 - `attack_started("pistol_whip", 0)`: `Pistol Whip`.
 - Melee hand attachment: set `grip_anchor` like `PistolAnimationLayer` does for
   the Webley. `PistolAnimationLayer.gd` is yours now; extend or replace it.
+- Fists: `PUNCHING IDLE` while Fists `aiming` (use `aim_changed`), `PUNCH JAB` for
+  variant 0 and `PUNCH CROSS` for variant 1. This applies to the player and to NPCs
+  that hold a Fists node.
 - Provenance rule applies: bake only re-expresses keys, any adaptation happens at runtime.
 
 ## NPC session: what to wire
+
+Brannon's escalation: light hatred leads to a fist fight (Fists); intense hatred
+leads to picking up a weapon and trying to kill another NPC or the player (already
+done in 7282f0b).
+
 
 Weapons aren't connected to NPCs yet. Test targets are the only receivers.
 

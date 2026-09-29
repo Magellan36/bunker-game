@@ -2,9 +2,12 @@ extends Node
 ## Owns weapon input only. Runs after movement, before weapon pose/attacks.
 const Weapon = preload("res://scripts/weapons/WeaponItem.gd")
 const Reticle = preload("res://scripts/weapons/WeaponReticle.gd")
+const FistsScript = preload("res://scripts/weapons/Fists.gd")
 var _reticle: Reticle
 var interaction: Node
-var _weapon: Weapon
+## The held WeaponItem, or the player's Fists when the hands are empty.
+var _weapon: Node
+var _fists: Node3D
 var _mouse_aim: bool = false
 var _attack_pending: bool = false
 var _aim_yaw: float = 0.0
@@ -48,7 +51,7 @@ func _input(event: InputEvent) -> void:
 		_trigger_down = false
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not _focused or not interaction.can_use_weapon() or not interaction.held_item is Weapon:
+	if not _focused or not interaction.can_use_weapon() or not (interaction.held_item is Weapon or interaction.held_item == null):
 		return
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_RIGHT:
@@ -66,7 +69,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 
 func _physics_process(delta: float) -> void:
-	var held: Weapon = interaction.held_item as Weapon
+	var held: Node = interaction.held_item as Weapon
+	if interaction.held_item == null and is_instance_valid(interaction.player):
+		if _fists == null:
+			_fists = FistsScript.new()
+			interaction.player.add_child(_fists)
+		held = _fists
 	if held != _weapon:
 		if is_instance_valid(_weapon) and _weapon.hit_resolved.is_connected(_on_hit):
 			_weapon.hit_resolved.disconnect(_on_hit)

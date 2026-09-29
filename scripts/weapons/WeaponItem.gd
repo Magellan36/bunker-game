@@ -51,6 +51,7 @@ var _muzzle: Marker3D
 var _flash: OmniLight3D
 var _flash_left: float = 0.0
 const Effects = preload("res://scripts/weapons/WeaponEffects.gd")
+const Melee = preload("res://scripts/weapons/MeleeStrike.gd")
 
 func _ready() -> void:
 	super._ready()
@@ -238,44 +239,16 @@ func _shake_camera() -> void:
 		camera.call("add_trauma", recoil_strength * NEARBY_SHOT_SCALE * falloff)
 
 func _melee_hit(direction: Vector3) -> void:
-	var origin: Vector3 = _attack_origin()
 	var whip: bool = _strike_kind == "pistol_whip"
-	var range_: float = whip_reach if whip else reach
-	var shape := SphereShape3D.new()
-	shape.radius = range_
-	var query := PhysicsShapeQueryParameters3D.new()
-	query.shape = shape
-	query.transform.origin = origin
-	query.collision_mask = 1 | ITEM_LAYER_SMALL
-	query.exclude = _exclusions()
-	var delivered: Dictionary = {}
-	for candidate: Dictionary in get_world_3d().direct_space_state.intersect_shape(query, 32):
-		var body: Node3D = candidate.collider as Node3D
-		if body == null or delivered.has(body.get_instance_id()):
-			continue
-		var target: Vector3 = body.global_position
-		if body is CharacterBody3D:
-			target.y = origin.y
-		var offset: Vector3 = target - origin
-		if offset.length_squared() < 0.001 or offset.length() > range_:
-			continue
-		if direction.dot(offset.normalized()) < cos(deg_to_rad(melee_half_angle)):
-			continue
-		var hit: Dictionary = _ray(origin, target)
-		if hit.is_empty() or hit.collider != body:
-			continue
-		delivered[body.get_instance_id()] = true
+	for hit: Dictionary in Melee.find(get_world_3d(), _attack_origin(), direction,
+			whip_reach if whip else reach, melee_half_angle, _exclusions(), 1 | ITEM_LAYER_SMALL):
 		_deliver_hit(hit, direction, whip_damage if whip else damage, _strike_kind)
 		Effects.impact(self, hit.position, hit.normal)
 
 func _deliver_hit(hit: Dictionary, direction: Vector3, amount: float = damage, kind: String = weapon_kind) -> void:
 	var context: Dictionary = {"damage": amount, "position": hit.position, "direction": direction,
 		"kind": kind, "source": _get_holder(), "collider": hit.collider}
-	var receiver: Node = hit.collider as Node
-	while receiver != null and not receiver.has_method("receive_weapon_hit"):
-		receiver = receiver.get_parent()
-	if receiver != null:
-		receiver.call("receive_weapon_hit", context)
+	Melee.deliver(context)
 	hit_resolved.emit(context)
 
 func _build_proxy() -> void:

@@ -187,6 +187,33 @@ func _run() -> void:
 	gun.drop(room, Vector3(5, 0.4, 0))
 	interaction.held_item = null
 	check(not gun.aiming and gun._reload_left == 0 and not gun.freeze, "drop clears actions and restores loose physics")
+	# Empty hands: the controller swaps in Fists; punches alternate jab/cross.
+	await ticks(2)
+	var fists: Node = controller._fists
+	check(fists != null and controller._weapon == fists, "empty hands use fists")
+	controller.set_physics_process(false)
+	player.position = Vector3(0, 1, -2)
+	player.rotation = Vector3.ZERO
+	target.position = Vector3(0, 1.0, -2.8)
+	await ticks(3)
+	var punches: Array = []
+	fists.attack_started.connect(func(kind: String, variant: int) -> void: punches.append([kind, variant]))
+	var punch_hits: Array = []
+	fists.hit_resolved.connect(func(hit: Dictionary) -> void: punch_hits.append(hit))
+	fists.set_aiming(true)
+	var before_punch: int = target.hits
+	check(fists.try_attack(Vector3.FORWARD), "punch commits")
+	await ticks(strike_ticks(fists))
+	fists._cooldown = 0
+	fists.try_attack(Vector3.FORWARD)
+	await ticks(strike_ticks(fists))
+	check(punches == [["punch", 0], ["punch", 1]], "jab then cross")
+	check(target.hits == before_punch + 2 and punch_hits.size() == 2 and punch_hits[1].kind == "punch" and is_equal_approx(punch_hits[1].damage, fists.cross_damage), "both punches land with their own damage")
+	fists._since_last = 5.0
+	fists._cooldown = 0
+	fists.try_attack(Vector3.FORWARD)
+	fists.cancel_action()
+	check(punches[-1] == ["punch", 0], "combo resets to jab after a pause")
 	room.queue_free()
 	await ticks(4)
 	print("WEAPONS_SMOKE: %d checks, %d failures" % [_checks, _failures])

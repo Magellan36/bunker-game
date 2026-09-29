@@ -10,7 +10,8 @@ They are not spawned into existing saves.
 ## Controls
 
 - F / gamepad X picks up or drops using the existing interaction rules.
-- Hold RMB to aim toward the cursor at weapon height; LMB press attacks.
+- Hold RMB to aim toward the cursor at weapon height; LMB press attacks. With empty
+  hands the same input raises the fists and throws a jab/cross combo (`Fists.gd`).
 - Right stick aims relative to the camera; right trigger press attacks.
 - E / gamepad A reloads the revolver via the existing held-item use action.
 - G stores and mouse wheel selects inventory slots as usual.
@@ -87,7 +88,7 @@ Run with isolated user data (see `docs/AGENT_GIT_WORKFLOW.md`):
 XDG_DATA_HOME=$(mktemp -d) XDG_CONFIG_HOME=$(mktemp -d) /path/to/godot --headless --path . res://tools/tests/WeaponsTest.tscn --quit-after 120
 ```
 
-Headless behavior checks (expects `WEAPONS_SMOKE: 36 checks, 0 failures`):
+Headless behavior checks (expects `WEAPONS_SMOKE: 41 checks, 0 failures`):
 
 ```
 XDG_DATA_HOME=$(mktemp -d) XDG_CONFIG_HOME=$(mktemp -d) /path/to/godot --headless --path . res://tools/tests/WeaponsSmoke.tscn
