@@ -176,9 +176,7 @@ static func _is_upper_bone(bone: String) -> bool:
 	return true
 
 func update(delta: float) -> void:
-	var held: Node = null
-	if model._player != null and model._player.has_method("get_held_item"):
-		held = model._player.get_held_item()
+	var held: Node = _held_item()
 	var free: bool = model._stage == 0
 	var kind: String = str(held.get("weapon_kind")) if held != null and "weapon_kind" in held else ""
 	var active: bool = held != null and held.has_method("is_firearm") and held.is_firearm() and free
@@ -186,7 +184,7 @@ func update(delta: float) -> void:
 	var anchored: bool = active or melee
 	if is_instance_valid(_weapon) and (_weapon != held or not anchored):
 		_weapon.grip_anchor = null
-	_weapon = held as Node3D if anchored else null
+	_weapon = held as Node3D if anchored and held is Node3D else null
 	_melee = melee
 	if is_instance_valid(_weapon):
 		_weapon.grip_anchor = grip
@@ -223,10 +221,21 @@ func update(delta: float) -> void:
 	tree.set("parameters/pistol_loco/blend_amount", model._move_w)
 
 ## Connects to whichever weapon is in hand (and only that one).
+## The character's held item, or null. The holder's reference can outlive
+## the item (sold, stored, consumed, freed with a dying NPC); assigning a
+## freed object to a typed variable errors, so read it untyped and validate.
+func _held_item() -> Node:
+	if model._player == null or not model._player.has_method("get_held_item"):
+		return null
+	var item: Variant = model._player.get_held_item()
+	return item as Node if is_instance_valid(item) else null
+
 func _watch_attacks(weapon: Node) -> void:
+	if not is_instance_valid(_signal_weapon):
+		_signal_weapon = null   ## freed with its connection; nothing to disconnect
 	if weapon == _signal_weapon:
 		return
-	if is_instance_valid(_signal_weapon) and _signal_weapon.attack_started.is_connected(_on_attack_started):
+	if _signal_weapon != null and _signal_weapon.attack_started.is_connected(_on_attack_started):
 		_signal_weapon.attack_started.disconnect(_on_attack_started)
 	_signal_weapon = weapon
 	if weapon != null:
@@ -293,7 +302,7 @@ func _start_strike(clip: StringName, from: float, rate: float, until: float, upp
 func play_hit_reaction(ctx: Dictionary) -> void:
 	if model._stage != 0:
 		return
-	var held: Node = model._player.get_held_item() if model._player.has_method("get_held_item") else null
+	var held: Node = _held_item()
 	var clip: StringName = &"hit_stomach"
 	if held != null and held.has_method("is_firearm") and held.is_firearm() and bool(held.get("aiming")):
 		clip = &"hit_aiming"

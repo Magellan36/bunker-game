@@ -1054,9 +1054,9 @@ func get_stand_end_position() -> Vector3:
 # ─── Parent queries ──────────────────────────────────────────────────────────
 func _is_holding_item() -> bool:
 	if _player.has_method("get_held_item"):
-		return _player.get_held_item() != null
+		return is_instance_valid(_player.get_held_item())   ## freed items still compare != null
 	if "held_item" in _player:
-		return _player.held_item != null
+		return is_instance_valid(_player.held_item)
 	return false
 
 func _is_dead() -> bool:
