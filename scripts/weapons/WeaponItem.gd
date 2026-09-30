@@ -306,11 +306,17 @@ func _build_proxy() -> void:
 	_muzzle.name = "Muzzle"
 	_muzzle.position = Vector3(0, 0.145, -0.212)
 	add_child(_muzzle)
+	## Room-filling muzzle flash (45 ms): cube shadows so walls, furniture and
+	## people throw real shadows for that instant. Not registered with the
+	## shadow budget (like the flashlight): it is always beside the player.
 	_flash = OmniLight3D.new()
 	_flash.light_color = Color(1.0, 0.76, 0.39)
-	_flash.light_energy = 5.0
-	_flash.omni_range = 3.5
+	_flash.light_energy = 7.0
+	_flash.omni_range = 14.0
+	_flash.omni_attenuation = 0.8
+	_flash.omni_shadow_mode = OmniLight3D.SHADOW_CUBE
 	_flash.shadow_enabled = true
+	_flash.shadow_bias = 0.05
 	_flash.visible = false
 	_muzzle.add_child(_flash)
 

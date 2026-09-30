@@ -64,7 +64,7 @@ Polish pass (2026-09-28):
   faint distance-faded jolt.
 
 24/s exponential aim smoothing, 0.32s revolver recovery, 0.34/0.65/0.48s knife/hatchet/
-pipe recovery. Brief 45ms warm OmniLight3D muzzle flash, 0.13 camera trauma through
+pipe recovery. Brief 45ms warm room-filling OmniLight3D muzzle flash (14 m range, cube shadows), 0.13 camera trauma through
 GameCamera (quadratic scale: very small shake), visual recoil, reticle ammo count,
 confirmed-receiver hit tick. `recoil_strength = 0` disables weapon camera shake.
 Casings last four seconds, capped at sixteen. They never join pickup/save groups.
