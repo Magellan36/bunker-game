@@ -36,6 +36,14 @@ func tick(npc: NPC, delta: float) -> void:
 func done(npc: NPC) -> bool:
 	return _inner == null or _inner.done(npc)
 
+## Forward the inner activity's hand-off (e.g. Gardening → "put the soil
+## away"). Without this, an ordered job whose inner activity handed off
+## never finished: done() waited on a hand-off nobody took, and the resident
+## stood holding the item under a stale label (Sep 2026: Finch holding soil
+## as "Planting seeds").
+func take_handoff() -> NPCActivity:
+	return _inner.take_handoff() if _inner != null else null
+
 func exit(npc: NPC) -> void:
 	if _inner != null:
 		_inner.exit(npc)

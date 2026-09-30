@@ -96,6 +96,7 @@ func _pick_next_task(npc: NPC) -> void:
 		if _item != null:
 			_handoff = PutAwayHeldItemActivity.new()
 			_finished = true
+			_phase = ""   ## don't keep reading "Planting seeds" while the soil goes away
 			return
 		_phase = "fetch"
 		if _start_fetch(npc):
