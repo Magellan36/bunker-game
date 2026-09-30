@@ -216,13 +216,18 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   everyone grieves; the killer gets −25…−75 and a memory from each
   resident, and killing makes people afraid of you (+20/+35 fear).
 - **Attacking** (`CrashOutActivity` ARM/ATTACK), by how deep the hatred
-  runs (relationship + half the grudge toward the target):
+  runs (`CrashOutActivity.tier_hatred`: relationship + half the grudge
+  toward the target, −8 per earlier crash-out, max −16):
   - −40…−50: rant, then sabotage (no violence).
   - −50…−65, or they were punched first: a **fist fight** after a shorter
     rant. They use the weapons session's `Fists` node (`NPCCombat.raise_fists()`,
     a child of the NPC; jab 5 / cross 8, reach 1.1 m) for 6–10 s, and stop
-    once the target is down to 45 health. Nobody dies in a brawl.
-  - ≤ −65, a repeat crash-out, or hit first with a real weapon: ESCALATED.
+    once the target is down to 45 health. Punches never take anyone below
+    5 health (`NPCCombat.PUNCH_FLOOR`): fists don't kill, and an unarmed
+    escalated attack stops at 15. Peacemakers can step into any unarmed
+    fight.
+  - ≤ −65, or hit first with a real weapon: ESCALATED (a friend may still
+    talk them out of it, at half the odds).
     They grab the nearest loose weapon within 14 m (else fists) and try to
     kill for 12–20 s via `WeaponItem.set_aiming/try_attack` (melee aimed
     from the body, pistol with some spread from 7 m), pausing 0.5–1.1 s
@@ -243,6 +248,22 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   clear for 1.6 s; within 6 m of a weapon attack the faint-hearted run for
   4.5 s (`combat.flee_from`, `FleeActivity` uses `threat_node()`). Nobody
   scatters when the player steps in to stop a fight.
+- **Combat debugging (F7 → NPC COMBAT, `NPCCombatDebug`).** A = the
+  resident nearest you, B = the next nearest. Toggles: verbose `[Combat]`
+  console trace of every decision (hits, fight-or-flight, tier choice,
+  de-escalation rolls, peacemaker candidates, separations, disengage
+  reasons, rescues, shunning, deaths); an orange overhead readout per
+  resident (health, crash-out tier + phase, attacking / fleeing / stepping
+  in, shuns, fear, recent rescue); ignore the colony fight cooldown.
+  Cycles: forced de-escalation (normal / target always backs down / friend
+  always talks down / never) and forced peacemaker (normal / always /
+  never). Actions: everyone friendly + brave, clear cooldown, fist fight
+  or weapon attack A → B or A → you (spawns a bat), you punch / bat A,
+  make A critical (for the rescue), A shuns B, kill A, stop all fights,
+  reset the combat test (heal, calm, clear attack memories), print state.
+  Headless: `run_npc_sim.sh --scenario=combatdebug` presses the real F7
+  rows and checks each outcome; `--combat-trace` adds the trace to any
+  scenario.
 - **Fights in a colony** (a rare emergency, not the point). Fist fights are
   held back when the colony had a fight in the last 8 game hours
   (`NPCCombat.FIGHT_COOLDOWN_H`, colony-wide, not saved), when the target

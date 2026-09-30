@@ -22,7 +22,7 @@ extends Node
 ## (runs res://tools/tests/NPCSimHarness.tscn as the main scene so autoloads exist)
 ## Exit code 0 = no invariant violations, 1 = violations (report printed).
 
-const SCENARIOS: Array[String] = ["basic", "farm", "cook", "power", "stress", "scarcity", "door", "session", "morale", "lazy", "combat", "all"]
+const SCENARIOS: Array[String] = ["basic", "farm", "cook", "power", "stress", "scarcity", "door", "session", "morale", "lazy", "combat", "combatdebug", "all"]
 
 var _cfg: Dictionary = {
 	"scenario": "basic",
@@ -84,6 +84,7 @@ func _ready() -> void:
 			"seed": _cfg["seed"] = int(v)
 			"verbose": _cfg["verbose"] = v == "true"
 			"timeline": _cfg["timeline"] = v == "true"
+			"combat-trace": NPCCombatDebug.enabled = v == "true"   ## [Combat] decision trace (F7 NPC COMBAT logging)
 			"scores": _cfg["scores"] = float(v)
 			"capture": _cfg["capture"] = v
 			"cam": _cfg["cam"] = v
@@ -130,6 +131,8 @@ func _process(delta: float) -> void:
 				_check_session_cooking()
 			if String(_cfg["scenario"]) == "combat":
 				_tick_combat()
+			if String(_cfg["scenario"]) == "combatdebug":
+				_tick_combat_debug()
 		if float(_cfg["scores"]) > 0.0:
 			_score_timer -= delta
 			if _score_timer <= 0.0:
@@ -380,6 +383,10 @@ func _tick_combat() -> void:
 		var d: NPC = all[3]
 		if st >= 13.0 and not _combat_done.has("feud"):
 			_combat_done["feud"] = true
+			## Mechanics test: de-escalation and peacemakers are forced off here
+			## (the combatdebug scenario exercises those paths).
+			NPCCombatDebug.deesc_mode = NPCCombatDebug.Deesc.NEVER
+			NPCCombatDebug.peace_mode = NPCCombatDebug.Peace.NEVER
 			c.relationships[d.npc_id] = -55.0
 			c.crash.target_id = d.npc_id
 			c.crash.begin(NPCCrashOut.Mode.HOSTILE)
@@ -423,7 +430,8 @@ func _tick_combat() -> void:
 		_combat_done["rage"] = true
 		_combat_player_hp = float(stats.health)
 		FarmingShopHelper.spawn_scene_settled(_world, "res://scenes/weapons/Bat.tscn", b.global_position + Vector3(1.0, 0.0, 0.0))
-		player.global_position = b.global_position + Vector3(4.0, 0.0, 0.0)
+		## 4 m away, on the side that stays inside the room (x <= 3).
+		player.global_position = b.global_position + Vector3(4.0 if b.global_position.x < -2.0 else -4.0, 0.0, 0.0)
 		b.relationships["player"] = -80.0
 		b.crash.target_id = "player"
 		b.crash.begin(NPCCrashOut.Mode.HOSTILE)
@@ -439,6 +447,153 @@ func _tick_combat() -> void:
 			b.npc_name, held, " | ".join(b._action_log.slice(maxi(0, b._action_log.size() - 6)).map(func(e): return String(e.get("text", ""))))])
 		if float(stats.health) >= _combat_player_hp:
 			_flag("combat_no_damage", b, "attacked the player but did no damage", "cnd")
+
+## ─── F7 NPC COMBAT debug rows ───────────────────────────────────────────
+## Instantiates the real F7 AdminMenu and presses its NPC COMBAT rows (by
+## label) in order, checking each forced outcome: target backs down, a
+## friend talks them down, a peacemaker pulls them apart, shunning,
+## critical-care rescue, overlay text, the state dump, kill.
+var _cd_step: int = 0
+var _cd_at: float = 0.0
+var _cd_menu: Node = null
+var _cd: Array = []   ## [A, B, C]
+
+func _cd_press(prefix: String) -> void:
+	for sec: Dictionary in _cd_menu._sections:
+		if String(sec["name"]) != "NPC COMBAT":
+			continue
+		for row: Array in sec["rows"]:
+			if String(row[0]).begins_with(prefix):
+				print("[cdebug] F7 press: %s" % row[0])
+				(row[1] as Callable).call()
+				return
+	_flag("cdebug_missing_row", _cd[0], "no F7 NPC COMBAT row '%s'" % prefix, prefix)
+
+## A at P, B 1.5 m east, C 3 m north, the player just west of A.
+func _cd_place() -> void:
+	var p: Vector3 = Vector3(-9.0, _cd[0].global_position.y, 7.5)
+	_cd[0].global_position = p
+	_cd[1].global_position = p + Vector3(1.5, 0.0, 0.0)
+	_cd[2].global_position = p + Vector3(0.0, 0.0, 3.0)
+	get_tree().get_first_node_in_group("player").global_position = p + Vector3(-0.7, 0.0, 0.0)
+
+func _cd_log_has(n: NPC, needle: String) -> bool:
+	return n._action_log.any(func(e): return String(e.get("text", "")).contains(needle))
+
+func _cd_next(label: String) -> void:
+	print("[cdebug] step %d done: %s (%.1fs)" % [_cd_step, label, _t - _cd_at])
+	_cd_step += 1
+	_cd_at = _t
+
+func _tick_combat_debug() -> void:
+	var st: float = _t - _setup_at
+	if _cd.is_empty():
+		var all: Array = get_tree().get_nodes_in_group("npc")
+		if all.size() < 3 or st < 3.0:
+			return
+		_cd = [all[0], all[1], all[2]]
+		_cd_menu = load("res://scripts/ui/menus/AdminMenu.gd").new()
+		add_child(_cd_menu)
+		_cd_at = _t
+	var a: NPC = _cd[0]
+	var b: NPC = _cd[1]
+	var c: NPC = _cd[2]
+	var waited: float = _t - _cd_at
+	match _cd_step:
+		0:
+			_cd_press("Toggle Combat Debug Logging")
+			_cd_press("Toggle Combat Overlay")
+			_cd_press("Toggle Ignore Colony Fight Cooldown")
+			if not (NPCCombatDebug.enabled and NPCCombatDebug.overlay and NPCCombatDebug.ignore_cooldown):
+				_flag("cdebug_toggle", a, "F7 combat toggles didn't flip", "tg")
+			_cd_press("Everyone Friendly + Brave")
+			_cd_press("Cycle Forced De-escalation")   ## -> target always backs down
+			_cd_place()
+			_cd_press("Fist Fight: A → B")
+			_cd_next("setup + back-down fight started")
+		1:
+			if _cd_log_has(a, "backed down"):
+				_cd_press("Stop All Fights")
+				_cd_next("B backed down")
+			elif waited > 40.0:
+				_flag("cdebug_no_backdown", a, "forced back-down never happened", "bd")
+				_cd_next("back-down TIMEOUT")
+		2:
+			if waited > 3.0:
+				_cd_press("Reset Combat Test")
+				_cd_press("Cycle Forced De-escalation")   ## -> friend always talks down
+				_cd_place()
+				_cd_press("Fist Fight: A → B")
+				_cd_next("talk-down fight started")
+		3:
+			if _cd_log_has(a, "talked me down"):
+				_cd_press("Stop All Fights")
+				_cd_next("a friend talked A down")
+			elif waited > 40.0:
+				_flag("cdebug_no_talkdown", a, "forced talk-down never happened", "td")
+				_cd_next("talk-down TIMEOUT")
+		4:
+			if waited > 3.0:
+				_cd_press("Reset Combat Test")
+				_cd_press("Everyone Friendly + Brave")
+				_cd_press("Cycle Forced De-escalation")   ## -> never
+				_cd_press("Cycle Forced Peacemaker")      ## -> always
+				_cd_place()
+				_cd_press("Fist Fight: A → B")
+				_cd_next("peacemaker fight started")
+		5:
+			if _cd_log_has(a, "pulled me off"):
+				var who: Array = get_tree().get_nodes_in_group("npc").filter(func(n): return _cd_log_has(n, "Pulled %s off" % a.npc_name))
+				var victim: NPC = a.crash.target_node() as NPC
+				var vmem: Array = victim.bonds.get_memories().map(func(m): return m["text"]) if victim != null else []
+				print("[cdebug] peacemaker: %s; victim %s memories: %s" % [", ".join(who.map(func(n): return n.npc_name)),
+					victim.npc_name if victim != null else "?", str(vmem)])
+				if not vmem.any(func(t): return String(t).contains("off me")):
+					_flag("cdebug_no_peace_memory", a, "the victim didn't remember being helped", "pmm")
+				_cd_press("Stop All Fights")
+				_cd_next("peacemaker separated them")
+			elif waited > 60.0:
+				_flag("cdebug_no_peacemaker", a, "forced peacemaker never separated the fight", "pm")
+				_cd_next("peacemaker TIMEOUT")
+		6:
+			if waited > 3.0:
+				_cd_press("Reset Combat Test")
+				## Fists never kill: punch someone already at 6 health.
+				b.health = 6.0
+				b.receive_weapon_hit({"damage": 8.0, "position": b.global_position + Vector3.UP * 0.3, "direction": Vector3.RIGHT,
+					"kind": "punch", "source": a, "collider": b})
+				print("[cdebug] punch at 6 health -> %.0f, dead=%s" % [b.health, b.is_dead()])
+				if b.is_dead() or b.health < NPCCombat.PUNCH_FLOOR:
+					_flag("cdebug_punch_killed", b, "a punch took health below the floor", "pk")
+				b.health = 100.0
+				_cd_place()
+				_cd_press("A Shuns B")
+				var mult: float = a.combat.shun_work_mult()
+				print("[cdebug] %s shun work mult with %s at 1.5 m: %.2f" % [a.npc_name, b.npc_name, mult])
+				if mult >= 1.0:
+					_flag("cdebug_no_shun", a, "shun didn't lower work scores", "sh")
+				_cd_press("Make A Critical")
+				var rel0: float = a.get_relationship("player")
+				var bandage: Node = FarmingShopHelper.spawn_scene_settled(_world, "res://scenes/world/Bandage.tscn", a.global_position + Vector3(1, 0.5, 0))
+				var ok: bool = bandage != null and a.receive_treatment(bandage)
+				print("[cdebug] critical care: treated=%s rel %.1f -> %.1f" % [ok, rel0, a.get_relationship("player")])
+				if not a.bonds.get_memories("player").any(func(m): return String(m["text"]).contains("kept me alive")):
+					_flag("cdebug_no_rescue", a, "treating a critical resident wasn't a rescue", "rs")
+				_cd_press("You Punch A")
+				_cd_press("Print Combat State")
+				_cd_next("shun + rescue + punch + dump")
+		7:
+			if waited > 1.0:
+				var txt: String = a._combat_debug_label.text if a._combat_debug_label != null else ""
+				print("[cdebug] overlay over %s: '%s'" % [a.npc_name, txt])
+				if txt == "":
+					_flag("cdebug_no_overlay", a, "combat overlay label empty", "ov")
+				_cd_press("Kill A")
+				if not a.is_dead():
+					_flag("cdebug_kill", a, "Kill A didn't kill", "kl")
+				_cd_press("Stop All Fights")
+				print("[cdebug] ALL STEPS DONE")
+				_cd_next("overlay + kill")
 
 ## ─── Lazy resident loop ──────────────────────────────────────────────────
 ## Residents: 0 Lazy, 1 Hard Worker, 2 Steady, 3 Lazy Gourmand, 4 Hard-Working

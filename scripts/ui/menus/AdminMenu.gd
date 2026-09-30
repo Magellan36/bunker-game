@@ -257,6 +257,33 @@ func _ready() -> void:
 			["NPC↔NPC Relationship -25 (All Pairs)", _on_npc_npc_relationship_down_pressed],
 			["NPC↔NPC Relationship +25 (All Pairs)", _on_npc_npc_relationship_up_pressed],
 		]},
+		## Sep 2026 — NPC combat & its colony side (fights, de-escalation,
+		## peacemakers, shunning, rescues). Logic lives in the NPC area:
+		## scripts/npc/NPCCombatDebug.gd. A = resident nearest you, B = next.
+		{ "name": "NPC COMBAT", "rows": [
+			["Toggle Combat Debug Logging", _combat_toggle.bind("enabled"),
+				func() -> bool: return NPCCombatDebug.enabled],
+			["Toggle Combat Overlay (above NPCs)", _combat_toggle.bind("overlay"),
+				func() -> bool: return NPCCombatDebug.overlay],
+			["Toggle Ignore Colony Fight Cooldown", _combat_toggle.bind("ignore_cooldown"),
+				func() -> bool: return NPCCombatDebug.ignore_cooldown],
+			["Cycle Forced De-escalation", _combat_cycle_deesc],
+			["Cycle Forced Peacemaker", _combat_cycle_peace],
+			["Everyone Friendly + Brave", func() -> void: NPCCombatDebug.make_friends_nearby(get_tree())],
+			["Clear Colony Fight Cooldown", func() -> void: NPCCombatDebug.reset_cooldown()],
+			["Fist Fight: A → B", func() -> void: NPCCombatDebug.force_brawl(get_tree())],
+			["Weapon Attack: A → B (spawns bat)", func() -> void: NPCCombatDebug.force_weapon_attack(get_tree())],
+			["Fist Fight: A → You", func() -> void: NPCCombatDebug.force_brawl_player(get_tree())],
+			["Weapon Attack: A → You (spawns bat)", func() -> void: NPCCombatDebug.force_weapon_player(get_tree())],
+			["You Punch A (8 dmg)", func() -> void: NPCCombatDebug.player_hits(get_tree(), "punch", 8.0)],
+			["You Hit A with a Bat (18 dmg)", func() -> void: NPCCombatDebug.player_hits(get_tree(), "bat", 18.0)],
+			["Make A Critical (20 HP, bleeding)", func() -> void: NPCCombatDebug.make_critical(get_tree())],
+			["A Shuns B (attack memory)", func() -> void: NPCCombatDebug.force_shun(get_tree())],
+			["Kill A", func() -> void: NPCCombatDebug.kill_nearest(get_tree())],
+			["Stop All Fights", func() -> void: NPCCombatDebug.stop_all_fights(get_tree())],
+			["Reset Combat Test (heal, calm, clear)", func() -> void: NPCCombatDebug.reset_test(get_tree())],
+			["Print Combat State", func() -> void: NPCCombatDebug.dump(get_tree())],
+		]},
 	]
 
 	_canvas = Control.new()
@@ -963,6 +990,20 @@ func _on_npc_toggle_debug_pressed() -> void:
 	NPCDebug.enabled = not NPCDebug.enabled
 	print("[AdminMenu] NPC debug logging: %s" % ("ON" if NPCDebug.enabled else "OFF"))
 	_refresh_toggle_labels()
+
+## Sep 2026 — NPC COMBAT section helpers (logic in NPCCombatDebug).
+func _combat_toggle(flag: String) -> void:
+	match flag:
+		"enabled": NPCCombatDebug.enabled = not NPCCombatDebug.enabled
+		"overlay": NPCCombatDebug.overlay = not NPCCombatDebug.overlay
+		"ignore_cooldown": NPCCombatDebug.ignore_cooldown = not NPCCombatDebug.ignore_cooldown
+	_refresh_toggle_labels()
+
+func _combat_cycle_deesc() -> void:
+	NPCCombatDebug._say("De-escalation: %s" % NPCCombatDebug.cycle_deesc())
+
+func _combat_cycle_peace() -> void:
+	NPCCombatDebug._say("Peacemaker: %s" % NPCCombatDebug.cycle_peace())
 
 ## Sep 2026 — kills the player (health → 0) to test the permanent-death /
 ## game-over flow. Emits health_changed so MainWorld's handler fires

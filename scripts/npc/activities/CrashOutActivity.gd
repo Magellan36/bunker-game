@@ -25,6 +25,8 @@ const MAX_SABOTAGE: int = 2
 const WEAPON_SEARCH: float = 14.0
 const ATTACK_SECONDS: Vector2 = Vector2(12.0, 20.0)
 const ESCALATE_BELOW: float = -65.0      ## relationship (incl. half the grudge) that turns a rant into an attack
+const REPEAT_SHIFT: float = 8.0          ## each earlier crash-out counts as this much more hatred (max 2)
+const LETHAL_FISTS_STOP: float = 15.0    ## an unarmed attempt to kill stops once they're beaten senseless
 const GUN_RANGE: float = 7.0
 const BRAWL_BELOW: float = -50.0         ## hatred between this and ESCALATE_BELOW: a fist fight, not sabotage
 const BRAWL_SECONDS: Vector2 = Vector2(6.0, 10.0)
@@ -83,7 +85,10 @@ func can_yield_to_need(npc: NPC) -> bool:
 func backoff_on_futile() -> bool:
 	return false
 
+var _npc_ref: NPC = null   ## for debug labels in _to()
+
 func enter(npc: NPC) -> void:
+	_npc_ref = npc
 	_timer = 0.0
 	_sabotage_done = npc.crash.sabotaged
 	_leaning = false
@@ -101,6 +106,12 @@ func enter(npc: NPC) -> void:
 	else:
 		_npc_desc = "breaking down"
 		_phase = Phase.FIND_SPOT
+	npc.combat.debug_phase = Phase.keys()[_phase]
+	if npc.crash.mode == NPCCrashOut.Mode.HOSTILE:
+		NPCCombatDebug.trace(npc, "HOSTILE at %s: hatred %.0f (fists <= %.0f, weapon <= %.0f), count %d, hit first %s(%s) -> %s" % [
+			npc.crash.target_id, _hatred(npc), BRAWL_BELOW, ESCALATE_BELOW, npc.crash.count,
+			npc.combat.attacked_by == npc.crash.target_id, npc.combat.last_hit_kind,
+			"WEAPON" if _will_attack else ("FISTS" if _brawl else "rant + sabotage")])
 
 func tick(npc: NPC, delta: float) -> void:
 	_timer += delta
@@ -185,6 +196,7 @@ func exit(npc: NPC) -> void:
 	npc.combat.rushing = false
 	npc.combat.attacking_id = ""
 	npc.combat.put_fists_away()
+	npc.combat.debug_phase = ""
 	if _weapon != null and is_instance_valid(_weapon):
 		if _weapon.has_method("set_aiming"):
 			_weapon.set_aiming(false)
@@ -206,6 +218,9 @@ func attention_target(npc: NPC) -> Node3D:
 
 func _to(p: Phase) -> void:
 	_phase = p
+	if _npc_ref != null:
+		_npc_ref.combat.debug_phase = Phase.keys()[p]
+		NPCCombatDebug.trace(_npc_ref, "crash-out phase -> %s" % Phase.keys()[p])
 	_timer = 0.0
 	_bark_timer = 0.0
 
@@ -223,30 +238,39 @@ func _attack(_npc: NPC, _target: Node3D) -> void:
 	pass
 
 # ─── Attacking (NPCCombat) ──────────────────────────────────────────────────
-## Rant → attack only once it has escalated: they've crashed out before, the
-## hatred runs very deep, or the target hit them first.
+## Rant → attack only once it has escalated: the hatred runs very deep, or
+## the target hit them first with a real weapon. Repeat crash-outs push the
+## hatred a little further each time (tier_hatred), so someone who keeps
+## losing it slides from shouting toward fists toward worse, not straight
+## to a killing on their second bad day.
 func _escalated(npc: NPC) -> bool:
 	var id: String = npc.crash.target_id
 	var hit_first: bool = npc.combat.attacked_by == id
-	return npc.crash.count >= 2 or _hatred(npc) <= ESCALATE_BELOW or (hit_first and npc.combat.last_hit_kind != "punch")
+	return tier_hatred(npc) <= ESCALATE_BELOW or (hit_first and not npc.combat.last_hit_kind in ["punch", "fists"])
 
 ## Relationship plus half the grudge toward the target (lower = worse).
 func _hatred(npc: NPC) -> float:
+	return tier_hatred(npc)
+
+## The hatred that picks the tier (rant / fists / weapon), including the
+## repeat-crash-out shift. Static so the debug overlay shows the same number.
+static func tier_hatred(npc: NPC) -> float:
 	var id: String = npc.crash.target_id
-	return npc.get_relationship(id) + npc.bonds.grudge_against(id) * 0.5
+	var repeat: float = REPEAT_SHIFT * clampf(float(npc.crash.count - 1), 0.0, 2.0)
+	return npc.get_relationship(id) + npc.bonds.grudge_against(id) * 0.5 - repeat
 
 func _start_attack_or_sabotage(npc: NPC) -> void:
 	if npc.crash.target_node() == null or not (_will_attack or _brawl):
 		_to(Phase.SABOTAGE if _sabotage_done < MAX_SABOTAGE else Phase.PACE)
 		return
-	if _brawl:
-		var punched_first: bool = npc.combat.attacked_by == npc.crash.target_id and npc.combat.last_hit_kind in ["punch", "fists"]
-		var held_back: String = _held_back(npc, punched_first)
-		if held_back != "":
-			npc.log_event("crash", held_back)
-			_brawl = false
-			_to(Phase.SABOTAGE if _sabotage_done < MAX_SABOTAGE else Phase.PACE)
-			return
+	var punched_first: bool = npc.combat.attacked_by == npc.crash.target_id and npc.combat.last_hit_kind in ["punch", "fists"]
+	var held_back: String = _held_back(npc, punched_first, not _brawl)
+	if held_back != "":
+		npc.log_event("crash", held_back)
+		_brawl = false
+		_will_attack = false
+		_to(Phase.SABOTAGE if _sabotage_done < MAX_SABOTAGE else Phase.PACE)
+		return
 	npc.combat.attacking_id = npc.crash.target_id
 	NPCCombat.last_fight_hours = NPCClock.now()
 	if _brawl:
@@ -306,7 +330,7 @@ func _begin_attack(npc: NPC) -> void:
 	_squared = false
 	_combo = 0
 	_out_of_reach = 0.0
-	_peace_check = 1.0
+	_peace_check = 2.0   ## a fight breaks out, THEN someone steps in
 	_peacemaker_called = false
 	npc.combat.escalate = false
 	npc.combat.separated = false
@@ -330,8 +354,10 @@ func _tick_attack(npc: NPC, delta: float) -> void:
 	_attack_left -= delta
 	var target_down: bool = t == null or (t.has_method("is_dead") and t.is_dead())
 	var who: String = "you" if npc.crash.target_id == "player" else String(t.get("npc_name")) if t != null else "them"
-	if _brawl and not target_down and NPCCombat.health_of(t) <= BRAWL_STOP_HEALTH:
-		target_down = true   ## beaten down: a brawl stops there
+	var unarmed: bool = _weapon == null or not is_instance_valid(_weapon)
+	var stop_at: float = BRAWL_STOP_HEALTH if _brawl else (LETHAL_FISTS_STOP if unarmed else -1.0)
+	if not target_down and NPCCombat.health_of(t) <= stop_at:
+		target_down = true   ## beaten down: fists stop there
 		npc.log_event("crash", "Beat %s down" % who)
 	## Someone got between them.
 	if npc.combat.separated:
@@ -339,7 +365,7 @@ func _tick_attack(npc: NPC, delta: float) -> void:
 		npc.log_event("crash", "%s pulled me off %s" % [npc.combat.separated_by, who])
 		_disengage(npc)
 		return
-	if _brawl and not _peacemaker_called:
+	if unarmed and not _peacemaker_called:
 		_peace_check -= delta
 		if _peace_check <= 0.0:
 			_peace_check = 1.0
@@ -354,6 +380,8 @@ func _tick_attack(npc: NPC, delta: float) -> void:
 		_start_attack_or_sabotage(npc)
 		return
 	if target_down or _attack_left <= 0.0 or (_brawl and _out_of_reach > BRAWL_GIVE_UP):
+		NPCCombatDebug.trace(npc, "disengage: %s" % ("target down (health %.0f, stop at %.0f)" % [NPCCombat.health_of(t), stop_at] if target_down and t != null
+			else "target gone" if target_down else "time up" if _attack_left <= 0.0 else "target out of reach %.1fs" % _out_of_reach))
 		_disengage(npc)
 		return
 	var d: float = NPCItemUser.flat_distance(npc.global_position, t.global_position)
@@ -368,7 +396,9 @@ func _tick_attack(npc: NPC, delta: float) -> void:
 		npc.nav_steer(delta)
 		_squared = false
 		return
-	npc.combat.rushing = false
+	## Hurry to close on someone walking away (a walker can't just stroll out
+	## of a fight; someone running flat out still can).
+	npc.combat.rushing = not gun and d > reach + 0.3
 	if gun:
 		npc.halt_movement(delta)
 	else:
@@ -417,16 +447,32 @@ func _disengage(npc: NPC) -> void:
 ## Why this fist fight doesn't happen ("" = it does): the colony just had
 ## one, the target backs down, or a friend talks them out of it. Being
 ## punched first overrides all of it (they defend themselves).
-func _held_back(npc: NPC, punched_first: bool) -> String:
+## `lethal`: only a friend can talk someone out of an escalated attack (at
+## half the odds); the colony cooldown and the target backing down don't
+## stop it.
+func _held_back(npc: NPC, punched_first: bool, lethal: bool = false) -> String:
 	if punched_first:
+		NPCCombatDebug.trace(npc, "de-escalation skipped: punched first (self-defence)")
 		return ""
-	if NPCClock.now() - NPCCombat.last_fight_hours < NPCCombat.FIGHT_COOLDOWN_H:
+	var mode: NPCCombatDebug.Deesc = NPCCombatDebug.deesc_mode
+	if mode == NPCCombatDebug.Deesc.NEVER:
+		NPCCombatDebug.trace(npc, "de-escalation forced off (debug)")
+		return ""
+	var since: float = NPCClock.now() - NPCCombat.last_fight_hours
+	if not lethal and since < NPCCombat.FIGHT_COOLDOWN_H and not NPCCombatDebug.ignore_cooldown:
+		NPCCombatDebug.trace(npc, "held back by colony cooldown (last fight %.1fh ago < %.0fh)" % [since, NPCCombat.FIGHT_COOLDOWN_H])
 		return "Held back — nobody wants another fight"
 	var t: Node3D = npc.crash.target_node()
-	if t is NPC and not (t as NPC).crash.active():
+	if not lethal and t is NPC and not (t as NPC).crash.active():
 		var tn: NPC = t as NPC
 		var back_down: float = 0.3 * (1.0 - tn._trait("neuroticism")) + (0.2 if tn.social.fear > 40.0 else 0.0)
-		if randf() < back_down:
+		if mode == NPCCombatDebug.Deesc.ALWAYS_BACK_DOWN:
+			back_down = 1.0
+		elif mode == NPCCombatDebug.Deesc.ALWAYS_TALKED_DOWN:
+			back_down = 0.0
+		var roll: float = randf()
+		NPCCombatDebug.trace(npc, "%s back-down roll %.2f < %.2f ? (neuroticism %.2f, fear %.0f)" % [tn.npc_name, roll, back_down, tn._trait("neuroticism"), tn.social.fear])
+		if roll < back_down:
 			tn.log_event("crash", "Backed down from a fight with %s" % npc.npc_name)
 			return "%s backed down" % tn.npc_name
 	for o: Node in npc.get_tree().get_nodes_in_group("npc"):
@@ -435,14 +481,21 @@ func _held_back(npc: NPC, punched_first: bool) -> String:
 			continue
 		if on.global_position.distance_to(npc.global_position) > TALK_DOWN_RANGE or not on._can_see(npc):
 			continue
-		if on.get_relationship(npc.npc_id) >= 40.0 and npc.get_relationship(on.npc_id) >= 30.0 and randf() < 0.5:
+		var friends: bool = on.get_relationship(npc.npc_id) >= 40.0 and npc.get_relationship(on.npc_id) >= 30.0
+		var chance: float = 1.0 if mode == NPCCombatDebug.Deesc.ALWAYS_TALKED_DOWN else (0.0 if mode == NPCCombatDebug.Deesc.ALWAYS_BACK_DOWN else (0.25 if lethal else 0.5))
+		NPCCombatDebug.trace(npc, "talk-down candidate %s: likes me %.0f (>= 40), I like them %.0f (>= 30), chance %.1f" % [
+			on.npc_name, on.get_relationship(npc.npc_id), npc.get_relationship(on.npc_id), chance if friends else 0.0])
+		if friends and randf() < chance:
 			on.log_event("bond", "Talked %s out of a fight" % npc.npc_name)
 			npc.bonds.relate(on.npc_id, 4.0, "talked me down")
 			return "%s talked me down" % on.npc_name
+	NPCCombatDebug.trace(npc, "no de-escalation — the fight goes ahead")
 	return ""
 
 ## Someone brave who cares about one of them walks over to stop it.
 func _call_peacemaker(npc: NPC, victim: Node3D) -> void:
+	if NPCCombatDebug.peace_mode == NPCCombatDebug.Peace.NEVER:
+		return
 	var best: NPC = null
 	var best_d: float = PEACEMAKER_RANGE
 	var victim_id: String = NPCCombat.id_of(victim)
@@ -455,10 +508,14 @@ func _call_peacemaker(npc: NPC, victim: Node3D) -> void:
 			continue
 		var nerve: float = on._trait("resilience") - on.social.fear / 200.0
 		var care: float = maxf(on.get_relationship(npc.npc_id), on.get_relationship(victim_id) if victim_id != "" else -100.0)
+		NPCCombatDebug.trace(npc, "peacemaker candidate %s: %.1f m, nerve %.2f (>= 0.45), care %.0f (>= 25)" % [on.npc_name, d, nerve, care])
 		if nerve >= 0.45 and care >= 25.0:
 			best = on
 			best_d = d
-	if best != null and randf() < PEACEMAKER_CHANCE:
+	var chance: float = 1.0 if NPCCombatDebug.peace_mode == NPCCombatDebug.Peace.ALWAYS else PEACEMAKER_CHANCE
+	if best != null:
+		NPCCombatDebug.trace(npc, "peacemaker pick %s (chance %.2f this second)" % [best.npc_name, chance])
+	if best != null and randf() < chance:
 		_peacemaker_called = true
 		best.combat.break_up_id = npc.npc_id
 		best.log_event("bond", "Stepping in between %s and %s" % [npc.npc_name, victim.get("npc_name") if victim is NPC else "you"])

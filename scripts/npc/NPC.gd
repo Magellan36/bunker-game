@@ -2181,6 +2181,7 @@ func _process_overhead(delta: float) -> void:
 	bubble.tick(delta)
 	_update_bark(delta)
 	_update_debug_nameplate(delta, bubble.is_showing())
+	_update_combat_debug_label(delta)
 
 func _update_debug_nameplate(delta: float, bubble_up: bool) -> void:
 	if not NPCDebug.show_nameplates:
@@ -2212,6 +2213,25 @@ func _make_label3d(font_size: int, outline: int, pos: Vector3, color: Color, pix
 	l.modulate = color
 	add_child(l)
 	return l
+
+## Debug-only combat readout (F7 NPC COMBAT → overlay): health, crash-out
+## tier and phase, who they're attacking/fleeing/stopping, shunning, fear.
+var _combat_debug_label: Label3D = null
+var _combat_debug_timer: float = 0.0
+
+func _update_combat_debug_label(delta: float) -> void:
+	if not NPCCombatDebug.overlay:
+		if _combat_debug_label != null:
+			_combat_debug_label.visible = false
+		return
+	if _combat_debug_label == null:
+		_combat_debug_label = _make_label3d(26, 6, Vector3(0.0, 2.1, 0.0), Color(1.0, 0.72, 0.45, 0.95), 0.0006)
+	_combat_debug_label.visible = true
+	_combat_debug_timer -= delta
+	if _combat_debug_timer > 0.0:
+		return
+	_combat_debug_timer = 0.25
+	_combat_debug_label.text = NPCCombatDebug.state_line(self)
 
 ## Debug-only floating readout of relationships (NPCDebug.enabled).
 var _relationship_debug_label: Label3D = null

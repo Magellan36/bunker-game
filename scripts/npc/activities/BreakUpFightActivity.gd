@@ -35,6 +35,7 @@ func tick(npc: NPC, delta: float) -> void:
 	_timer += delta
 	var b: NPC = _brawler(npc)
 	if b == null or _timer > GIVE_UP_SECONDS:
+		NPCCombatDebug.trace(npc, "stops stepping in (%s)" % ("fight already over" if b == null else "gave up after %.0fs" % GIVE_UP_SECONDS))
 		npc.combat.break_up_id = ""
 		npc.combat.rushing = false
 		return
@@ -69,6 +70,7 @@ func _brawler(npc: NPC) -> NPC:
 
 func _separate(npc: NPC, b: NPC) -> void:
 	var victim: NPC = npc.crash._find(b.combat.attacking_id)
+	NPCCombatDebug.trace(npc, "SEPARATED %s from %s" % [b.npc_name, victim.npc_name if victim != null else "the player"])
 	b.combat.separated = true
 	b.combat.separated_by = npc.npc_name
 	npc.combat.break_up_id = ""

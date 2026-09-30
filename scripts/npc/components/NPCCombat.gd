@@ -43,6 +43,7 @@ var break_up_id: String = ""                ## the brawler this resident is step
 var separated: bool = false                 ## pulled off their target by a peacemaker (CrashOutActivity disengages)
 var separated_by: String = ""
 var _shun_logged_at: float = -100.0
+var debug_phase: String = ""               ## CrashOutActivity phase name (NPCCombatDebug overlay)
 
 ## Colony-scale rarity: after a fight, the next fist fight within this many
 ## game hours stays a shouting match (everyone's shaken; nobody wants
@@ -65,6 +66,7 @@ var _fists: Node = null                     ## Fists, created on first use as a 
 ## a resident is being attacked, or treating one who is at death's door.
 ## One rescue credit per RESCUE_REPEAT_H, so a long fight doesn't stack.
 const RESCUE_HEALTH: float = 25.0
+const PUNCH_FLOOR: float = 5.0              ## punches never take health below this
 const RESCUE_REPEAT_H: float = 12.0
 
 var _npc: NPC = null
@@ -150,21 +152,30 @@ func receive_hit(ctx: Dictionary) -> void:
 		defended = _npc.crash._find(attacking_id)
 		if defended != null and defended.is_dead():
 			defended = null
-	_npc.health = maxf(0.0, _npc.health - dmg)
+	## Fists hurt; they don't kill (a beating leaves someone on the floor
+	## needing care, not dead — weapons are what kill).
+	var punch: bool = kind in ["punch", "fists"]
+	if punch:
+		_npc.health = maxf(minf(_npc.health, PUNCH_FLOOR), _npc.health - dmg)
+	else:
+		_npc.health = maxf(0.0, _npc.health - dmg)
 	var injury: String = _injure(kind, part, dmg)
 	## Knocked back a little: a jab rocks them, a bat sends them stumbling.
 	var dir: Vector3 = ctx.get("direction", Vector3.ZERO)
 	dir.y = 0.0
 	if dir.length_squared() > 0.001:
 		_npc.velocity += dir.normalized() * clampf(dmg * 0.12, 0.4, 2.5)
-	var punch: bool = kind in ["punch", "fists"]
 	if not punch and src_id != "" and _npc.crash.active() and _npc.crash.target_id == src_id:
 		escalate = true
+		NPCCombatDebug.trace(_npc, "target hit back with a real weapon (%s) -> escalate flag" % kind)
 	## Fight or flight is decided by how they felt about the attacker BEFORE this.
 	var prior_hate: float = (_npc.get_relationship(src_id) + _npc.bonds.grudge_against(src_id) * 0.5) if src_id != "" else 0.0
 	var who: String = "You" if src_id == "player" else (_npc.bonds.display_name(src_id) if src_id != "" else "Someone")
 	_npc.log_event("hurt", "%s hit me with a %s (−%d health%s)" % [who, weapon_name(kind), int(round(dmg)), ", " + injury if injury != "" else ""])
 	_npc.morale_sys.note_shock(0.4)
+	NPCCombatDebug.trace(_npc, "hit by %s: %s %.0f dmg at %s -> health %.0f%s%s" % [src_id if src_id != "" else "?", kind, dmg,
+		MedicalCondition.body_part_label(part), _npc.health, ", " + injury if injury != "" else "",
+		" (player stepping in for %s)" % defended.npc_name if defended != null else ""])
 	if src_id != "":
 		attacked_by = src_id
 		last_hit_kind = kind
@@ -197,6 +208,8 @@ func _react(src_id: String, hate: float) -> void:
 	if src_id == "" or _npc.crash.active():
 		return   ## mid crash-out: it carries on (a hostile one may now aim at them)
 	var nerve: float = _npc._trait("resilience") - _npc.social.fear / 200.0
+	NPCCombatDebug.trace(_npc, "fight or flight vs %s: prior hate %.0f (fight if <= %.0f), nerve %.2f (> 0.35), cowed %s" % [
+		src_id, hate, NPCCrashOut.HOSTILE_AT, nerve, _npc.social.is_cowed()])
 	if hate <= NPCCrashOut.HOSTILE_AT and nerve > 0.35 and not _npc.social.is_cowed():
 		_npc.bark_event("fight_back")
 		_npc.log_event("crash", "Fought back")
@@ -230,6 +243,7 @@ func _bystanders_clear_out(actor_id: String, actor: Node, punch: bool) -> void:
 		var nerve: float = wn._trait("resilience") - wn.social.fear / 200.0
 		if not punch and nerve > 0.55:
 			continue
+		NPCCombatDebug.trace(wn, "clearing out of the way of %s (%s, nerve %.2f)" % [actor_id, "brawl" if punch else "weapon", nerve])
 		wn.combat.flee_from = actor_id
 		wn.combat.flee_until_msec = Time.get_ticks_msec() + int((1.6 if punch else 4.5) * 1000.0)
 		if wn.brain != null and wn.brain.is_current_interruptible():
@@ -239,7 +253,9 @@ func _bystanders_clear_out(actor_id: String, actor: Node, punch: bool) -> void:
 ## already credited with one in the last RESCUE_REPEAT_H game hours.
 func credit_rescue(what: String) -> bool:
 	if dead or NPCClock.now() - last_rescued_hours < RESCUE_REPEAT_H:
+		NPCCombatDebug.trace(_npc, "rescue '%s' NOT credited (already rescued %.1fh ago, window %.0fh)" % [what, NPCClock.now() - last_rescued_hours, RESCUE_REPEAT_H])
 		return false
+	NPCCombatDebug.trace(_npc, "RESCUE credited: '%s' (+20 player)" % what)
 	last_rescued_hours = NPCClock.now()
 	_npc.log_event("care", "You %s" % what)
 	_npc.bark_event("thanks")
@@ -267,6 +283,7 @@ func shun_work_mult() -> float:
 			continue
 		if NPCClock.now() - _shun_logged_at > 2.0:
 			_shun_logged_at = NPCClock.now()
+			NPCCombatDebug.trace(_npc, "shuns %s within %.0f m -> work scores x%.1f" % [(o as NPC).npc_name, SHUN_RANGE, SHUN_WORK_MULT])
 			_npc.log_event("bond", "Won't work next to %s" % (o as NPC).npc_name)
 		return SHUN_WORK_MULT
 	return 1.0
@@ -331,6 +348,7 @@ func die(cause: String, killer_id: String = "", quiet: bool = false) -> void:
 	if dead:
 		return
 	dead = true
+	NPCCombatDebug.trace(_npc, "DIED: %s (killer %s)" % [cause, killer_id if killer_id != "" else "-"])
 	death_cause = cause
 	killed_by = killer_id
 	attacking_id = ""
