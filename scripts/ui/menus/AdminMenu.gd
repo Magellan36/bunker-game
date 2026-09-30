@@ -62,6 +62,7 @@ const TEST_EFFECT_DURATION: float = 10.0
 var TEST_EFFECT_COLOR: Color = Color(0.86, 0.57, 0.19, 1.0)   ## matches StatusEffectIcon's own default (Jul 2026 — darkened 5%)
 
 const ADMIN_CASH_STEP: int = 100000          ## "+$100,000" economy cheat row
+const EXP_DEBUG: GDScript = preload("res://scripts/world/hatch/ExpeditionDebug.gd")   ## F7 → EXPEDITIONS
 
 ## Farming produce spawn — matches FarmingShopHelper.SPAWN_HEIGHT_ABOVE_PLAYER
 ## (1.8) so admin-spawned produce drops exactly like a shop purchase does.
@@ -258,6 +259,24 @@ func _ready() -> void:
 			["Relationship +25 (All NPCs ↔ Player)", _on_npc_relationship_up_pressed],
 			["NPC↔NPC Relationship -25 (All Pairs)", _on_npc_npc_relationship_down_pressed],
 			["NPC↔NPC Relationship +25 (All Pairs)", _on_npc_npc_relationship_up_pressed],
+		]},
+		## Sep 2026 — Surface Hatch expeditions (logic in
+		## scripts/world/hatch/ExpeditionDebug.gd). "Resident" = the one
+		## nearest you; "next trip" = the one due back soonest.
+		{ "name": "EXPEDITIONS", "rows": [
+			["Go to Hatch", func() -> void: EXP_DEBUG.go_to_hatch(get_tree())],
+			["Send Nearest Resident (Careful)", func() -> void: EXP_DEBUG.send_nearest(get_tree(), "careful")],
+			["Send Nearest Resident (Balanced)", func() -> void: EXP_DEBUG.send_nearest(get_tree(), "balanced")],
+			["Send Nearest Resident (Greedy)", func() -> void: EXP_DEBUG.send_nearest(get_tree(), "greedy")],
+			["Return All Now (as rolled)", func() -> void: EXP_DEBUG.return_all_now(get_tree())],
+			["Force Next Trip: Safe + Full Haul", func() -> void: EXP_DEBUG.force_next(get_tree(), "safe")],
+			["Force Next Trip: Injured", func() -> void: EXP_DEBUG.force_next(get_tree(), "injured")],
+			["Force Next Trip: Lost (never returns)", func() -> void: EXP_DEBUG.force_next(get_tree(), "lost")],
+			["Force Next Trip: Deserted", func() -> void: EXP_DEBUG.force_next(get_tree(), "deserted")],
+			["Make Next Trip Overdue", func() -> void: EXP_DEBUG.make_overdue(get_tree())],
+			["Reveal All Destinations", func() -> void: EXP_DEBUG.reveal_all(get_tree())],
+			["Reset Site Depletion", func() -> void: EXP_DEBUG.reset_depletion(get_tree())],
+			["Print Expedition State", func() -> void: EXP_DEBUG.dump(get_tree())],
 		]},
 		## Sep 2026 — NPC combat & its colony side (fights, de-escalation,
 		## peacemakers, shunning, rescues). Logic lives in the NPC area:
