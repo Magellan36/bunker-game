@@ -69,13 +69,13 @@ func _run() -> void:
 	await ticks(strike_ticks(gun))
 	check(target.hits == whip_hits, "whip reach is short (target 3 m away untouched)")
 	gun.reserve_ammo = 2
-	gun.on_use()
+	gun.reload()
 	check(gun._reload_left > 0, "reload starts")
 	gun._reload_left = 0.001
 	await ticks(2)
 	check(gun.ammo == 2 and gun.reserve_ammo == 0, "partial reload conserves ammunition")
 	gun.reserve_ammo = 10
-	gun.on_use()
+	gun.reload()
 	gun.cancel_action()
 	await ticks(2)
 	check(gun.ammo == 2 and gun.reserve_ammo == 10 and gun._reload_left == 0, "cancelled reload consumes nothing")
@@ -211,6 +211,15 @@ func _run() -> void:
 	await ticks(12)
 	check(controller._mouse_point.distance_to(start_point + Vector2(-20, -18)) < 1.0, "mouse motion moves the aim point")
 	check(absf(angle_difference(player.rotation.y, yaw_before)) > 0.2, "mouse aim turns the player toward the aim point")
+	player.set_movement_locked(true)
+	await ticks(2)
+	check(not gun.aiming, "a block suspends mouse aim")
+	player.set_movement_locked(false)
+	await ticks(3)
+	check(gun.aiming, "held RMB resumes aim after a brief block")
+	gun.ammo = 2
+	gun.reserve_ammo = 4
+	check(gun.get_use_prompt().begins_with("[R] Reload") and not gun.get_use_prompt().contains("RMB"), "prompt is reload + rounds only")
 	rmb.pressed = false
 	rmb.button_mask = 0
 	Input.parse_input_event(rmb)

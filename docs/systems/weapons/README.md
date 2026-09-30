@@ -13,7 +13,7 @@ They are not spawned into existing saves.
 - Hold RMB to aim toward the cursor at weapon height; LMB press attacks. With empty
   hands the same input raises the fists and throws a jab/cross combo (`Fists.gd`).
 - Right stick aims relative to the camera; right trigger press attacks.
-- E / gamepad A reloads the revolver via the existing held-item use action.
+- R (keyboard) / gamepad A reloads the revolver. On keyboard, E no longer reloads.
 - G stores and mouse wheel selects inventory slots as usual.
 
 Six rounds, twelve spare rounds initially. Semi-automatic: each press commits at most
@@ -59,7 +59,10 @@ Polish pass (2026-09-28):
 - No hit-stop or melee screen shake: combat is a rare emergency in a colony sim,
   so feedback stays quiet (a reticle tick on a confirmed hit).
 - Hits push loose RigidBody props (impulse ≈ damage × 0.08, clamped 0.3–3).
-- The reticle reads "Empty · E reload" / "Empty" when the revolver is dry.
+- The hover prompt shows only status: `[R] Reload  3 / 12`, `Reloading…`, rounds, or
+  `Empty`. The reticle has no text; it turns amber when the revolver is dry.
+- Mouse aim follows the physical RMB: a brief block (UI blip, item swap) only pauses
+  aiming, and it resumes while the button is still held.
 - Only the player's own shots give full recoil shake; others' shots nearby give a
   faint distance-faded jolt.
 
@@ -101,7 +104,7 @@ Run with isolated user data (see `docs/AGENT_GIT_WORKFLOW.md`):
 XDG_DATA_HOME=$(mktemp -d) XDG_CONFIG_HOME=$(mktemp -d) /path/to/godot --headless --path . res://tools/tests/WeaponsTest.tscn --quit-after 120
 ```
 
-Headless behavior checks (expects `WEAPONS_SMOKE: 45 checks, 0 failures`):
+Headless behavior checks (expects `WEAPONS_SMOKE: 48 checks, 0 failures`):
 
 ```
 XDG_DATA_HOME=$(mktemp -d) XDG_CONFIG_HOME=$(mktemp -d) /path/to/godot --headless --path . res://tools/tests/WeaponsSmoke.tscn

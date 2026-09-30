@@ -74,14 +74,18 @@ func get_display_name() -> String:
 	return {"revolver": "Webley Mk II", "knife": "Knife", "hatchet": "Hatchet", "pipe": "Steel Pipe",
 		"bat": "Baseball Bat", "crowbar": "Crowbar"}.get(weapon_kind, "Weapon")
 
+## Hover prompt: status and reload only (controls are learned, not printed).
+## The put-away/store line is added by InteractionSystem.
 func get_use_prompt() -> String:
 	if not is_firearm():
-		return "Hold RMB / Right stick: Aim · LMB / RT: Swing"
+		return ""
+	var rounds: String = "%d / %d" % [ammo, reserve_ammo]
 	if _reload_left > 0.0:
-		return "Reloading…"
-	if ammo <= 0:
-		return "Hold RMB / Right stick: Aim · LMB / RT: Pistol whip · [E] Reload  0 / %d" % reserve_ammo
-	return "Hold RMB / Right stick: Aim · LMB / RT: Fire · [E] Reload  %d / %d" % [ammo, reserve_ammo]
+		return "Reloading…  " + rounds
+	if ammo < magazine_capacity and reserve_ammo > 0:
+		## Controller reloads on A (the interact button, token [E]); keyboard on R.
+		return ("[E]" if InputMode.is_controller() else "[R]") + " Reload  " + rounds
+	return "Empty" if ammo == 0 and reserve_ammo == 0 else rounds
 
 func get_inventory_hud_state() -> Dictionary:
 	return {"kind": "charges", "current": ammo, "maximum": magazine_capacity} if is_firearm() else {}
@@ -122,7 +126,13 @@ func _on_pickup_extra() -> void:
 func _on_drop_extra() -> void:
 	cancel_action()
 
+## Interact (E / pad A) dispatch: reloads only on a controller. The keyboard
+## reload key is R (WeaponController), so E is free for everything else.
 func on_use() -> void:
+	if InputMode.is_controller():
+		reload()
+
+func reload() -> void:
 	if is_firearm() and is_held and ammo < magazine_capacity and reserve_ammo > 0 and _reload_left <= 0.0:
 		_reload_left = reload_duration
 		_play_sound(reload_sound)

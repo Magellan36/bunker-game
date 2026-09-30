@@ -1,7 +1,6 @@
 extends Control
 ## Small aim-only reticle; no input capture or changes to the shared HUD.
 var aim_position: Vector2
-var rounds: String = ""
 var hit_time: float = 0.0
 var empty: bool = false
 
@@ -23,5 +22,3 @@ func _draw() -> void:
 	if hit_time > 0.0:
 		for direction: Vector2 in [Vector2(-1,-1), Vector2(1,-1), Vector2(-1,1), Vector2(1,1)]:
 			draw_line(aim_position + direction * 12, aim_position + direction * 16, Color(1, 0.85, 0.5, hit_time / 0.15), 1.5, true)
-	if not rounds.is_empty():
-		draw_string(ThemeDB.fallback_font, aim_position + Vector2(15, 24), rounds, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, color)

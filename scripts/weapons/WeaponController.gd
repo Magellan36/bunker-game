@@ -8,7 +8,11 @@ var interaction: Node
 ## The held WeaponItem, or the player's Fists when the hands are empty.
 var _weapon: Node
 var _fists: Node3D
+## Mouse aim = RMB physically held (tracked from raw events in _input) after a
+## press that began in gameplay. A brief block (UI blip, animation lock, item
+## swap) only suspends aiming; it never cancels a held RMB, so aim resumes.
 var _mouse_aim: bool = false
+var _rmb_down: bool = false
 ## Seconds a press stays queued, so a press during recovery lands the moment
 ## the weapon is ready (combos feel continuous instead of eating inputs).
 const ATTACK_BUFFER: float = 0.18
@@ -42,12 +46,12 @@ func _ready() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
 		_focused = false
+		_mouse_aim = false
 		_reset()
 	elif what == NOTIFICATION_APPLICATION_FOCUS_IN:
 		_focused = true
 
 func _reset() -> void:
-	_mouse_aim = false
 	_buffer_left = 0.0
 	_was_aiming = false
 	_trigger_down = false
@@ -63,6 +67,10 @@ func _input(event: InputEvent) -> void:
 	# Observe release even when a UI consumes the event later; never consume here.
 	if event is InputEventJoypadMotion and event.axis == JOY_AXIS_TRIGGER_RIGHT and event.axis_value < 0.35:
 		_trigger_down = false
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT:
+		_rmb_down = event.pressed
+		if not event.pressed:
+			_mouse_aim = false
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not _focused or not interaction.can_use_weapon() or not (interaction.held_item is Weapon or interaction.held_item == null):
@@ -71,10 +79,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.button_index == MOUSE_BUTTON_RIGHT:
 			if event.pressed and not _mouse_aim:
 				_start_mouse_point()
-			_mouse_aim = event.pressed
+				_mouse_aim = true
 			get_viewport().set_input_as_handled()
 		elif event.button_index == MOUSE_BUTTON_LEFT and event.pressed and _mouse_aim:
 			_buffer_left = ATTACK_BUFFER
+			get_viewport().set_input_as_handled()
+	elif event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_R:
+		if is_instance_valid(_weapon) and _weapon.is_firearm():
+			_weapon.reload()
 			get_viewport().set_input_as_handled()
 	elif event is InputEventMouseMotion and _mouse_aim:
 		var rect: Rect2 = get_viewport().get_visible_rect()
@@ -104,7 +116,7 @@ func _physics_process(delta: float) -> void:
 	if not is_instance_valid(_weapon) or not interaction.can_use_weapon() or not _focused:
 		_reset()
 		return
-	if _mouse_aim and not Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
+	if _mouse_aim and not _rmb_down:
 		_mouse_aim = false
 	var player: CharacterBody3D = interaction.player
 	var stick: Vector2 = Input.get_vector("aim_left", "aim_right", "aim_up", "aim_down")
@@ -143,7 +155,6 @@ func _physics_process(delta: float) -> void:
 		if camera != null:
 			_reticle.aim_position = _mouse_point if _mouse_aim else camera.unproject_position(_weapon.global_position + _direction * minf(_weapon.reach, 7.0))
 		_reticle.empty = _weapon.is_firearm() and _weapon.ammo == 0
-		_reticle.rounds = _rounds_text() if _weapon.is_firearm() else ""
 
 func _start_mouse_point() -> void:
 	var camera: Camera3D = get_viewport().get_camera_3d()
@@ -155,13 +166,6 @@ func _start_mouse_point() -> void:
 	if is_instance_valid(_weapon):
 		ahead.y = _weapon.get_aim_origin().y
 	_mouse_point = camera.unproject_position(ahead)
-
-func _rounds_text() -> String:
-	if _weapon._reload_left > 0.0:
-		return "Reloading…"
-	if _weapon.ammo == 0:
-		return "Empty · E reload" if _weapon.reserve_ammo > 0 else "Empty"
-	return "%d / %d" % [_weapon.ammo, _weapon.reserve_ammo]
 
 ## Closest valid target to the stick direction inside the assist cone, with a
 ## clear line; otherwise the raw direction.
