@@ -216,8 +216,9 @@ func exit(npc: NPC) -> void:
 		_leaning = false
 	_sabotage_target = null
 
-func attention_target(npc: NPC) -> Node3D:
-	return npc.crash.target_node() if _phase in [Phase.APPROACH, Phase.RANT, Phase.ATTACK, Phase.GLARE] else null
+## Head look-at happens only while leaning (Brannon, Sep 2026): forward here.
+func attention_target(_npc: NPC) -> Node3D:
+	return null
 
 func _to(p: Phase) -> void:
 	_phase = p

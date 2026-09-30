@@ -34,7 +34,7 @@ var _storage_dest: Node = null
 var _work_left: float = 0.0
 var _finished: bool = false
 
-## Head looks only at people (Brannon, Sep 2026): forward while cooking.
+## Head look-at happens only while leaning (Brannon, Sep 2026): forward here.
 func attention_target(_npc: NPC) -> Node3D:
 	return null
 

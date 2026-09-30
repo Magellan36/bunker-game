@@ -28,8 +28,9 @@ var _look_timer: float = 0.0
 func score(npc: NPC) -> float:
 	return BASE_SCORE * npc.get_work_ethic_passive_mult()
 
+## Head look-at happens only while leaning (Brannon, Sep 2026): forward here.
 func attention_target(_npc: NPC) -> Node3D:
-	return _look_target if not _walking and _look_target != null and is_instance_valid(_look_target) else null
+	return null
 
 func label() -> String:
 	return "Taking a stroll" if leisurely else "Wandering"

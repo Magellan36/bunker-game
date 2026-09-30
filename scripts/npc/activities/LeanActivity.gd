@@ -28,7 +28,7 @@ const STANDOFF: float = 0.55              ## approach point distance from the wa
 const CLEAR_RADIUS: float = 0.3           ## free floor needed in front of the wall
 const SPOT_SPACING: float = 1.3           ## from other leaners / residents
 const APPROACH_TIMEOUT: float = 12.0
-const LOOK_RANGE: float = 4.0
+const LOOK_RANGE: float = 3.5            ## = AdventurerModelController.LOOK_RANGE
 
 enum Phase { WALK, SETTLE, LEANING, DONE }
 
@@ -123,24 +123,27 @@ func attention_target(_npc: NPC) -> Node3D:
 static func _model(npc: NPC) -> Node:
 	return npc.get_node_or_null("CharacterModel")
 
-## Glance at whoever is close — the player first — re-picking every few
-## seconds (the head look-at itself is slow and subtle).
+## The ONE place a resident's head looks at anyone (Brannon, Sep 2026):
+## leaning against a wall, they watch whoever passes — the player first,
+## else the nearest resident in range. Re-checked every second so the
+## glance follows people walking by (the controller holds each target a
+## moment and eases the head, so this doesn't flick).
 func _tick_look(npc: NPC, delta: float) -> void:
 	_look_timer -= delta
 	if _look_timer > 0.0:
 		return
-	_look_timer = randf_range(3.0, 5.5)
+	_look_timer = 1.0
 	_look = null
-	var best: float = LOOK_RANGE
 	var player: Node3D = npc.get_tree().get_first_node_in_group("player") as Node3D
 	if player != null and NPCItemUser.flat_distance(player.global_position, npc.global_position) < LOOK_RANGE:
 		_look = player
 		return
+	var best: float = LOOK_RANGE
 	for other: Node in npc.get_tree().get_nodes_in_group("npc"):
 		if other == npc:
 			continue
 		var d: float = NPCItemUser.flat_distance((other as Node3D).global_position, npc.global_position)
-		if d < best and randf() < 0.7:
+		if d < best:
 			best = d
 			_look = other
 

@@ -38,7 +38,7 @@ var _finished: bool = false
 var _handoff: NPCActivity = null
 var _cells_done: int = 0
 
-## Head looks only at people (Brannon, Sep 2026): forward while gardening.
+## Head look-at happens only while leaning (Brannon, Sep 2026): forward here.
 func attention_target(_npc: NPC) -> Node3D:
 	return null
 

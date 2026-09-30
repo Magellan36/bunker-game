@@ -40,8 +40,9 @@ func tick(npc: NPC, delta: float) -> void:
 func done(npc: NPC) -> bool:
 	return not npc.combat.is_fleeing()
 
-func attention_target(npc: NPC) -> Node3D:
-	return npc.combat.threat_node()
+## Head look-at happens only while leaning (Brannon, Sep 2026): forward here.
+func attention_target(_npc: NPC) -> Node3D:
+	return null
 
 ## The cleared floor cell farthest from the attacker (of a few samples).
 func _away_point(npc: NPC) -> Vector3:

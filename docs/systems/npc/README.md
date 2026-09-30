@@ -252,10 +252,10 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   the run clip's pace) when fleeing, clearing out of a fight, chasing
   someone down (an armed attacker's approach, any chase out of reach) and
   rushing over to break a fight up; storming over to shout is a walk. The
-  head looks only at people (`attention_target`: talk partner, crash-out
-  target, attacker being fled, brawler being stopped, someone nearby
-  while wandering/leaning) and is otherwise forward. Cooking and
-  gardening no longer look at the stove or tray.
+  head looks at someone ONLY while leaning on a wall (`LeanActivity`: the
+  player within 3.5 m first, else the nearest resident, re-checked every
+  second). Every other activity's `attention_target` returns null: the
+  head faces forward.
 - **Combat debugging (F7 → NPC COMBAT, `NPCCombatDebug`).** A = the
   resident nearest you, B = the next nearest. Toggles: verbose `[Combat]`
   console trace of every decision (hits, fight-or-flight, tier choice,

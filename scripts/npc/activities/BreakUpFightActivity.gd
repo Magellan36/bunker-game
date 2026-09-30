@@ -56,8 +56,9 @@ func exit(npc: NPC) -> void:
 	npc.combat.rushing = false
 	npc.combat.break_up_id = ""
 
-func attention_target(npc: NPC) -> Node3D:
-	return _brawler(npc)
+## Head look-at happens only while leaning (Brannon, Sep 2026): forward here.
+func attention_target(_npc: NPC) -> Node3D:
+	return null
 
 ## The brawler they set out to stop, while that fight is still on.
 func _brawler(npc: NPC) -> NPC:
