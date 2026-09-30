@@ -14,6 +14,10 @@ static var enabled: bool = false
 ## The floating "Name — Activity" nameplate over each resident. A DEV
 ## overlay, not shipping UI — flip to false for release builds/captures.
 static var show_nameplates: bool = true
+## F7 "Natural View": hides EVERY debug overlay above residents (nameplate,
+## relationship readout, combat readout) so the game looks as it ships.
+## Speech bubbles and the interaction prompt are gameplay and stay.
+static var natural_view: bool = false
 
 ## Lightweight per-section CPU profile of NPC frames (sim harness --profile).
 ## Off by default: the only cost when off is one bool check per section.

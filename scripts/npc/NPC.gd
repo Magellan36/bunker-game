@@ -601,12 +601,14 @@ func get_mood_word() -> String:
 
 ## One key for the planned at-a-glance mood icon (no hovering UI in game):
 ## what the resident is mainly feeling right now, most pressing first.
-## dead, crashing_angry, crashing_frantic, crashing_distraught, afraid,
-## angry, miserable, low, okay, happy.
+## dead, fighting, crashing_angry, crashing_frantic, crashing_distraught,
+## afraid, angry, miserable, low, okay, happy.
 func get_mood_state() -> String:
 	if combat.dead:
 		return "dead"
 	if crash.active():
+		if crash.defense:
+			return "fighting"
 		return ["", "crashing_angry", "crashing_frantic", "crashing_distraught"][int(crash.mode)]
 	if combat.is_fleeing() or social.fear >= 60.0:
 		return "afraid"
@@ -635,7 +637,10 @@ func get_mood_summary() -> Dictionary:
 		if txt != "" and not reasons.has(txt) and reasons.size() < 3:
 			reasons.append(txt)
 	var state: String = ""
-	if crash.active():
+	if crash.active() and crash.defense:
+		state = "%s %s" % ["Fighting for their life against" if crash.defense_lethal else "Fighting back against",
+			"you" if crash.target_id == "player" else bonds.display_name(crash.target_id)]
+	elif crash.active():
 		state = "Crashing out — %s" % crash._short()
 	elif crash.daily_risk() > 0.0:
 		state = "At breaking point"
@@ -2273,7 +2278,7 @@ func _process_overhead(delta: float) -> void:
 	_update_combat_debug_label(delta)
 
 func _update_debug_nameplate(delta: float, bubble_up: bool) -> void:
-	if not NPCDebug.show_nameplates:
+	if not NPCDebug.show_nameplates or NPCDebug.natural_view:
 		if _overhead_label != null:
 			_overhead_label.visible = false
 		_update_relationship_debug_label()
@@ -2309,7 +2314,7 @@ var _combat_debug_label: Label3D = null
 var _combat_debug_timer: float = 0.0
 
 func _update_combat_debug_label(delta: float) -> void:
-	if not NPCCombatDebug.overlay:
+	if not NPCCombatDebug.overlay or NPCDebug.natural_view:
 		if _combat_debug_label != null:
 			_combat_debug_label.visible = false
 		return
@@ -2326,7 +2331,7 @@ func _update_combat_debug_label(delta: float) -> void:
 var _relationship_debug_label: Label3D = null
 
 func _update_relationship_debug_label() -> void:
-	if not NPCDebug.enabled:
+	if not NPCDebug.enabled or NPCDebug.natural_view:
 		if _relationship_debug_label != null:
 			_relationship_debug_label.visible = false
 		return

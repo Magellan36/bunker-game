@@ -40,6 +40,12 @@ var ends_at: float = -1.0
 var started_at: float = -1.0
 var joined_by: String = ""                 ## hostile: set when joining someone else's crash-out
 var count: int = 0
+## Self-defence (Sep 2026, Brannon): attacked residents stand their ground.
+## Uses the HOSTILE fight machinery (CrashOutActivity) but it's NOT a
+## crash-out: no rant, sabotage, notification, allies or aftermath, it
+## doesn't count toward repeat crash-outs, and it ends when the fight does.
+var defense: bool = false
+var defense_lethal: bool = false          ## hit with a weapon: fight for their life
 ## Episode progress lives here (not in the activity) so an interrupted and
 ## re-entered episode continues instead of starting over.
 var confronted: bool = false
@@ -118,7 +124,28 @@ func worst_person() -> Dictionary:
 			best = {"id": sid, "score": score}
 	return best
 
+## Stand their ground against `attacker_id`: fists for fists, anything
+## else is a fight for their life. Overrides whatever they were doing,
+## including a crash-out of their own.
+func begin_defense(attacker_id: String, lethal: bool) -> void:
+	if active() and not defense:
+		mode = Mode.NONE   ## their own outburst gives way to survival (no aftermath)
+	mode = Mode.HOSTILE
+	defense = true
+	defense_lethal = lethal or (defense_lethal and target_id == attacker_id)   ## never de-escalates mid-fight
+	target_id = attacker_id
+	started_at = NPCClock.now()
+	ends_at = started_at + 1.0   ## the fight itself ends it much sooner
+	confronted = true
+	sabotaged = 99
+	joined_by = ""
+	var who: String = "you" if attacker_id == "player" else _npc.bonds.display_name(attacker_id)
+	_npc.log_event("crash", "%s %s" % ["Fighting for my life against" if defense_lethal else "Fighting back against", who])
+	if _npc.brain != null:
+		_npc.brain.stop_current()
+
 func begin(m: Mode, ally_of: NPC = null) -> void:
+	defense = false
 	mode = m
 	started_at = NPCClock.now()
 	confronted = false
@@ -173,6 +200,14 @@ func _rally_allies() -> void:
 			other.crash.begin(Mode.HOSTILE, _npc)
 
 func finish() -> void:
+	if defense:
+		## A fight, not a crash-out: no cooldown, catharsis, memory or blame.
+		defense = false
+		defense_lethal = false
+		mode = Mode.NONE
+		target_id = ""
+		_npc.log_event("crash", "Stopped fighting")
+		return
 	var was: Mode = mode
 	mode = Mode.NONE
 	_cooldown_until = NPCClock.now() + COOLDOWN_HOURS
@@ -222,7 +257,8 @@ func target_node() -> Node3D:
 # ─── Save / load ────────────────────────────────────────────────────────────
 func to_save() -> Dictionary:
 	return {"mode": int(mode), "target": target_id, "ends": ends_at, "start": started_at,
-		"count": count, "cool": _cooldown_until, "joined": joined_by, "confronted": confronted, "sabotaged": sabotaged}
+		"count": count, "cool": _cooldown_until, "joined": joined_by, "confronted": confronted, "sabotaged": sabotaged,
+		"defense": defense, "defense_lethal": defense_lethal}
 
 func from_save(d: Dictionary) -> void:
 	if d.is_empty():
@@ -236,3 +272,5 @@ func from_save(d: Dictionary) -> void:
 	joined_by = String(d.get("joined", ""))
 	confronted = bool(d.get("confronted", false))
 	sabotaged = int(d.get("sabotaged", 0))
+	defense = bool(d.get("defense", false))
+	defense_lethal = bool(d.get("defense_lethal", false))

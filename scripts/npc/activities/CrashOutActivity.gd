@@ -68,6 +68,8 @@ func score(npc: NPC) -> float:
 	return 0.0
 
 func label() -> String:
+	if _npc_desc == "defending themselves":
+		return "Fighting back"
 	return "Crashing out — %s" % _npc_desc
 
 var _npc_desc: String = ""
@@ -89,6 +91,18 @@ func enter(npc: NPC) -> void:
 	_timer = 0.0
 	_sabotage_done = npc.crash.sabotaged
 	_leaning = false
+	if npc.crash.mode == NPCCrashOut.Mode.HOSTILE and npc.crash.defense:
+		## Self-defence: no rant — straight into the fight.
+		var t: Node3D = npc.crash.target_node()
+		_will_attack = npc.crash.defense_lethal
+		_brawl = not _will_attack
+		_npc_desc = "defending themselves"
+		_phase = Phase.START
+		if t != null:
+			_start_attack_or_sabotage(npc)
+		else:
+			npc.crash.finish()
+		return
 	if npc.crash.mode == NPCCrashOut.Mode.HOSTILE:
 		var t: Node3D = npc.crash.target_node()
 		_will_attack = NPCCrashOut.attack_enabled and t != null and _escalated(npc)
@@ -153,7 +167,10 @@ func tick(npc: NPC, delta: float) -> void:
 			if t != null:
 				npc.face_toward(t.global_position, minf(FIGHT_TURN * delta, 0.99))
 			if _timer >= 0.0:
-				_to(Phase.PACE)
+				if npc.crash.defense:
+					npc.crash.finish()   ## self-defence ends with the fight
+				else:
+					_to(Phase.PACE)
 		Phase.PACE:
 			## Seething: short fast legs, muttering.
 			npc.nav_steer(delta)
@@ -265,7 +282,7 @@ func _start_attack_or_sabotage(npc: NPC) -> void:
 	if npc.crash.target_node() == null or not (_will_attack or _brawl):
 		_to(Phase.SABOTAGE if _sabotage_done < MAX_SABOTAGE else Phase.PACE)
 		return
-	var punched_first: bool = npc.combat.attacked_by == npc.crash.target_id and npc.combat.last_hit_kind in ["punch", "fists"]
+	var punched_first: bool = npc.crash.defense or (npc.combat.attacked_by == npc.crash.target_id and npc.combat.last_hit_kind in ["punch", "fists"])
 	var held_back: String = _held_back(npc, punched_first, not _brawl)
 	if held_back != "":
 		npc.log_event("crash", held_back)
@@ -282,6 +299,9 @@ func _start_attack_or_sabotage(npc: NPC) -> void:
 		_begin_attack(npc)
 		return
 	_attack_left = randf_range(ATTACK_SECONDS.x, ATTACK_SECONDS.y)
+	## Whatever's in their hands (food, a crate...) goes down for a weapon.
+	if npc.held_item != null and not ("weapon_kind" in npc.held_item):
+		NPCItemUser.drop_held(npc)
 	_weapon = npc.held_item if npc.held_item != null and "weapon_kind" in npc.held_item else _find_weapon(npc)
 	if _weapon != null and npc.held_item != _weapon:
 		NPCItemUser.claim_item(_weapon, npc)

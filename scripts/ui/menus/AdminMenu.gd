@@ -245,6 +245,8 @@ func _ready() -> void:
 			["Force Rebake Navmesh", _on_npc_force_rebake_pressed],
 			["Toggle NPC Debug Logging", _on_npc_toggle_debug_pressed,
 				func() -> bool: return NPCDebug.enabled],
+			["Toggle Natural View (hide NPC debug overlays)", _on_npc_toggle_natural_view_pressed,
+				func() -> bool: return NPCDebug.natural_view],
 			["Print NPC Debug State", _on_npc_print_debug_pressed],
 			["Print NPC Cleaning Debug State", _on_npc_print_cleaning_debug_pressed],
 			["Print NPC Job Debug State", _on_npc_print_job_debug_pressed],
@@ -989,6 +991,12 @@ func _on_npc_force_rebake_pressed() -> void:
 func _on_npc_toggle_debug_pressed() -> void:
 	NPCDebug.enabled = not NPCDebug.enabled
 	print("[AdminMenu] NPC debug logging: %s" % ("ON" if NPCDebug.enabled else "OFF"))
+	_refresh_toggle_labels()
+
+## Sep 2026 — hides every debug overlay above residents (nameplate,
+## relationship and combat readouts) to see the game in its natural state.
+func _on_npc_toggle_natural_view_pressed() -> void:
+	NPCDebug.natural_view = not NPCDebug.natural_view
 	_refresh_toggle_labels()
 
 ## Sep 2026 — NPC COMBAT section helpers (logic in NPCCombatDebug).

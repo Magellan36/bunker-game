@@ -301,6 +301,18 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   Headless: `run_npc_sim.sh --scenario=combatdebug` presses the real F7
   rows and checks each outcome; `--combat-trace` adds the trace to any
   scenario.
+- **Standing their ground** (Sep 2026, Brannon: no running away). A
+  resident who's attacked fights back at once (`NPCCombat._react` →
+  `NPCCrashOut.begin_defense`): punched → a fist fight; hit with any
+  weapon → drop what they're carrying, grab the nearest weapon (melee or
+  gun, 14 m) or use fists, and fight for their life (lethal). A weapon hit
+  mid-brawl escalates it. Self-defence runs on the HOSTILE fight machinery
+  but isn't a crash-out: no rant, sabotage, notification, allies, repeat
+  count or aftermath, and it ends when the fight does (panel: "Fighting
+  back against X"; mood icon key "fighting"). Bystanders no longer flee
+  weapon attacks; only someone right beside a brawl steps aside briefly.
+  F7 → NPC → "Toggle Natural View" hides every debug overlay above
+  residents.
 - **Fights in a colony** (a rare emergency, not the point). Fist fights are
   held back when the colony had a fight in the last 8 game hours
   (`NPCCombat.FIGHT_COOLDOWN_H`, colony-wide, not saved), when the target

@@ -457,6 +457,7 @@ var _cd_step: int = 0
 var _cd_at: float = 0.0
 var _cd_menu: Node = null
 var _cd: Array = []   ## [A, B, C]
+var _cd_weapon: Node = null
 
 func _cd_press(prefix: String) -> void:
 	for sec: Dictionary in _cd_menu._sections:
@@ -603,8 +604,53 @@ func _tick_combat_debug() -> void:
 					print("[cdebug] %s mood: %s%s (%s) | toward you: %s | icon: %s" % [n.npc_name, ms["word"],
 						" — " + String(ms["state"]) if String(ms["state"]) != "" else "", ", ".join(ms["reasons"]),
 						String(n.get_attitude_summary()["text"]), n.get_mood_state()])
-				print("[cdebug] ALL STEPS DONE")
 				_cd_next("overlay + kill")
+		8:
+			## Weapon pickup + drop on death: B arms against C, then dies.
+			if waited > 2.0:
+				_cd_press("Reset Combat Test")
+				var alive: Array[NPC] = NPCCombatDebug.by_distance(get_tree())
+				if alive.size() < 2:
+					_flag("cdebug_too_few", a, "fewer than two residents alive for the weapon test", "tf")
+					_cd_step = 99
+					return
+				var p: Vector3 = Vector3(-6.0, alive[0].global_position.y, 8.0)
+				alive[0].global_position = p
+				alive[1].global_position = p + Vector3(3.0, 0.0, 0.0)
+				get_tree().get_first_node_in_group("player").global_position = p + Vector3(-0.8, 0.0, -0.6)
+				_cd = [alive[0], alive[0], alive[1]]   ## b = the armed one, c = their target
+				_cd_press("Weapon Attack: A → B")
+				_cd_next("weapon attack started (%s -> %s)" % [alive[0].npc_name, alive[1].npc_name])
+		9:
+			var w: Node = b.held_item
+			if w != null and "weapon_kind" in w:
+				_cd_weapon = w
+				print("[cdebug] %s holds %s: is_held=%s aiming=%s grip_anchor=%s dist_to_hold_point=%.2f" % [b.npc_name, w.name, w.is_held,
+					w.aiming, w.grip_anchor != null, (w as Node3D).global_position.distance_to(b.hold_point.global_position)])
+				b.combat.die("injuries", "")
+				_cd_next("armed, then killed")
+			elif waited > 25.0:
+				var log: Array = b._action_log.slice(0, 6).map(func(e): return String(e.get("text", "")))
+				_flag("cdebug_no_pickup", b, "never picked up the bat (log: %s)" % " | ".join(log), "np")
+				_cd_next("pickup TIMEOUT")
+		10:
+			if waited > 3.0:
+				var w: Node = _cd_weapon
+				if w == null or not is_instance_valid(w):
+					_flag("cdebug_weapon_gone", b, "the weapon was freed when its holder died", "wg")
+				else:
+					var wp: Vector3 = (w as Node3D).global_position
+					print("[cdebug] after death: %s is_held=%s freeze=%s layer=%d pos=%s (body at %s) held_by_dead=%s claimed=%s aiming=%s" % [w.name,
+						w.is_held, w.freeze, w.collision_layer, wp, b.global_position, b.held_item == w,
+						NPCItemUser.is_claimed_by_other(w, c), w.aiming])
+					if w.is_held or b.held_item == w:
+						_flag("cdebug_weapon_not_dropped", b, "the dead resident still holds the weapon", "wd")
+					if wp.y < NPCStuckRecovery.FLOOR_Y - 0.3 or wp.distance_to(b.global_position) > 3.0:
+						_flag("cdebug_weapon_lost", b, "dropped weapon ended up at %s" % wp, "wl")
+					if NPCItemUser.is_claimed_by_other(w, c):
+						_flag("cdebug_weapon_claimed", b, "dropped weapon is still reserved", "wc")
+				print("[cdebug] ALL STEPS DONE")
+				_cd_next("weapon dropped")
 
 ## ─── Lazy resident loop ──────────────────────────────────────────────────
 ## Residents: 0 Lazy, 1 Hard Worker, 2 Steady, 3 Lazy Gourmand, 4 Hard-Working

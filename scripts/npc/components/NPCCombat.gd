@@ -165,8 +165,6 @@ func receive_hit(ctx: Dictionary) -> void:
 	if not punch and src_id != "" and _npc.crash.active() and _npc.crash.target_id == src_id:
 		escalate = true
 		NPCCombatDebug.trace(_npc, "target hit back with a real weapon (%s) -> escalate flag" % kind)
-	## Fight or flight is decided by how they felt about the attacker BEFORE this.
-	var prior_hate: float = (_npc.get_relationship(src_id) + _npc.bonds.grudge_against(src_id) * 0.5) if src_id != "" else 0.0
 	var who: String = "You" if src_id == "player" else (_npc.bonds.display_name(src_id) if src_id != "" else "Someone")
 	_npc.log_event("hurt", "%s hit me with a %s (−%d health%s)" % [who, weapon_name(kind), int(round(dmg)), ", " + injury if injury != "" else ""])
 	_npc.morale_sys.note_shock(0.4)
@@ -199,26 +197,25 @@ func receive_hit(ctx: Dictionary) -> void:
 		die(kind, src_id)
 		return
 	_npc.bark_event("hurt")
-	_react(src_id, prior_hate)
+	_react(src_id, kind)
 
-## Fight or flight.
-func _react(src_id: String, hate: float) -> void:
-	if src_id == "" or _npc.crash.active():
-		return   ## mid crash-out: it carries on (a hostile one may now aim at them)
-	var nerve: float = _npc._trait("resilience") - _npc.social.fear / 200.0
-	NPCCombatDebug.trace(_npc, "fight or flight vs %s: prior hate %.0f (fight if <= %.0f), nerve %.2f (> 0.35), cowed %s" % [
-		src_id, hate, NPCCrashOut.HOSTILE_AT, nerve, _npc.social.is_cowed()])
-	if hate <= NPCCrashOut.HOSTILE_AT and nerve > 0.35 and not _npc.social.is_cowed():
-		_npc.bark_event("fight_back")
-		_npc.log_event("crash", "Fought back")
-		_npc.crash.target_id = src_id
-		_npc.crash.begin(NPCCrashOut.Mode.HOSTILE)
+## Stand their ground (Brannon, Sep 2026 — no running away): punched →
+## punch back; hit with anything else → grab the nearest weapon and fight
+## for their life. Already fighting that attacker → carry on (a weapon hit
+## mid-brawl escalates via `escalate`).
+func _react(src_id: String, kind: String) -> void:
+	if src_id == "" or dead:
 		return
-	flee_from = src_id
-	flee_until_msec = Time.get_ticks_msec() + int(FLEE_SECONDS * 1000.0)
-	_npc.bark_event("flee")
-	if _npc.brain != null:
-		_npc.brain.stop_current()
+	var lethal: bool = not kind in ["punch", "fists"]
+	var crash: NPCCrashOut = _npc.crash
+	if crash.active() and crash.mode == NPCCrashOut.Mode.HOSTILE and crash.target_id == src_id:
+		if crash.defense and lethal and not crash.defense_lethal:
+			crash.defense_lethal = true   ## CrashOutActivity sees `escalate` and goes for a weapon
+		NPCCombatDebug.trace(_npc, "already fighting %s — carries on%s" % [src_id, " (escalating)" if lethal else ""])
+		return
+	NPCCombatDebug.trace(_npc, "stands their ground vs %s: %s" % [src_id, "fight for my life (weapon)" if lethal else "fist fight"])
+	_npc.bark_event("fight_back")
+	crash.begin_defense(src_id, lethal)
 
 ## People near a fight get out of the way: anyone right beside a brawl
 ## steps clear; a weapon attack sends the faint-hearted running (the
@@ -229,7 +226,9 @@ const CLEAR_OUT_WEAPON: float = 6.0
 func _bystanders_clear_out(actor_id: String, actor: Node, punch: bool) -> void:
 	if actor == null or not (actor is Node3D):
 		return
-	var radius: float = CLEAR_OUT_BRAWL if punch else CLEAR_OUT_WEAPON
+	if not punch:
+		return   ## nobody runs away (Brannon): witnesses shout, and fighters defend themselves
+	var radius: float = CLEAR_OUT_BRAWL
 	for w: Node in _npc.get_tree().get_nodes_in_group("npc"):
 		if not (w is NPC) or w == _npc or w == actor:
 			continue
