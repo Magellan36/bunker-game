@@ -236,6 +236,8 @@ const BARKS: Dictionary = {
 	"beat_down":     ["Stay down.", "Don't get up.", "Had enough?"],
 	"beaten":        ["Okay... okay... you win.", "Stop... please...", "*coughing*"],
 	"done_fighting": ["Stay away from me.", "We're done here.", "Don't ever — ever — do that again."],
+	"hide_run":      ["Get down! Everybody get down!", "They've got a weapon!", "Run! RUN!", "Oh God, oh God—"],
+	"hide_cower":    ["Stay quiet... stay quiet...", "Is it over?", "Please let it be over.", "*breathing hard*"],
 	"step_aside":    ["Whoa, whoa!", "Not my fight!", "Hey — watch it!"],
 	"witness_shout": ["Hey! Stop it!", "Somebody stop them!", "What are you DOING?!", "Leave %s alone!"],
 	"shun_work":     ["I'm not working next to %s.", "Not while %s is here.", "Keep %s away from me and I'll work."],

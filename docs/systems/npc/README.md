@@ -301,6 +301,23 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   Headless: `run_npc_sim.sh --scenario=combatdebug` presses the real F7
   rows and checks each outcome; `--combat-trace` adds the trace to any
   scenario.
+- **Grudges act on their own** (`NPCCrashOut._roll_grudge`, Sep 2026):
+  seeing someone they hate (worst relationship + half grudge ≤ −40)
+  within 8 m can set a resident off, mood or not. Per game hour:
+  0.6 × hatred depth (0 at −40 → 1 at −100) × mood factor (0.5 content →
+  2.0 at rock bottom); −100 and miserable ≈ 70 % per game hour in sight.
+  4 game-hour cooldown (also after any fight). It starts a normal hostile
+  crash-out, so the usual tiers apply (rant / fists / weapon). Mood-driven
+  crash-outs are steeper near rock bottom too (mood 0 ≈ 11 %/game hour)
+  and the crash-out cooldown is 16 game hours (was 36). A game hour is a
+  real minute. F7 "Drain NPC Mood" now drains the mood engine as well, so
+  it sticks.
+- **Hiding from weapon fights** (`HideActivity`, `NPCCombat.raise_alarm`):
+  a weapon hit or an armed resident attacking raises the alarm; everyone
+  not in the fight drops what they carry, runs to the reachable spot
+  farthest from it, shuts any door between them and the fight once
+  they're clear of it (if nobody's in the doorway), and presses against a
+  wall until it's been quiet 8–14 s. Fist fights don't trigger it.
 - **Standing their ground** (Sep 2026, Brannon: no running away). A
   resident who's attacked fights back at once (`NPCCombat._react` →
   `NPCCrashOut.begin_defense`): punched → a fist fight; hit with any

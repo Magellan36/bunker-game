@@ -25,7 +25,16 @@ enum Mode { NONE, HOSTILE, OVERDRIVE, BREAKDOWN }
 
 const HOSTILE_AT: float = -40.0            ## relationship (incl. half the grudge) that turns a break hostile
 const OVERDRIVE_AT: float = 40.0           ## relationship with the player for overdrive
-const COOLDOWN_HOURS: float = 36.0
+const COOLDOWN_HOURS: float = 16.0            ## Sep 2026: was 36 (a game hour is a real minute)
+## Grudges act on their own (Sep 2026, Brannon: hatred must DO something).
+## Seeing someone they hate up close can set them off, mood or not — the
+## deeper the hatred and the worse their mood, the sooner. Per game hour:
+## GRUDGE_RATE × hatred depth (0 at −40, 1 at −100) × mood factor (0.5
+## content … 2.0 at rock bottom). −100 and miserable → ~70%/game hour
+## while in sight; −60 and fine → a few % a day's worth of meetings.
+const GRUDGE_RATE: float = 0.6
+const GRUDGE_RANGE: float = 8.0
+const GRUDGE_COOLDOWN_HOURS: float = 4.0
 const CATHARSIS: float = 14.0
 const DURATION: Dictionary = {Mode.HOSTILE: [2.0, 4.0], Mode.OVERDRIVE: [6.0, 10.0], Mode.BREAKDOWN: [3.0, 6.0]}
 const MODE_NAMES: Dictionary = {Mode.HOSTILE: "hostile", Mode.OVERDRIVE: "overdrive", Mode.BREAKDOWN: "breakdown"}
@@ -51,6 +60,7 @@ var defense_lethal: bool = false          ## hit with a weapon: fight for their 
 var confronted: bool = false
 var sabotaged: int = 0
 var _cooldown_until: float = -1.0
+var _grudge_cooldown_until: float = -1.0
 var _warned_at: float = -100.0
 
 var _npc: NPC = null
@@ -73,7 +83,8 @@ func daily_risk() -> float:
 		return 0.0
 	var depth: float = (NPCMorale.CRASH_RISK_BELOW - m) / NPCMorale.CRASH_RISK_BELOW
 	var trait_mult: float = lerpf(0.75, 1.35, _npc._trait("neuroticism")) * lerpf(1.2, 0.7, _npc._trait("resilience"))
-	return clampf((0.18 + 1.0 * depth) * trait_mult, 0.0, 2.0)
+	## Steeper near rock bottom (Sep 2026): mood 0 → ~2.7/day (~11%/game hour).
+	return clampf((0.18 + 2.5 * pow(depth, 1.5)) * trait_mult, 0.0, 4.0)
 
 ## Pure roll (no side effects) — used by tick() and the morale timeline test.
 func roll(h: float) -> bool:
@@ -96,6 +107,32 @@ func tick(h: float) -> void:
 		return
 	if roll(h):
 		begin(_choose_mode())
+		return
+	_roll_grudge(h)
+
+## Hatred acting on its own: the person they despise is right there.
+func _roll_grudge(h: float) -> void:
+	if NPCClock.now() < _grudge_cooldown_until or _npc.social.is_cowed():
+		return
+	var worst: Dictionary = worst_person()
+	if worst.is_empty() or float(worst["score"]) > HOSTILE_AT:
+		return
+	var who: Node3D = _find_any(String(worst["id"]))
+	if who == null or _npc.global_position.distance_to(who.global_position) > GRUDGE_RANGE or not _npc._can_see(who):
+		return
+	var depth: float = clampf((HOSTILE_AT - float(worst["score"])) / 60.0, 0.0, 1.0)
+	var mood_f: float = lerpf(0.5, 2.0, clampf((50.0 - _npc.mood) / 50.0, 0.0, 1.0))
+	var rate: float = GRUDGE_RATE * depth * mood_f
+	if randf() < 1.0 - exp(-rate * h):
+		NPCCombatDebug.trace(_npc, "grudge boils over at %s (hatred %.0f, mood %.0f, rate %.2f/h)" % [worst["id"], float(worst["score"]), _npc.mood, rate])
+		_grudge_cooldown_until = NPCClock.now() + GRUDGE_COOLDOWN_HOURS
+		target_id = String(worst["id"])
+		begin(Mode.HOSTILE)
+
+func _find_any(id: String) -> Node3D:
+	if id == "player":
+		return _npc.get_tree().get_first_node_in_group("player") as Node3D
+	return _find(id)
 
 func _choose_mode() -> Mode:
 	var worst: Dictionary = worst_person()
@@ -211,6 +248,7 @@ func finish() -> void:
 	var was: Mode = mode
 	mode = Mode.NONE
 	_cooldown_until = NPCClock.now() + COOLDOWN_HOURS
+	_grudge_cooldown_until = maxf(_grudge_cooldown_until, NPCClock.now() + GRUDGE_COOLDOWN_HOURS)
 	## Catharsis — it's out of their system, for now.
 	_npc.morale_sys.morale = minf(100.0, _npc.morale_sys.morale + CATHARSIS)
 	match was:

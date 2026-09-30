@@ -963,6 +963,9 @@ func _on_drain_npc_mood_pressed() -> void:
 	for npc: Node in get_tree().get_nodes_in_group("npc"):
 		if "mood" in npc:
 			npc.mood = clampf(float(npc.mood) - 40.0, 0.0, 100.0)
+			## Drain the mood engine too, or mood drifts straight back up.
+			if "morale_sys" in npc and npc.morale_sys != null:
+				npc.morale_sys.morale = clampf(npc.morale_sys.morale - 40.0, 0.0, 100.0)
 
 func _adjust_all_npc_need(need_name: String, delta: float) -> void:
 	for npc: Node in get_tree().get_nodes_in_group("npc"):

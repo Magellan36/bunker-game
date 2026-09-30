@@ -414,6 +414,9 @@ func _tick_attack(npc: NPC, delta: float) -> void:
 		return
 	var d: float = NPCItemUser.flat_distance(npc.global_position, t.global_position)
 	var reach: float = _attack_range()
+	if _weapon != null and is_instance_valid(_weapon):
+		## An armed attack: everyone else in the bunker takes cover.
+		NPCCombat.raise_alarm(npc.get_tree(), npc.global_position, [npc.npc_id, npc.crash.target_id])
 	var gun: bool = _weapon != null and is_instance_valid(_weapon) and _weapon.is_firearm() and _weapon.ammo > 0
 	_out_of_reach = _out_of_reach + delta if d > reach + 1.5 else 0.0
 	## Getting there: pathfind from afar; up close walk straight in and hold

@@ -12,8 +12,10 @@ class_name NPCCombat
 ##     bleeding, blades bleed, blunt weapons can fracture a limb;
 ##   - shock (morale), fear, a large relationship hit and a named memory
 ##     toward the attacker; everyone who sees it reacts too;
-##   - fight or flight: someone who already hates the attacker (or is
-##     crashing out at them) fights back; everyone else runs (FleeActivity);
+##   - they stand their ground (no running away): punched → a fist fight,
+##     any weapon → they arm themselves and fight for their life
+##     (NPCCrashOut.begin_defense); a weapon fight sends everyone else
+##     into hiding (raise_alarm → HideActivity);
 ##   - at 0 health they die (NPC.is_dead() plays the shared dying clip).
 ##
 ## Hits on the PLAYER from a resident's weapon: the player has no
@@ -61,6 +63,52 @@ var attacking_id: String = ""               ## who they're arming for / attackin
 var last_rescued_hours: float = -100.0
 var _last_hit_at: Dictionary = {}           ## attacker id -> game hour
 var _fists: Node = null                     ## Fists, created on first use as a child of the NPC
+
+## Weapon-fight alarm (Sep 2026, Brannon): a fight with a gun or melee
+## weapon sends everyone not in it into hiding (HideActivity). Raised by
+## weapon hits and by an armed resident attacking; it stays up while the
+## fight keeps going (each raise refreshes it) and fades ALARM_HOLD_S after.
+const ALARM_HOLD_S: float = 4.0
+const ALARM_INVOLVED_S: float = 10.0
+static var alarm_pos: Vector3 = Vector3.ZERO
+static var _alarm_msec: int = -10000000
+static var _alarm_ids: Dictionary = {}      ## id -> msec last seen fighting
+static var _alarm_raised_msec: int = -10000000
+
+static func raise_alarm(tree: SceneTree, pos: Vector3, ids: Array) -> void:
+	var now: int = Time.get_ticks_msec()
+	alarm_pos = pos
+	_alarm_msec = now
+	for id: Variant in ids:
+		if String(id) != "":
+			_alarm_ids[String(id)] = now
+	if now - _alarm_raised_msec < 500:
+		return   ## the fighters refresh it every tick; wake bystanders at most twice a second
+	_alarm_raised_msec = now
+	for n: Node in tree.get_nodes_in_group("npc"):
+		var npc: NPC = n as NPC
+		if npc == null or not should_hide(npc) or npc.brain == null:
+			continue
+		var cur: NPCActivity = npc.brain.current_activity()
+		if cur == null or cur.label() != "Hiding":
+			npc.brain.stop_current()   ## react now, whatever they were doing
+
+## Is the alarm up (or was it, within `linger_s` seconds of quiet)?
+static func alarm_active(linger_s: float = 0.0) -> bool:
+	return Time.get_ticks_msec() - _alarm_msec < int((ALARM_HOLD_S + linger_s) * 1000.0)
+
+static func alarm_involves(id: String) -> bool:
+	return Time.get_ticks_msec() - int(_alarm_ids.get(id, -10000000)) < int(ALARM_INVOLVED_S * 1000.0)
+
+## Should this resident be hiding right now? (HideActivity's trigger.)
+static func should_hide(npc: NPC) -> bool:
+	if npc.combat.dead or npc.crash.active() or npc.is_passed_out():
+		return false
+	if npc.brain != null and npc.brain.is_sleeping():
+		return false
+	if not alarm_active(8.0) or alarm_involves(npc.npc_id):   ## 8 s = HideActivity.LINGER.x
+		return false
+	return npc.global_position.distance_to(alarm_pos) < 40.0
 
 ## Rescue events (NPC.on_rescued_by_player): the player stepping in while
 ## a resident is being attacked, or treating one who is at death's door.
@@ -156,6 +204,8 @@ func receive_hit(ctx: Dictionary) -> void:
 	## escalated attack); only the player is spared death by fists.
 	var punch: bool = kind in ["punch", "fists"]
 	_npc.health = maxf(0.0, _npc.health - dmg)
+	if not punch:
+		raise_alarm(_npc.get_tree(), _npc.global_position, [_npc.npc_id, src_id])
 	var injury: String = _injure(kind, part, dmg)
 	## Knocked back a little: a jab rocks them, a bat sends them stumbling.
 	var dir: Vector3 = ctx.get("direction", Vector3.ZERO)
