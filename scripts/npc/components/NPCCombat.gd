@@ -74,11 +74,39 @@ static var alarm_pos: Vector3 = Vector3.ZERO
 static var _alarm_msec: int = -10000000
 static var _alarm_ids: Dictionary = {}      ## id -> msec last seen fighting
 static var _alarm_raised_msec: int = -10000000
+## Game hour of the last weapon fight (safety, "weapon_fight" feeling).
+static var last_weapon_fight_hours: float = -100.0
+const WEAPON_FIGHT_UNSAFE_H: float = 24.0
+
+## The dead lying in the bunker (bodies persist until something removes them).
+static func bodies(tree: SceneTree) -> Array[Node3D]:
+	var out: Array[Node3D] = []
+	for n: Node in tree.get_nodes_in_group("npc_dead"):
+		if n is Node3D and is_instance_valid(n):
+			out.append(n as Node3D)
+	return out
+
+## 1 right after a weapon fight, fading to 0 over WEAPON_FIGHT_UNSAFE_H.
+static func weapon_fight_fear() -> float:
+	return clampf(1.0 - (NPCClock.now() - last_weapon_fight_hours) / WEAPON_FIGHT_UNSAFE_H, 0.0, 1.0)
+
+## Someone living here attacked this resident recently (resident or player).
+func lives_with_attacker() -> bool:
+	for o: Node in _npc.get_tree().get_nodes_in_group("npc"):
+		if o != _npc and o is NPC and shuns(o as NPC):
+			return true
+	var now: float = NPCClock.now()
+	for m: Dictionary in _npc.bonds.get_memories("player"):
+		if float(m.get("amount", 0.0)) <= -20.0 and now - float(m.get("stamp", -999.0)) < SHUN_HOURS \
+				and String(m.get("text", "")).contains("attacked me"):
+			return true
+	return false
 
 static func raise_alarm(tree: SceneTree, pos: Vector3, ids: Array) -> void:
 	var now: int = Time.get_ticks_msec()
 	alarm_pos = pos
 	_alarm_msec = now
+	last_weapon_fight_hours = NPCClock.now()
 	for id: Variant in ids:
 		if String(id) != "":
 			_alarm_ids[String(id)] = now

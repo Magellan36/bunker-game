@@ -531,6 +531,10 @@ func _update_condition_thoughts() -> void:
 				hurting = true
 				break
 	thoughts.set_condition("in_pain", hurting, thought_weight(-1.0))
+	## Danger in the bunker — felt by everyone, not just witnesses.
+	thoughts.set_condition("body_in_bunker", not NPCCombat.bodies(get_tree()).is_empty(), thought_weight(-1.0))
+	thoughts.set_condition("weapon_fight", NPCCombat.weapon_fight_fear() > 0.5, thought_weight(-1.0))
+	thoughts.set_condition("unsafe_with", combat.lives_with_attacker(), thought_weight(-1.0))
 	var now: float = NPCClock.now()
 	if _last_social_time < 0.0:
 		_last_social_time = now
@@ -739,7 +743,9 @@ func treatment_prompt(item: Node) -> String:
 		return ""
 	return String(t["def"]["prompt"]) % [npc_name, String(t["target"]["label"]).to_lower()]
 
-func receive_treatment(item: Node) -> bool:
+## `giver`: null = the player (held item), self = patching themselves up,
+## another resident = a friend's care (TreatActivity).
+func receive_treatment(item: Node, giver: NPC = null) -> bool:
 	var t: Dictionary = _treatment_target(item)
 	if t.is_empty():
 		return false
@@ -747,9 +753,13 @@ func receive_treatment(item: Node) -> bool:
 	var was_critical: bool = combat.is_critical()
 	medical.call(String(t["def"]["apply"]), part)
 	var where: String = String(t["target"]["label"]).to_lower()
+	var what: String = String(t["def"]["what"]) % where
 	if item.has_method("spend_charge"):
 		item.spend_charge()
-	log_event("care", "Treated by you: %s" % (String(t["def"]["what"]) % where))
+	if giver != null:
+		_treated_by_resident(giver, what, was_critical)
+		return true
+	log_event("care", "Treated by you: %s" % what)
 	bark_event("thanks")
 	## Being cared for matters most the first time; repeat care still counts.
 	var repeat: bool = NPCClock.now() - _last_treated_hours < 12.0
@@ -759,6 +769,45 @@ func receive_treatment(item: Node) -> bool:
 		return true
 	on_treated_by_player(String(t["def"]["what"]) % where, repeat)
 	return true
+
+## Care from a resident (or themselves).
+func _treated_by_resident(giver: NPC, what: String, was_critical: bool) -> void:
+	if giver == self:
+		log_event("care", "Patched myself up: %s" % what)
+		return
+	log_event("care", "Treated by %s: %s" % [giver.npc_name, what])
+	giver.log_event("care", "Patched up %s" % npc_name)
+	bark(NPCDialogue.bark_line("thanks_friend", giver.npc_name), true)
+	add_thought("patched_up", giver.npc_name)
+	giver.add_thought("helped_friend", npc_name)
+	if was_critical:
+		bonds.relate(giver.npc_id, 14.0, "kept me alive", "%s kept me alive when I was dying" % giver.npc_name, true)
+	else:
+		bonds.relate(giver.npc_id, 6.0, "patched me up", "%s patched me up when I was hurt" % giver.npc_name, true)
+	giver.bonds.relate(npc_id, 2.0, "let me look after them")
+
+## Can `item` (a Bandage/Antibiotics/Splint with charges) help this resident now?
+func can_be_treated_with(item: Node) -> bool:
+	return not _treatment_target(item).is_empty()
+
+## Anything a basic medical item could treat (bleeding, an open wound for
+## antibiotics, a fracture/break for a splint)? Returns the most urgent
+## NPC_TREATMENT kind ("bleeding" first) or "".
+func most_urgent_treatment() -> String:
+	if medical == null:
+		return ""
+	for kind: String in ["bleeding", "splint", "antibiotics"]:
+		if not (medical.call(String(TREATMENTS[kind]["targets"])) as Array).is_empty():
+			if kind == "splint" and not _has_unsplinted_fracture():
+				continue   ## already splinted: nothing for a resident to do (the player may still re-splint)
+			return kind
+	return ""
+
+func _has_unsplinted_fracture() -> bool:
+	for c: MedicalCondition in medical.active_conditions:
+		if (c.id == "fractured" or c.id == "broken") and not c.is_treated:
+			return true
+	return false
 
 ## Weapons contract (docs/systems/weapons/HANDOFF.md): WeaponItem calls this
 ## on the resident it hit. NPCCombat decides what the hit means.

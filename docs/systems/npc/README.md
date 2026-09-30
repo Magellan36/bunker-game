@@ -102,16 +102,17 @@ thoughts more, neurotic residents negative ones. Shown on the resident panel
   others only chat when close. One shared outcome per conversation
   (`NPC.resolve_conversation`) from relationship, moods, tempers and trait
   compatibility; both sides get the relationship change + a thought + one
-  log line. Turn-taking "…" indicator over the speaker, who often says a
-  readable line (`NPCDialogue.chat_line`: their strongest thought phrased
-  for a peer, or bunker small talk tinted by mood). Either side leaving
-  ends it for both.
+  log line. Silent (Sep 2026, Brannon): no lines or typing indicator over
+  residents chatting with each other — residents only speak to show their
+  own state (see "What residents say"). Either side leaving ends it for
+  both.
 - Proximity bonding & mood contagion now require line of sight.
 - Personal space: wander destinations re-roll if they'd land within 1.3 m
   of another resident. A break (Relax) is only interrupted by scores ≥ 35
   (`min_challenger_score`) — urgent work or needs, not routine chores.
-- Barks: short floating lines — greeting when the player walks up (≤ 1/game
-  hour/resident), plus event barks (thanks, snatched, food ready, woke up).
+- Barks: short floating lines — a greeting when the player walks up (≤ 1/game
+  hour/resident, and only when it says something about their state), plus
+  event barks. Full list under "What residents say".
 
 ### Wandering
 Weighted destinations (near friends, near used furniture, random), pauses
@@ -121,11 +122,13 @@ legs so relaxing/chatting/chores get a natural look-in.
 ### Overhead presentation
 `NPCSpeechBubble` (child "SpeechBubble") is the shipping look: speech
 bubbles in the UIKit palette (drawn once per line into a small SubViewport),
-a typing pill for conversation turns and rising "z"s for sleep. It is
+and rising "z"s for sleep (the old typing pill is unused since chats went
+silent). It is
 anchored to the Head bone, so it follows sitting and lying. The
 "Name — Activity" nameplate is a DEBUG overlay only
-(`NPCDebug.show_nameplates`). It fades out whenever a bubble is up. Barks go
-through `NPC.bark()` (rate-limited); conversation lines use `NPC.say_line()`.
+(`NPCDebug.show_nameplates`; F7 "Natural View" hides every debug overlay).
+It fades out whenever a bubble is up. Lines go through `NPC.bark()`
+(rate-limited unless forced).
 Activities can return `attention_target(npc)` to drive the procedural head
 look-at (Talk: partner, Wander: whoever they're watching, Cooking: stove,
 Gardening: tray).
@@ -234,10 +237,9 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   The victim logs it, loses morale, gains fear (if it was you), and takes
   −30 relationship with a named memory ("You attacked me with a bat"),
   −8 for further hits within an hour. Witnesses: −4 toward the attacker,
-  more if they liked the victim, plus fear when it's the player. Fight or
-  flight uses how they felt BEFORE the hit: prior hatred (≤ −40) and nerve
-  → they fight back (a hostile crash-out at the attacker); otherwise they
-  run (`FleeActivity`, speed ×1.6). Health 0 = death (any cause: blows,
+  more if they liked the victim, plus fear when it's the player. The victim
+  stands their ground (see "Standing their ground": fists for fists, a
+  fight for their life against any weapon). Health 0 = death (any cause: blows,
   bleeding out, starvation, thirst; `NPCCombat.NEGLECT_DEATHS`):
   `is_dead()` plays the shared dying clip, the body leaves the `npc` group
   for `npc_dead` (saved by MainWorld, restored as a body, walk-through), and
@@ -274,9 +276,9 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   either kind is a GLARE beat: guard down, stare for 0.9–1.5 s, then pace
   off. Knockback scales with damage (a jab rocks, a bat staggers).
   Bystanders (`_bystanders_clear_out`): within 1.8 m of a brawl they step
-  clear for 1.6 s; within 6 m of a weapon attack the faint-hearted run for
-  4.5 s (`combat.flee_from`, `FleeActivity` uses `threat_node()`). Nobody
-  scatters when the player steps in to stop a fight.
+  clear for 1.6 s (`FleeActivity`, its only remaining use). A weapon fight
+  sends everyone not in it into hiding instead (`HideActivity`, below).
+  Nobody scatters when the player steps in to stop a fight.
 - **Running and looking.** Residents run (`NPC.RUN_MULT` ×1.9 ≈ 4.2 m/s,
   the run clip's pace) when fleeing, clearing out of a fight, chasing
   someone down (an armed attacker's approach, any chase out of reach) and
@@ -318,6 +320,22 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   farthest from it, shuts any door between them and the fight once
   they're clear of it (if nobody's in the doorway), and presses against a
   wall until it's been quiet 8–14 s. Fist fights don't trigger it.
+- **Residents look after each other** (`TreatActivity`, Sep 2026): a
+  hurt resident patches themselves up, and residents treat anyone they
+  like (relationship ≥ 30, within 25 m), with Bandages (bleeding), Splints
+  (unsplinted fractures/breaks) and Antibiotics (open wounds) from the
+  floor or storage — never Trauma Kits. Most urgent first (bleeding ≫
+  splint/antibiotics; self before others; worse at < 40 health), one
+  helper per patient. Care from a friend: a thank-you, "X patched me up"
+  feeling, +6 relationship with a memory (+14 "kept me alive" if they were
+  critical). Leftover charges go back to storage.
+- **Feeling unsafe** (`NPCMorale._sample_safety`, Sep 2026): a body
+  anywhere in the bunker (worse in sight), a weapon fight in the last game
+  day (fading), or living with someone who attacked them make every
+  resident feel unsafe, on top of pain and fresh shocks. Each also shows
+  as a feeling with words on the panel and in greetings: "There's a body
+  in here", "There was a fight with weapons in here", "Living with someone
+  who attacked me".
 - **Standing their ground** (Sep 2026, Brannon: no running away). A
   resident who's attacked fights back at once (`NPCCombat._react` →
   `NPCCrashOut.begin_defense`): punched → a fist fight; hit with any
@@ -573,9 +591,8 @@ below). Energy/Hunger/Thirst drain on the shared compressed game-clock
 (`HUNGER_DRAIN_PER_GAME_HOUR = 1.39`, `THIRST_DRAIN_PER_GAME_HOUR = 2.08`).
 
 **Health** drains only while Hunger OR Thirst sits at literal 0 (not
-25%/50%) — both zeroed simultaneously stacks the drain. Health = 0 has no
-further consequence yet (`FUTURE WORK`, same as the Crisis Response note
-below).
+25%/50%) — both zeroed simultaneously stacks the drain. Health = 0 is
+death (`NPCCombat.check_neglect_death`, Sep 2026).
 
 **Speed** (`NPC.get_status_speed_multiplier()`): Energy contributes ONE
 progressive tier (25% tier *replaces* the 50% tier's penalty, doesn't
@@ -680,8 +697,12 @@ additive sources, each independently inspectable via `NPCDebug.log_mood`:
 3. **Random drift** — small symmetric noise, "more than nothing, not
    drastic."
 
-Mood = 0 is the future Crisis Response trigger (see below) — not built;
-mood just clamps at 0.
+> **Superseded (Sep 2026).** The needs-pull / drift model above is history:
+> mood is now the mood engine (`NPCMorale`, sustained conditions) plus a
+> capped share of feelings (thoughts) — see "Mood is the one state" near
+> the top. Contagion still works as described (exposure-weighted), now
+> feeding the engine. Low mood drives crash-outs (below 25) and grudges
+> boiling over.
 
 **Irritability** (0–100%, `NPC.irritability`) is a *separate*, faster-
 reacting value — deliberately **no UI bar**, backend-only. Ticks on the
@@ -702,17 +723,12 @@ fresh each time Talk is pressed — small hardcoded pools per tier
 (angry/frustrated/grumpy/low-mood/happy/neutral). First-pass groundwork,
 not a real dialogue system.
 
-**`FUTURE WORK` — Crisis Response, explicitly deferred, not built:**
-personality-driven reactions to dire bunker states. Per the original
-design note: some NPCs break down/become unhelpful or unpredictable, some
-buckle down into overdrive, some spiral toward irritable/rage (the rage/
-aggression piece specifically was flagged as a materially bigger system —
-combat, hostility, consequences — than anything built so far, and was
-deliberately scoped out even further than the rest of Crisis Response).
-Trigger point is intended to be Mood reaching 0, likely an end-game-
-adjacent scenario. Everything in this system (needs consequences,
-irritability, personality traits, mood) exists specifically to give that
-future pass real state to react to.
+**Crisis Response — built (Sep 2026) as crash-outs.** The deferred design
+(break down, buckle down into overdrive, spiral into rage/aggression) is
+now `NPCCrashOut` + `CrashOutActivity`: BREAKDOWN, OVERDRIVE and HOSTILE
+crash-outs from low mood, grudges boiling over, and the combat system
+(fists → weapons, self-defence, hiding, peacemakers). See "Morale,
+relationships & crash-outs" near the top.
 
 ### Trait Effects Reference (living document — update this whenever a trait gains or changes a mechanical effect)
 
@@ -846,8 +862,9 @@ same way proximity does rather than reinventing the plumbing:**
   existed without inferring desire, which felt arbitrary). Takeaway
   shipped instead, a different and more legible mechanic covering
   overlapping ground.
-- Who helps a passed-out NPC/player vs. who beelines past — doubles as a
-  precursor signal for the still-deferred Crisis Response system.
+- Who helps a passed-out NPC/player vs. who beelines past. (Residents now
+  treat injured friends — `TreatActivity` — but nobody helps someone who's
+  passed out yet.)
 - Player commands (`force_command()`) landing well vs. being ignored/
   delayed shifting player→NPC standing specifically.
 - Pairwise mood-style contagion between relationship values themselves
@@ -1652,12 +1669,11 @@ skills, personality words, seed, mood, and irritability + label.
 
 ## Non-responsibilities (still genuinely out of scope)
 
-- **Crisis Response** (breakdown/overdrive/rage-as-aggression) — see the
-  `FUTURE WORK` note above. Nothing built.
-- **NPC-to-NPC dialogue with real content** — NPCs occupy each other,
-  face each other, and log "Talked to X", but there is no dialogue text
-  or content; the conversation is strictly a timed, scored social
-  activity. See NPC↔NPC Talking's `FUTURE WORK` note.
+- **NPC-to-NPC dialogue with real content** — deliberately none (Brannon,
+  Sep 2026): chats are silent, timed, scored social activities.
+- **Dealing with bodies** — the dead stay where they fell (saved), and
+  everyone feels unsafe while one is in the bunker; there's no way yet to
+  carry a body out or bury it.
 - **Conversation outcomes** — the per-conversation relationship swing
   exists (see Talking), but "what was actually said" is not simulated.
 - **Death / end states below 0 health or mood** — both stats clamp at 0

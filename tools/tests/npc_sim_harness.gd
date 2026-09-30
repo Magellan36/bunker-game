@@ -22,7 +22,7 @@ extends Node
 ## (runs res://tools/tests/NPCSimHarness.tscn as the main scene so autoloads exist)
 ## Exit code 0 = no invariant violations, 1 = violations (report printed).
 
-const SCENARIOS: Array[String] = ["basic", "farm", "cook", "power", "stress", "scarcity", "door", "session", "morale", "lazy", "combat", "combatdebug", "all"]
+const SCENARIOS: Array[String] = ["basic", "farm", "cook", "power", "stress", "scarcity", "door", "session", "morale", "lazy", "combat", "combatdebug", "care", "all"]
 
 var _cfg: Dictionary = {
 	"scenario": "basic",
@@ -133,6 +133,8 @@ func _process(delta: float) -> void:
 				_tick_combat()
 			if String(_cfg["scenario"]) == "combatdebug":
 				_tick_combat_debug()
+			if String(_cfg["scenario"]) == "care":
+				_tick_care()
 		if float(_cfg["scores"]) > 0.0:
 			_score_timer -= delta
 			if _score_timer <= 0.0:
@@ -421,7 +423,10 @@ func _tick_combat() -> void:
 				_flag("combat_brawl_killed", d, "a fist fight killed someone", "cbk")
 			var landed: int = d._action_log.filter(func(e): return String(e.get("text", "")).contains("with a fist")).size()
 			print("[combat] brawl: %d punches landed on %s (health %.0f -> %.0f)" % [landed, d.npc_name, float(_combat_done["d_hp"]), d.health])
-			if landed == 0 and not calmed:
+			## Stand-your-ground (Sep 2026): once the player hits Ossian, he turns on
+			## the player instead — that's a correct outcome too.
+			var turned: bool = clog.any(func(t): return t.begins_with("Fighting"))
+			if landed == 0 and not calmed and not turned:
 				_flag("combat_punches_missed", c, "brawled but no punch ever connected", "cpm")
 		if _combat_done.has("feud") and not _combat_done.has("defend") and st >= 58.0:
 			_combat_done["defend"] = true
@@ -445,6 +450,9 @@ func _tick_combat() -> void:
 		var held: String = NPCSessionActivity.display_name(b.held_item) if b.held_item != null else "nothing"
 		print("[combat] after the rage: player health %.0f -> %.0f, %s holding %s, log: %s" % [_combat_player_hp, float(stats.health),
 			b.npc_name, held, " | ".join(b._action_log.slice(maxi(0, b._action_log.size() - 6)).map(func(e): return String(e.get("text", ""))))])
+		for o: NPC in all.slice(1):
+			var ms: Dictionary = o.get_mood_summary()
+			print("[combat] %s feels: %s (%s)" % [o.npc_name, ms["word"], ", ".join(ms["reasons"])])
 		if float(stats.health) >= _combat_player_hp:
 			_flag("combat_no_damage", b, "attacked the player but did no damage", "cnd")
 
@@ -651,6 +659,37 @@ func _tick_combat_debug() -> void:
 						_flag("cdebug_weapon_claimed", b, "dropped weapon is still reserved", "wc")
 				print("[cdebug] ALL STEPS DONE")
 				_cd_next("weapon dropped")
+
+## ─── Residents treating themselves and friends (TreatActivity) ──────────
+## No choreography: hurt two residents, drop supplies on the floor, make
+## the others like them, and watch what the game does on its own.
+var _care_done: Dictionary = {}
+func _tick_care() -> void:
+	var st: float = _t - _setup_at
+	var all: Array = get_tree().get_nodes_in_group("npc")
+	if all.size() < 3:
+		return
+	if st >= 3.0 and not _care_done.has("setup"):
+		_care_done["setup"] = true
+		for n: NPC in all:
+			for o: NPC in all:
+				if n != o:
+					n.relationships[o.npc_id] = 60.0
+		all[0].medical.spawn_bleeding(MedicalCondition.BodyPart.LEFT_ARM)
+		all[1].medical.spawn_fractured(MedicalCondition.BodyPart.RIGHT_LEG)
+		for i: int in 3:
+			FarmingShopHelper.spawn_scene_settled(_world, "res://scenes/world/Bandage.tscn", _rand_floor_pos())
+		FarmingShopHelper.spawn_scene_settled(_world, "res://scenes/world/Splint.tscn", _rand_floor_pos())
+		print("[care] %s bleeding, %s fractured; 3 bandages + 1 splint on the floor" % [all[0].npc_name, all[1].npc_name])
+	if st >= 90.0 and not _care_done.has("report"):
+		_care_done["report"] = true
+		for n: NPC in all:
+			var care: Array = n._action_log.filter(func(e): return String(e.get("kind", "")) == "care").map(func(e): return String(e.get("text", "")))
+			print("[care] %s: still needs '%s' | care log: %s" % [n.npc_name, n.most_urgent_treatment(), " | ".join(care)])
+		if all[0].most_urgent_treatment() == "bleeding":
+			_flag("care_bleeding_untreated", all[0], "still bleeding after 90 s with bandages lying around", "cb")
+		if all[1].most_urgent_treatment() == "splint":
+			_flag("care_fracture_untreated", all[1], "fracture never splinted with a splint lying around", "cf")
 
 ## ─── Lazy resident loop ──────────────────────────────────────────────────
 ## Residents: 0 Lazy, 1 Hard Worker, 2 Steady, 3 Lazy Gourmand, 4 Hard-Working
@@ -1059,7 +1098,10 @@ func _act_class(npc: Node) -> String:
 	if npc.brain == null or npc.brain._current == null:
 		return ""
 	var s: Script = npc.brain._current.get_script()
-	return s.get_global_name() if s != null else "?"
+	if s == null:
+		return "?"
+	## Activities without a class_name (preloaded ones) report their file name.
+	return String(s.get_global_name()) if String(s.get_global_name()) != "" else s.resource_path.get_file().get_basename()
 
 func _flag(kind: String, npc: Node, msg: String, once_key: String = "") -> void:
 	var tr: Dictionary = _track.get(npc.get_instance_id(), {})

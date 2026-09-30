@@ -206,12 +206,26 @@ func _sample_space() -> float:
 		s -= 0.3
 	return clampf(s, -1.0, 0.5)
 
+## Sep 2026 (Brannon): real danger inside the bunker makes EVERYONE feel
+## unsafe — a body lying anywhere (worse in sight), a recent weapon fight
+## (fading over a game day), living alongside someone who attacked them —
+## on top of pain, low health and fresh shocks.
 func _sample_safety() -> float:
 	var s: float = 0.2
 	if _npc.thoughts != null and _npc.thoughts.has("in_pain"):
 		s = -0.5
 	if _npc.health < 50.0:
 		s = minf(s, -0.8)
+	var bodies: Array[Node3D] = NPCCombat.bodies(_npc.get_tree())
+	if not bodies.is_empty():
+		s = minf(s, -0.6)
+		for b: Node3D in bodies:
+			if _npc.global_position.distance_to(b.global_position) < 10.0 and _npc._can_see(b):
+				s = minf(s, -0.9)
+				break
+	s -= 0.9 * NPCCombat.weapon_fight_fear()
+	if _npc.combat.lives_with_attacker():
+		s = minf(s, -0.4)
 	return clampf(s - _shock, -1.0, 0.5)
 
 func _sample_company() -> float:

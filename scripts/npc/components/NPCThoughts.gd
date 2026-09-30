@@ -58,6 +58,12 @@ const DEFS: Dictionary = {
 	"broke_up_fight":    {"label": "Broke up a fight",                 "mood": 2.0,  "hours": 6.0,  "stack": 1},
 	"backed_down":       {"label": "Backed down from %s",              "mood": -3.0, "hours": 8.0,  "stack": 1},
 	"talked_down":       {"label": "%s talked me down",                "mood": 3.0,  "hours": 8.0,  "stack": 1},
+	## Danger in the bunker (conditions, re-checked every mood tick).
+	"body_in_bunker":    {"label": "There's a body in here",           "mood": -7.0, "hours": 0.0,  "stack": 1},
+	"weapon_fight":      {"label": "There was a fight with weapons in here", "mood": -6.0, "hours": 0.0, "stack": 1},
+	"unsafe_with":       {"label": "Living with someone who attacked me", "mood": -4.0, "hours": 0.0, "stack": 1},
+	## Care between residents (TreatActivity).
+	"patched_up":        {"label": "%s patched me up",                 "mood": 4.0,  "hours": 12.0, "stack": 2},
 	"under_pressure":    {"label": "Being pushed hard",                "mood": -3.0, "hours": 0.0,  "stack": 1},
 	"cowed":             {"label": "Put in my place",                  "mood": -2.0, "hours": 0.0,  "stack": 1},
 	"hungry":            {"label": "Hungry",                           "mood": -4.0, "hours": 0.0,  "stack": 1},
