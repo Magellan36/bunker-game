@@ -239,7 +239,7 @@ set, per gender, in `assets/models/player/weapons/{male,female}/`
 (`melee_idle`, `melee_swing`, `melee_swing_alt` = "Baseball Swing adjust",
 `pistol_whip`, `pistol_shoot`). Baked by `tools/anim_pipeline/bake_weapon_anims.gd`
 into `weapons_{male,female}_lib.res`. Measured meta: `contact_time` (peak
-right-hand speed), `windup_time` (top of the backswing, within 0.45 s before
+right-hand speed; punches: furthest reach), `strike_yaw` (punches only), `windup_time` (top of the backswing, within 0.45 s before
 contact), and `melee_grip` (handle axis from the left to the right hand in
 the idle, in right-hand space).
 
@@ -275,9 +275,25 @@ the idle, in right-hand space).
   out for the one-handed whip and hit reactions.
 - **Head look-at (2026-09-29):** straight ahead by default. It only turns
   toward people (an NPC activity's `attention_target`, currently only while
-  leaning) or an explicit `look_focus`, aimed at their face (capsule centre
-  +0.62 m), with a higher weight while leaning because the lean clip hangs
-  the head.
+  leaning) or an explicit `look_focus`, aimed at their eyes (their `Head`
+  bone +0.09 m; capsule centre +0.9 m if there's no skeleton), with a higher
+  weight while leaning because the lean clip hangs the head.
+- **Punches (revised 2026-09-30):** `punch_jab`/`punch_cross` play **upper
+  body only**, even standing still. Legs stay in the guard (or the walk), and
+  the foot lock keeps them planted. Each clip's own footwork made the feet
+  shuffle up to 0.4 m per punch. The source turns the whole body into each
+  punch through the armature root, which runtime does not play. In skeleton
+  space the jab landed about 64° to one side and the cross 27–57° to the
+  other. The bake measures each punch's aim at contact over the guard's
+  hips (`strike_yaw` meta), and the layer cancels it with
+  `AdventurerProceduralPose.spine_twist`. The twist rises from windup to
+  contact and eases back over 60 % of the remaining clip, so both land
+  straight ahead.
+- **Guard look (2026-09-30):** in the fist guard or a melee stance, player
+  or NPC, the head comes up to the opponent's eyes: the activity's
+  attention target, else the nearest living person within 3 m in front.
+  With nobody there, it looks level, straight ahead. Weight is 0.9 and it
+  follows quickly (the guard clips tuck the chin right down).
 - **No pops (polish pass, 2026-09-28):** strikes, shots, punches and hit
   reactions run in two cross-fading slots (A/B). A new one takes the quieter
   slot and the other fades out over 0.12 s, so combos, interrupts and hit
@@ -305,6 +321,8 @@ the idle, in right-hand space).
   target is held at least 2.5 s so the head doesn't flick between objects.
   It works only within 3.5 m and ~110° of facing, and only while free,
   seated or leaning.
+- **Spine twist.** Turns Spine/Chest/UpperChest (40/35/25) about the
+  body's up axis. Set by the weapon layer to aim punches.
 - **Lean.** Spine banks into turns (`yaw rate × speed`) and tips with
   acceleration. Subtle: max ~7° / ~5°.
 - **Pillow head support.** Neck + head nod up 9° + 9° while asleep (the sleep

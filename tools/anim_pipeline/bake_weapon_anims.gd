@@ -13,6 +13,8 @@ extends "res://tools/anim_pipeline/bake_adventurer_anims.gd"
 ##   windup_time    swing/whip: the top of the backswing before contact (the
 ##                  slowest smoothed hand moment within 0.45 s of it). Runtime
 ##                  starts the clip there so a press strikes quickly.
+##   strike_yaw     punches: the fist's aim at contact, radians from straight
+##                  ahead (skeleton +Z) over the guard's hips; see _measure_punch.
 ##   melee_grip     melee_idle: weapon basis in RIGHT-hand space. Weapon -Z =
 ##                  from the lower (left) hand towards the upper (right) hand,
 ##                  i.e. along the handle towards the barrel of a two-hand grip.
@@ -143,8 +145,24 @@ func _measure_punch(rig: Node3D, key: String, anim: Animation) -> void:
 	var dt: float = anim.length / float(n)
 	anim.set_meta("contact_time", contact * dt)
 	anim.set_meta("windup_time", windup * dt)
-	print("[weapons]   %-15s len=%.2fs windup=%.2fs contact=%.2fs (%s reach %.2f m)" % [
-		key, anim.length, windup * dt, contact * dt, best_hand, r[contact]])
+	## Aim at contact. The source turns the whole body into each punch through
+	## the armature (root) rotation, which runtime does not play, so in
+	## skeleton space the jab lands off to one side and the cross to the
+	## other. Punches play upper-body only over the guard's hips; measure the
+	## chest -> fist direction relative to the clip's own hips, put it on the
+	## guard's hips, and store its yaw from the body's forward (+Z) for the
+	## runtime spine twist (PistolAnimationLayer) to cancel.
+	var sk: Skeleton3D = _pose(rig, key, contact * dt)
+	var reach: Vector3 = sk.get_bone_global_pose(sk.find_bone(best_hand)).origin \
+		- sk.get_bone_global_pose(sk.find_bone("UpperChest")).origin
+	var clip_hips: Basis = sk.get_bone_global_pose(sk.find_bone("Hips")).basis.orthonormalized()
+	var gsk: Skeleton3D = _pose(rig, "punch_idle", 0.0)
+	var guard_hips: Basis = gsk.get_bone_global_pose(gsk.find_bone("Hips")).basis.orthonormalized()
+	var aim: Vector3 = guard_hips * (clip_hips.inverse() * reach)
+	var yaw: float = atan2(aim.x, aim.z)
+	anim.set_meta("strike_yaw", yaw)
+	print("[weapons]   %-15s len=%.2fs windup=%.2fs contact=%.2fs (%s reach %.2f m, aim yaw %.1f deg)" % [
+		key, anim.length, windup * dt, contact * dt, best_hand, r[contact], rad_to_deg(yaw)])
 
 static func _arr_max(a: PackedFloat32Array) -> float:
 	var m: float = -INF

@@ -85,8 +85,10 @@ const HEAD_SUPPORT_RATE: float = 1.2
 ## interaction prompt's focus; NPC: its activity's attention target).
 const LOOK_RANGE: float = 3.5
 const LOOK_HEIGHT: float = 0.3
-## People are looked at in the face: capsule centre + this.
-const LOOK_PERSON_HEIGHT: float = 0.62
+## People are looked at in the face: their head bone + this (eye level),
+## or capsule centre + LOOK_PERSON_HEIGHT for a body without a skeleton.
+const LOOK_EYE_ABOVE_HEAD: float = 0.09
+const LOOK_PERSON_HEIGHT: float = 0.9
 
 # ─── Furniture tuning (world metres) ─────────────────────────────────────────
 ## Hip bone height above a seat surface when sitting (pelvis half-depth).
@@ -504,7 +506,20 @@ const NPC_LOOK_MIN_HOLD: float = 2.5
 var _look_held: Node3D = null
 var _look_hold_left: float = 0.0
 
+## Fighting stance (fist guard / melee hold, player or NPC): the guard clips
+## tuck the chin right down, so the head comes up to the opponent's face —
+## or level, straight ahead, with nobody in front. Firmer and quicker than
+## the idle glance: a fighter watches the other person.
+const GUARD_LOOK_WEIGHT: float = 0.9
+const GUARD_LOOK_FOLLOW_RATE: float = 8.0
+const GUARD_LOOK_FADE_RATE: float = 4.0
+const GUARD_LOOK_RANGE: float = 3.0
+
 func _update_look(delta: float) -> void:
+	var guard: float = _pistol_layer.guard_w if _pistol_layer != null and _stage == Stage.NONE else 0.0
+	if guard > 0.01:
+		_update_guard_look(delta, guard)
+		return
 	var want: float = 0.0
 	var target: Node3D = _look_target() if _stage in [Stage.NONE, Stage.SEATED, Stage.LEAN] else null
 	## Hold the current target for a moment before switching to a new one.
@@ -516,7 +531,7 @@ func _update_look(delta: float) -> void:
 			_look_held = target
 			_look_hold_left = NPC_LOOK_MIN_HOLD
 	if target != null:
-		var point: Vector3 = target.global_position + Vector3.UP * (LOOK_PERSON_HEIGHT if target is CharacterBody3D else LOOK_HEIGHT)
+		var point: Vector3 = _face_point(target) if target is CharacterBody3D else target.global_position + Vector3.UP * LOOK_HEIGHT
 		var to: Vector3 = point - _visual.global_position
 		var facing := Vector3(-sin(_visual_yaw), 0.0, -cos(_visual_yaw))
 		if Vector2(to.x, to.z).length() < LOOK_RANGE and facing.dot(Vector3(to.x, 0.0, to.z).normalized()) > -0.35:
@@ -526,6 +541,54 @@ func _update_look(delta: float) -> void:
 			_look_point = _look_point.lerp(point, clampf(NPC_LOOK_FOLLOW_RATE * delta, 0.0, 1.0))
 	_pose_mod.look_weight = move_toward(_pose_mod.look_weight, want, NPC_LOOK_FADE_RATE * delta)
 	_pose_mod.look_at_world = _look_point
+
+func _update_guard_look(delta: float, guard: float) -> void:
+	var facing := Vector3(-sin(_visual_yaw), 0.0, -cos(_visual_yaw))
+	var head: Vector3 = _skeleton.global_transform * _skeleton.get_bone_global_pose(_skeleton.find_bone("Head")).origin
+	var opponent: Node3D = _guard_opponent(facing)
+	var point: Vector3 = _face_point(opponent) if opponent != null \
+		else head + facing * 3.0
+	if _pose_mod.look_weight < 0.01:
+		_look_point = point
+	_look_point = _look_point.lerp(point, clampf(GUARD_LOOK_FOLLOW_RATE * delta, 0.0, 1.0))
+	_look_held = null
+	_pose_mod.look_weight = move_toward(_pose_mod.look_weight, GUARD_LOOK_WEIGHT * guard, GUARD_LOOK_FADE_RATE * delta)
+	_pose_mod.look_at_world = _look_point
+
+## Eye level of another person: their head bone, found once per person.
+var _face_of: Node3D = null
+var _face_skeleton: Skeleton3D = null
+var _face_bone: int = -1
+
+func _face_point(person: Node3D) -> Vector3:
+	if person != _face_of:
+		_face_of = person
+		_face_skeleton = person.find_child("GeneralSkeleton", true, false) as Skeleton3D
+		_face_bone = _face_skeleton.find_bone("Head") if _face_skeleton != null else -1
+	if not is_instance_valid(_face_skeleton) or _face_bone == -1:
+		return person.global_position + Vector3.UP * LOOK_PERSON_HEIGHT
+	return _face_skeleton.global_transform * _face_skeleton.get_bone_global_pose(_face_bone).origin \
+		+ Vector3.UP * LOOK_EYE_ABOVE_HEAD
+
+## Who a fighter squares up to: their activity's attention target (an NPC's
+## fight partner) or `look_focus`, else the nearest living person in front.
+func _guard_opponent(facing: Vector3) -> Node3D:
+	var target: Node3D = _look_target()
+	if target != null:
+		return target
+	var best: Node3D = null
+	var best_d: float = GUARD_LOOK_RANGE
+	for group: String in ["npc", "player"]:
+		for other: Node in get_tree().get_nodes_in_group(group):
+			if other == _player or not (other is CharacterBody3D) or other.is_in_group("npc_dead"):
+				continue
+			var to: Vector3 = (other as Node3D).global_position - _visual.global_position
+			to.y = 0.0
+			var d: float = to.length()
+			if d < best_d and d > 0.05 and facing.dot(to / d) > 0.5:
+				best = other
+				best_d = d
+	return best
 
 ## Head look-at rule (Brannon, 2026-09-29): straight ahead by default; only
 ## PEOPLE (an NPC activity's attention_target: talk partner, fight target,

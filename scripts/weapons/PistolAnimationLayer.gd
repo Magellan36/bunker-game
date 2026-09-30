@@ -66,6 +66,8 @@ const LEFT_BELOW: float = 0.068
 ## over; the IK puts her support hand here instead. Runtime only.
 const PISTOL_SUPPORT: Vector3 = Vector3(-0.004, 0.027, 0.05)
 const SUPPORT_FADE_RATE: float = 6.0
+## Punch aim eases out over this fraction of the clip after contact.
+const PUNCH_AIM_RELEASE: float = 0.6
 ## Swing playback is clamped to a believable range of the authored speed.
 const STRIKE_RATE_RANGE: Vector2 = Vector2(0.7, 2.2)
 
@@ -88,6 +90,9 @@ var _melee: bool = false
 var _support_w: float = 0.0
 var _signal_weapon: Node = null
 var _chain_end: String = ""
+## How far into a fighting stance (fist guard or melee hold) the body is,
+## 0..1. The model controller lifts the head to the opponent with it.
+var guard_w: float = 0.0
 
 func install(owner_model: Node3D) -> void:
 	model = owner_model
@@ -194,6 +199,7 @@ func update(delta: float) -> void:
 	_watch_attacks(held if held != null and held.has_signal("attack_started") else fists)
 	_update_holds(delta, &"melee_idle" if melee else (&"punch_idle" if guard else &""))
 	_update_strikes(delta, free)
+	_update_punch_aim()
 	_update_support_hand(delta, melee, active)
 	weight = move_toward(weight, 1.0 if active else 0.0, delta * 8.0)
 	tree.set("parameters/pistol_mix/blend_amount", weight)
@@ -251,7 +257,10 @@ func _on_attack_started(kind: String, variant: int) -> void:
 			var cross: bool = variant == 1
 			var punch_delay: float = float(_signal_weapon.get("cross_strike_delay" if cross else "jab_strike_delay")) \
 				if is_instance_valid(_signal_weapon) else 0.2
-			_start_timed_strike(&"punch_cross" if cross else &"punch_jab", punch_delay)
+			## Arms and torso only: the legs stay in the guard (or the walk)
+			## and the foot lock keeps them planted. Each clip's own footwork
+			## made the feet shuffle on every punch.
+			_start_timed_strike(&"punch_cross" if cross else &"punch_jab", punch_delay, true)
 		"revolver":
 			var shot: Animation = weapons.get_animation("pistol_shoot")
 			var kick: float = float(shot.get_meta("contact_time", 0.3))
@@ -265,12 +274,12 @@ func _on_attack_started(kind: String, variant: int) -> void:
 				_start_timed_strike(&"melee_swing_alt" if variant == 1 else &"melee_swing", delay)
 
 ## Starts at the top of the backswing; the rate puts contact on `delay`.
-func _start_timed_strike(clip: StringName, delay: float) -> void:
+func _start_timed_strike(clip: StringName, delay: float, upper_only: bool = false) -> void:
 	var anim: Animation = weapons.get_animation(clip)
 	var windup: float = float(anim.get_meta("windup_time", 0.0))
 	var contact: float = float(anim.get_meta("contact_time", anim.length * 0.5))
 	var rate: float = clampf((contact - windup) / maxf(delay, 0.01), STRIKE_RATE_RANGE.x, STRIKE_RATE_RANGE.y)
-	_start_strike(clip, windup, rate, anim.length)
+	_start_strike(clip, windup, rate, anim.length, upper_only)
 
 ## Starts a strike in the quieter slot; the other one (if still showing)
 ## fades out over STRIKE_XFADE underneath/over it — a cross-fade, never a pop.
@@ -330,6 +339,9 @@ func _update_holds(delta: float, active: StringName) -> void:
 			tree.set("parameters/hold_%s%s_seek/seek_request" % [hold, part], _hold_time[hold])
 		tree.set("parameters/hold_%s_full/blend_amount" % hold, w * (1.0 - moving))
 		tree.set("parameters/hold_%s_upper/blend_amount" % hold, w * moving)
+	guard_w = 0.0
+	for hold: StringName in HOLD_CLIPS:
+		guard_w = maxf(guard_w, smoothstep(0.0, 1.0, float(_hold_w[hold])))
 
 ## Strike envelopes: quick in, out over the clip's last STRIKE_FADE_OUT, or
 ## out over STRIKE_XFADE when replaced. Full body standing still, upper body
@@ -358,6 +370,25 @@ func _update_strikes(delta: float, free: bool) -> void:
 			tree.set("parameters/%s%s_seek/seek_request" % [name, part], minf(s.time, s.end))
 		tree.set("parameters/%s_full/blend_amount" % name, w * (1.0 - upper))
 		tree.set("parameters/%s_upper/blend_amount" % name, w * upper)
+
+## Punch aim: the source clips turn the whole body into each punch through
+## the root, which is not played (and the legs stay in the guard), so the jab
+## would land ~60 degrees to one side and the cross to the other. Turn the
+## spine by the baked strike_yaw instead, rising from the windup to contact
+## and easing back as the fist returns — both punches land straight ahead.
+func _update_punch_aim() -> void:
+	var twist: float = 0.0
+	for s: Strike in _strikes:
+		if not s.clip.begins_with("punch_") or s.w <= 0.0:
+			continue
+		var anim: Animation = weapons.get_animation(s.clip)
+		var windup: float = float(anim.get_meta("windup_time", 0.0))
+		var contact: float = float(anim.get_meta("contact_time", anim.length * 0.5))
+		var back: float = contact + (anim.length - contact) * PUNCH_AIM_RELEASE
+		var env: float = smoothstep(windup, contact, s.time) * (1.0 - smoothstep(contact, back, s.time))
+		twist -= float(anim.get_meta("strike_yaw", 0.0)) * env * smoothstep(0.0, 1.0, s.w)
+	if model._pose_mod != null:
+		model._pose_mod.spine_twist = twist
 
 ## Left hand on the handle below the right (melee), or cupped under the
 ## pistol grip; eased out during the one-handed whip and punches.

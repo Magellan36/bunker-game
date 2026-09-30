@@ -25,6 +25,8 @@ extends SkeletonModifier3D
 ##                 under a pistol). Set by the weapon layer.
 ##   lean_roll     banks the spine into a turn (centripetal lean), radians.
 ##   lean_pitch    tips the spine forward on acceleration / back on braking.
+##   spine_twist   turns the spine about the body's up axis, radians (+ = to
+##                 the character's left). The weapon layer aims punches with it.
 ##
 ## Added as a child of the body's Skeleton3D by AdventurerModelController,
 ## which writes the inputs every frame.
@@ -63,6 +65,7 @@ var look_weight: float = 0.0
 var look_at_world: Vector3 = Vector3.ZERO
 var lean_roll: float = 0.0
 var lean_pitch: float = 0.0
+var spine_twist: float = 0.0
 var foot_lock_enabled: bool = false
 ## 0..1, set by the controller (standing still and furniture transitions).
 var foot_flatten: float = 0.0
@@ -149,6 +152,10 @@ func _process_modification_with_delta(delta: float) -> void:
 			var share: float = _spine[i]
 			_rotate_local(sk, i, Vector3.BACK, lean_roll * share)
 			_rotate_local(sk, i, Vector3.RIGHT, lean_pitch * share)
+	if absf(spine_twist) > 0.0001:
+		## Parent first (dictionary order), so each share adds to the one below.
+		for i: int in _spine:
+			_rotate_skeleton(sk, i, Quaternion(Vector3.UP, spine_twist * _spine[i]))
 	if look_weight > 0.001:
 		_look(sk)
 	if support_weight > 0.001 and _right_hand != -1 and _left_arm != null and _left_arm.foot != -1:
