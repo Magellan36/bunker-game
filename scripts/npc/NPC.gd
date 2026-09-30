@@ -418,9 +418,14 @@ func get_work_speed_mult(skill_key: String = "") -> float:
 	return m
 
 # ─── Mood (0..100) & irritability (fast, no bar) ──────────────────────────
-## Displayed mood = MORALE (slow, NPCMorale — sustained bunker conditions)
-## + a capped share of FEELINGS (NPCThoughts — today's moodlets, including
-## hunger/thirst/exhaustion). Crash-outs read morale, not mood.
+## MOOD is the one state (Sep 2026: mood adopted morale). Its slow engine is
+## NPCMorale (sustained bunker conditions, events, shocks, traits,
+## contagion — `morale_sys.morale` is its internal baseline), plus a capped
+## share of FEELINGS (NPCThoughts — today's moodlets, including
+## hunger/thirst/exhaustion). Crash-outs read mood too, so feeding or
+## resting someone who's close to breaking visibly helps. The player sees
+## mood as WORDS (get_mood_summary / get_attitude_summary), never the
+## engine's numbers; get_mood_state() is the key for the planned mood icons.
 ## Sep 2026: replaces "needs average + thoughts + random drift", which
 ## swung from content to miserable within a game day for no visible reason.
 var mood: float = 65.0
@@ -589,7 +594,87 @@ func on_player_command(activity: NPCActivity) -> bool:
 func get_last_refusal() -> String:
 	return social.last_refusal
 
-## Resident panel: morale at a glance, with its reasons (NPCMorale).
+## ─── Player-facing mood, in words (resident panel; future mood icons) ─────
+## Mood band word ("Breaking", "Strained", "Worn down", "Getting by", "Content").
+func get_mood_word() -> String:
+	return NPCMorale.band_of(mood)
+
+## One key for the planned at-a-glance mood icon (no hovering UI in game):
+## what the resident is mainly feeling right now, most pressing first.
+## dead, crashing_angry, crashing_frantic, crashing_distraught, afraid,
+## angry, miserable, low, okay, happy.
+func get_mood_state() -> String:
+	if combat.dead:
+		return "dead"
+	if crash.active():
+		return ["", "crashing_angry", "crashing_frantic", "crashing_distraught"][int(crash.mode)]
+	if combat.is_fleeing() or social.fear >= 60.0:
+		return "afraid"
+	if irritability >= _irritability_breakpoints()[2]:   ## "Mad" or worse
+		return "angry"
+	if mood < NPCMorale.CRASH_RISK_BELOW:
+		return "miserable"
+	if mood < 50.0:
+		return "low"
+	return "happy" if mood >= 70.0 else "okay"
+
+## {"word", "trend" (-1/0/1), "reasons": [words], "state": "" or a
+## headline ("Crashing out — furious at Mara", "At breaking point"),
+## "severity": 0 fine / 1 low / 2 critical}. No numbers.
+func get_mood_summary() -> Dictionary:
+	var ranked: Array[Dictionary] = []
+	for r: Dictionary in morale_sys.get_reasons():
+		if String(r.get("id", "")) != "feelings":
+			ranked.append({"text": String(r["text"]), "w": absf(float(r["points"]))})
+	for t: Dictionary in thoughts.describe():
+		ranked.append({"text": String(t.get("text", "")), "w": absf(float(t.get("mood", 0.0)))})
+	ranked.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a["w"]) > float(b["w"]))
+	var reasons: Array[String] = []
+	for r: Dictionary in ranked:
+		var txt: String = String(r["text"])
+		if txt != "" and not reasons.has(txt) and reasons.size() < 3:
+			reasons.append(txt)
+	var state: String = ""
+	if crash.active():
+		state = "Crashing out — %s" % crash._short()
+	elif crash.daily_risk() > 0.0:
+		state = "At breaking point"
+	var severity: int = 2 if state != "" else (1 if mood < 50.0 else 0)
+	return {"word": get_mood_word(), "trend": morale_sys.get_trend(), "reasons": reasons,
+		"state": state, "severity": severity}
+
+## How they feel about the player, in words: relationship word, fear,
+## anger, and the moment that shaped it. {"text", "tone": good/neutral/bad}.
+func get_attitude_summary() -> Dictionary:
+	var parts: Array[String] = [get_relationship_label("player")]
+	var tone: String = "neutral"
+	var rel: float = get_relationship("player")
+	if rel >= 25.0:
+		tone = "good"
+	elif rel <= -25.0:
+		tone = "bad"
+	if crash.active() and crash.mode == NPCCrashOut.Mode.HOSTILE and crash.target_id == "player":
+		parts.append("furious with you")
+		tone = "bad"
+	elif social.fear >= 60.0:
+		parts.append("afraid of you")
+		tone = "bad"
+	elif social.fear >= 30.0:
+		parts.append("wary of you")
+	if bonds.grudge_against("player") <= -20.0:
+		parts.append("holds a grudge")
+		tone = "bad"
+	var text: String = ", ".join(parts)
+	var mems: Array[Dictionary] = bonds.get_memories("player")
+	if not mems.is_empty():
+		var top: Dictionary = mems[0]
+		for m: Dictionary in mems:
+			if absf(float(m["amount"])) > absf(float(top["amount"])):
+				top = m
+		text += "  •  \"%s\"" % String(top["text"])
+	return {"text": text, "tone": tone}
+
+## Debug/F7: the internal mood engine with its numbers (not player-facing).
 func get_morale_summary() -> Dictionary:
 	var reasons: Array[Dictionary] = []
 	for r: Dictionary in morale_sys.get_reasons().slice(0, 3):

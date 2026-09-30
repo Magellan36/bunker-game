@@ -629,11 +629,12 @@ func _build_at_a_glance(parent: Container) -> void:
 	C.section_header(box, "AT A GLANCE")
 	_overview_medical_value = _build_fact_row(box, "medical", "Medical status", "No active conditions")
 	box.add_child(HSeparator.new())
-	_overview_irritability_value = _build_fact_row(box, "mood", "Feeling", "Calm")
+	## Mood & attitude in words (NPC session, Sep 2026): how they feel and
+	## WHY, how they feel about you, and the moments they remember. No
+	## numbers — the player reads people, not meters.
+	_overview_irritability_value = _build_fact_row(box, "mood", "Mood", "Getting by")
 	box.add_child(HSeparator.new())
-	## Morale & memories (NPC session, Sep 2026): the slow state that decides
-	## crash-outs, WHY it is where it is, and the moments they remember.
-	_overview_morale_value = _build_fact_row(box, "status", "Morale", "—")
+	_overview_morale_value = _build_fact_row(box, "status", "Toward you", "Neutral")
 	box.add_child(HSeparator.new())
 	_overview_memories_value = _build_fact_row(box, "relationship", "Remembers", "Nothing in particular")
 	box.add_child(HSeparator.new())
@@ -888,6 +889,9 @@ func _update_needs() -> void:
 		var label: Label = _need_values[key] as Label
 		SMOOTH_BAR.apply(bar, value)
 		label.text = "%d / 100" % int(round(value))
+	## Mood is read in words, not numbers (Sep 2026, player comprehension).
+	if _npc.has_method("get_mood_word"):
+		(_need_values["Mood"] as Label).text = String(_npc.call("get_mood_word"))
 
 
 func _update_relationship() -> void:
@@ -900,9 +904,9 @@ func _update_relationship() -> void:
 	var color: Color = _relationship_color(label_text)
 	_relationship_label.text = label_text
 	_relationship_label.add_theme_color_override("font_color", color)
-	_relationship_value.text = "%+.0f" % value
+	_relationship_value.text = ""   ## words, not numbers (the meter shows where it sits)
 	_relationship_meter.set_target_value(value)
-	_header_relationship_label.text = "%s  %+.0f" % [label_text.to_upper(), value]
+	_header_relationship_label.text = label_text.to_upper()
 	_header_relationship_label.add_theme_color_override("font_color", Q.MUTED if color == S.GREEN else color)
 	_set_state_panel(_header_relationship_panel, color)
 
@@ -927,25 +931,7 @@ func _update_overview_facts() -> void:
 	_overview_medical_value.add_theme_color_override(
 		"font_color", S.GREEN if condition_count == 0 else S.RED
 	)
-	var irritation: String = ""
-	if _npc.has_method("get_irritability_label"):
-		irritation = String(_npc.call("get_irritability_label"))
-	## Temper word + the strongest things on their mind (NPC thoughts), so
-	## the player can see WHY a resident feels the way they do.
-	var feeling: String = "Calm" if irritation == "" else irritation
-	var mind: Array[String] = []
-	if _npc.has_method("get_thought_summaries"):
-		for t: Variant in _npc.call("get_thought_summaries"):
-			if t is Dictionary and mind.size() < 2:
-				mind.append("%s (%+.0f)" % [String(t.get("text", "")), float(t.get("mood", 0.0))])
-	if not mind.is_empty():
-		feeling += "  •  " + ", ".join(mind)
-	_overview_irritability_value.text = feeling
-	var mood_now: float = float(_npc.get("mood")) if _npc.get("mood") != null else 50.0
-	_overview_irritability_value.add_theme_color_override(
-		"font_color", S.GREEN if irritation == "" and mood_now >= 55.0 else (S.RED if mood_now < 30.0 else ENERGY_COLOR)
-	)
-	_update_morale_facts()
+	_update_mood_facts()
 	var entries: Array[Dictionary] = _get_action_log()
 	if entries.is_empty():
 		_overview_last_action_value.text = "Nothing notable yet"
@@ -957,31 +943,30 @@ func _update_overview_facts() -> void:
 		]
 
 
-func _update_morale_facts() -> void:
-	if _overview_morale_value == null or not _npc.has_method("get_morale_summary"):
-		return
-	var m: Dictionary = _npc.call("get_morale_summary")
-	var arrow: String = ["↓", "→", "↑"][int(m.get("trend", 0)) + 1]
-	var text: String = "%d  %s %s" % [int(round(float(m["morale"]))), String(m["band"]), arrow]
-	var parts: Array[String] = []
-	for r: Dictionary in m.get("reasons", []):
-		parts.append("%s (%+.0f)" % [String(r["text"]), float(r["points"])])
-	if not parts.is_empty():
-		text += "  •  " + ", ".join(parts)
-	var color: Color = S.GREEN if float(m["morale"]) >= 50.0 else (ENERGY_COLOR if float(m["morale"]) >= 25.0 else S.RED)
-	if String(m.get("crash", "")) != "":
-		text = "%s  •  %s" % [String(m["crash"]).to_upper(), text]
-		color = S.RED
-	elif bool(m.get("at_risk", false)):
-		text = "AT RISK OF CRASHING OUT  •  " + text
-		color = S.RED
-	_overview_morale_value.text = text
-	_overview_morale_value.add_theme_color_override("font_color", color)
+## Mood (word, trend, why) and attitude toward the player, all in words.
+func _update_mood_facts() -> void:
+	if _npc.has_method("get_mood_summary"):
+		var m: Dictionary = _npc.call("get_mood_summary")
+		var arrow: String = ["  ↓", "", "  ↑"][int(m.get("trend", 0)) + 1]
+		var text: String = String(m["word"]) + arrow
+		var reasons: Array = m.get("reasons", [])
+		if not reasons.is_empty():
+			text += "  •  " + ", ".join(reasons)
+		if String(m.get("state", "")) != "":
+			text = "%s  •  %s" % [String(m["state"]).to_upper(), text]
+		_overview_irritability_value.text = text
+		_overview_irritability_value.add_theme_color_override("font_color",
+			[S.GREEN, ENERGY_COLOR, S.RED][clampi(int(m.get("severity", 0)), 0, 2)])
+	if _overview_morale_value != null and _npc.has_method("get_attitude_summary"):
+		var a: Dictionary = _npc.call("get_attitude_summary")
+		_overview_morale_value.text = String(a["text"])
+		_overview_morale_value.add_theme_color_override("font_color",
+			{"good": S.GREEN, "neutral": S.IVORY, "bad": S.RED}.get(String(a["tone"]), S.IVORY))
 	if _overview_memories_value != null and _npc.has_method("get_memory_summaries"):
 		var mems: Array = _npc.call("get_memory_summaries", 2)
 		var lines: Array[String] = []
 		for mem: Dictionary in mems:
-			lines.append("\"%s\" (%+.0f)" % [String(mem["text"]), float(mem["amount"])])
+			lines.append("\"%s\"" % String(mem["text"]))
 		_overview_memories_value.text = "  •  ".join(lines) if not lines.is_empty() else "Nothing in particular"
 
 func _rebuild_traits() -> void:

@@ -58,9 +58,11 @@ func active() -> bool:
 func mode_name() -> String:
 	return String(MODE_NAMES.get(mode, ""))
 
-## Chance per game DAY of breaking at the current morale (0 when not at risk).
+## Chance per game DAY of breaking at the current MOOD (0 when not at risk).
+## Mood, not the slow baseline alone: a starving, exhausted resident is
+## closer to snapping, and feeding them pulls them back.
 func daily_risk() -> float:
-	var m: float = _npc.morale_sys.morale
+	var m: float = _npc.mood
 	if m >= NPCMorale.CRASH_RISK_BELOW:
 		return 0.0
 	var depth: float = (NPCMorale.CRASH_RISK_BELOW - m) / NPCMorale.CRASH_RISK_BELOW
@@ -81,7 +83,7 @@ func tick(h: float) -> void:
 			finish()
 		return
 	## Warning signs before it happens: a strained resident says so now and then.
-	if _npc.morale_sys.morale < 32.0 and now - _warned_at > 6.0 and randf() < 0.25 * h:
+	if _npc.mood < 32.0 and now - _warned_at > 6.0 and randf() < 0.25 * h:
 		_warned_at = now
 		_npc.bark_event("strained")
 	if _npc.brain != null and (_npc.brain.is_sleeping() or _npc.is_passed_out()):
@@ -162,7 +164,7 @@ func _rally_allies() -> void:
 	for other: Node in _npc.get_tree().get_nodes_in_group("npc"):
 		if other == _npc or not (other is NPC) or other.crash.active():
 			continue
-		if other.morale_sys.morale >= 40.0 or other.get_relationship(target_id) > HOSTILE_AT * 0.75:
+		if other.mood >= 40.0 or other.get_relationship(target_id) > HOSTILE_AT * 0.75:
 			continue
 		if other.get_relationship(_npc.npc_id) < 20.0 or other.global_position.distance_to(_npc.global_position) > 15.0:
 			continue

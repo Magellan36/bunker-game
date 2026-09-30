@@ -150,7 +150,19 @@ ready for later.
 
 ### Morale, relationships & crash-outs (Sep 2026)
 Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
-- **Morale** (`components/NPCMorale.gd`): slow, 0–100. It follows rolling
+- **Mood is the one state** (Sep 2026: mood adopted morale). The player
+  never sees its numbers: the resident panel shows the mood WORD (Breaking /
+  Strained / Worn down / Getting by / Content), its trend and the top
+  reasons in words (`NPC.get_mood_summary`), and how they feel about you in
+  words — relationship word, "wary/afraid of you", "furious with you",
+  "holds a grudge", and the moment that shaped it (`get_attitude_summary`).
+  Relationship and memory numbers are gone from the panel. Hatred, fear and
+  the rest come across through what residents say and do. Crash-outs read
+  mood (so feeding/resting someone near breaking helps).
+  `NPC.get_mood_state()` returns one key for the planned at-a-glance mood
+  icons: dead, crashing_angry / crashing_frantic / crashing_distraught,
+  afraid, angry, miserable, low, okay, happy.
+- **Mood engine** (`components/NPCMorale.gd`, internal "morale"): slow, 0–100. It follows rolling
   averages of eight bunker conditions (light, power, water quality, food
   quality, rest, space, safety, company), each trait-weighted. Displayed
   **mood** = morale + a capped share of feelings (thoughts, including
@@ -222,10 +234,11 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   - −50…−65, or they were punched first: a **fist fight** after a shorter
     rant. They use the weapons session's `Fists` node (`NPCCombat.raise_fists()`,
     a child of the NPC; jab 5 / cross 8, reach 1.1 m) for 6–10 s, and stop
-    once the target is down to 45 health. Punches never take anyone below
-    5 health (`NPCCombat.PUNCH_FLOOR`): fists don't kill, and an unarmed
-    escalated attack stops at 15. Peacemakers can step into any unarmed
-    fight.
+    once the target is down to 45 health. Punches CAN kill a resident (the
+    player's punches, or an escalated unarmed attack by another resident,
+    which goes on until death or time runs out), but a resident's punches
+    never take the player below 5 (`NPCCombat.PLAYER_PUNCH_FLOOR`).
+    Peacemakers can step into any unarmed fight.
   - ≤ −65, or hit first with a real weapon: ESCALATED (a friend may still
     talk them out of it, at half the odds).
     They grab the nearest loose weapon within 14 m (else fists) and try to
@@ -235,8 +248,8 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   Fight feel: from afar they pathfind (running beyond 4 m); inside 2.4 m
   they walk straight in with `NPC.steer_direct` (no avoidance detour) and
   hold 0.8 × reach, never closer than 0.9 m between centres (capsules touch
-  at 0.8), easing back if crowded. They turn at the capped human rate, square
-  up for 0.45–0.8 s before the first blow, and only strike when within
+  at 0.8), easing back if crowded. They turn at the capped human rate, swing
+  as soon as they're in reach (no waiting), and only strike when within
   ~35° of facing and inside 0.95 × reach. Fists throw a jab, usually
   followed by a cross, then take a 0.9–1.5 s breather. A brawl ends when the
   target is beaten down, when time runs out, or once the target has been

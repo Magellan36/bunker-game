@@ -26,7 +26,6 @@ const WEAPON_SEARCH: float = 14.0
 const ATTACK_SECONDS: Vector2 = Vector2(12.0, 20.0)
 const ESCALATE_BELOW: float = -65.0      ## relationship (incl. half the grudge) that turns a rant into an attack
 const REPEAT_SHIFT: float = 8.0          ## each earlier crash-out counts as this much more hatred (max 2)
-const LETHAL_FISTS_STOP: float = 15.0    ## an unarmed attempt to kill stops once they're beaten senseless
 const GUN_RANGE: float = 7.0
 const BRAWL_BELOW: float = -50.0         ## hatred between this and ESCALATE_BELOW: a fist fight, not sabotage
 const BRAWL_SECONDS: Vector2 = Vector2(6.0, 10.0)
@@ -34,7 +33,6 @@ const BRAWL_STOP_HEALTH: float = 45.0    ## a brawl stops once the target is bea
 ## Fight feel. Capsules touch at 0.8 m between centres; fists reach 1.1 m.
 const CLOSE_IN_AT: float = 2.4           ## within this, walk straight in (avoidance would steer around them)
 const MIN_SPACING: float = 0.9           ## never crowd closer than this (centre to centre)
-const SQUARE_UP: Vector2 = Vector2(0.45, 0.8)   ## guard up and facing before the first blow
 const FACING_OK: float = 0.6             ## rad (~35°): only strike when roughly facing them
 const FIGHT_TURN: float = 10.0           ## face_toward weight per second while fighting (rate-capped)
 const BRAWL_GIVE_UP: float = 2.5         ## s with the target out of reach (got away): the brawl ends
@@ -59,7 +57,6 @@ var _brawl: bool = false
 var _weapon = null   ## WeaponItem (untyped: the weapon script has no class_name)
 var _attack_left: float = 0.0
 var _swing_gap: float = 0.0
-var _squared: bool = false
 var _combo: int = 0
 var _out_of_reach: float = 0.0
 var _peace_check: float = 0.0
@@ -332,7 +329,7 @@ func _begin_attack(npc: NPC) -> void:
 		npc.combat.raise_fists()
 	var who: String = "you" if npc.crash.target_id == "player" else String(t.get("npc_name")) if t != null else "someone"
 	npc.bark_event("attack")
-	_squared = false
+	_swing_gap = 0.0   ## no waiting: the first blow lands as soon as they're in reach
 	_combo = 0
 	_out_of_reach = 0.0
 	_peace_check = 2.0   ## a fight breaks out, THEN someone steps in
@@ -360,7 +357,9 @@ func _tick_attack(npc: NPC, delta: float) -> void:
 	var target_down: bool = t == null or (t.has_method("is_dead") and t.is_dead())
 	var who: String = "you" if npc.crash.target_id == "player" else String(t.get("npc_name")) if t != null else "them"
 	var unarmed: bool = _weapon == null or not is_instance_valid(_weapon)
-	var stop_at: float = BRAWL_STOP_HEALTH if _brawl else (LETHAL_FISTS_STOP if unarmed else -1.0)
+	## A brawl stops once they're beaten down; an escalated attack (fists or
+	## weapon) goes on until they're dead or it runs its course.
+	var stop_at: float = BRAWL_STOP_HEALTH if _brawl else -1.0
 	if not target_down and NPCCombat.health_of(t) <= stop_at:
 		target_down = true   ## beaten down: fists stop there
 		npc.log_event("crash", "Beat %s down" % who)
@@ -399,7 +398,6 @@ func _tick_attack(npc: NPC, delta: float) -> void:
 		npc.combat.rushing = true   ## chasing them down
 		npc.set_nav_target(t.global_position)
 		npc.nav_steer(delta)
-		_squared = false
 		return
 	## Hurry to close on someone walking away (a walker can't just stroll out
 	## of a fight; someone running flat out still can).
@@ -409,9 +407,6 @@ func _tick_attack(npc: NPC, delta: float) -> void:
 	else:
 		npc.steer_direct(t.global_position, maxf(reach * 0.8, MIN_SPACING), delta)
 	npc.face_toward(t.global_position, minf(FIGHT_TURN * delta, 0.99))
-	if not _squared:
-		_squared = true   ## guard up, sizing them up, before the first blow
-		_swing_gap = maxf(_swing_gap, randf_range(SQUARE_UP.x, SQUARE_UP.y))
 	_swing_gap -= delta
 	if _swing_gap > 0.0 or d > reach * 0.95 or absf(_facing_error(npc, t.global_position)) > FACING_OK:
 		return

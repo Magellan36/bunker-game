@@ -558,14 +558,17 @@ func _tick_combat_debug() -> void:
 		6:
 			if waited > 3.0:
 				_cd_press("Reset Combat Test")
-				## Fists never kill: punch someone already at 6 health.
-				b.health = 6.0
-				b.receive_weapon_hit({"damage": 8.0, "position": b.global_position + Vector3.UP * 0.3, "direction": Vector3.RIGHT,
-					"kind": "punch", "source": a, "collider": b})
-				print("[cdebug] punch at 6 health -> %.0f, dead=%s" % [b.health, b.is_dead()])
-				if b.is_dead() or b.health < NPCCombat.PUNCH_FLOOR:
-					_flag("cdebug_punch_killed", b, "a punch took health below the floor", "pk")
-				b.health = 100.0
+				## A resident's punches never kill the PLAYER (they can kill residents).
+				var stats: Node = get_tree().get_first_node_in_group("player_stats")
+				var hp0: float = float(stats.health)
+				stats.health = 6.0
+				a.combat.apply_player_hit({"damage": 8.0, "kind": "punch", "source": a,
+					"collider": get_tree().get_first_node_in_group("player")})
+				print("[cdebug] resident punch on the player at 6 health -> %.0f" % float(stats.health))
+				if float(stats.health) < NPCCombat.PLAYER_PUNCH_FLOOR:
+					_flag("cdebug_punch_killed_player", a, "a resident's punch took the player below the floor", "pk")
+				stats.health = hp0
+				stats.health_changed.emit(stats.health)
 				_cd_place()
 				_cd_press("A Shuns B")
 				var mult: float = a.combat.shun_work_mult()
@@ -592,6 +595,14 @@ func _tick_combat_debug() -> void:
 				if not a.is_dead():
 					_flag("cdebug_kill", a, "Kill A didn't kill", "kl")
 				_cd_press("Stop All Fights")
+				## Player-facing mood words (resident panel) and the icon key.
+				if load("res://scripts/ui/npc/NPCTalkMenuUI.gd") == null:
+					_flag("cdebug_panel_compile", b, "resident panel script failed to load", "pc")
+				for n: Node in get_tree().get_nodes_in_group("npc"):
+					var ms: Dictionary = n.get_mood_summary()
+					print("[cdebug] %s mood: %s%s (%s) | toward you: %s | icon: %s" % [n.npc_name, ms["word"],
+						" — " + String(ms["state"]) if String(ms["state"]) != "" else "", ", ".join(ms["reasons"]),
+						String(n.get_attitude_summary()["text"]), n.get_mood_state()])
 				print("[cdebug] ALL STEPS DONE")
 				_cd_next("overlay + kill")
 
@@ -748,6 +759,7 @@ func _run_morale_timeline() -> void:
 				if is_equal_approx(hod, 7.0):
 					n.morale_sys.note_sleep(String(cfg["sleep"]))
 				n.morale_sys.tick(0.25, 0.0)
+				n.mood = n.morale_sys.morale   ## live play: mood follows the engine (no feelings here); crash-outs read mood
 				if risk_at < 0.0 and n.morale_sys.morale < NPCMorale.CRASH_RISK_BELOW:
 					risk_at = hour / 24.0
 				if crash_at < 0.0 and n.has_method("debug_roll_crash_out") and n.debug_roll_crash_out(0.25):
@@ -770,7 +782,7 @@ func _run_morale_timeline() -> void:
 				_flag("morale_timeline", npcs[0], "bad bunker: only %d/%d residents at risk within a week" % [risked.size(), first_risk.size()], "bad-most")
 			var crashed: Array = first_crash.filter(func(d): return d >= 0.0)
 			if crashed.is_empty() or crashed.min() < 2.8 or crashed.min() > 5.5:
-				_flag("morale_timeline", npcs[0], "bad bunker: first crash-out on day %.1f (want 3-5)" % crashed.min(), "bad-crash")
+				_flag("morale_timeline", npcs[0], "bad bunker: first crash-out on day %s (want 3-5)" % (str(snappedf(crashed.min(), 0.1)) if not crashed.is_empty() else "never"), "bad-crash")
 	_report()
 
 static func _fmt_list(a: Array) -> String:

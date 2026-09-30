@@ -300,7 +300,7 @@ func talk(choice: String) -> Dictionary:
 				_npc.add_thought("laughed")
 			outcome = "joke_good" if lands else "joke_bad"
 		"vent":
-			var hard: bool = _npc.morale < 50.0
+			var hard: bool = _npc.mood < 50.0
 			d = bonds.relate("player", 2.0 if hard else 0.5, "get how hard it is down here" if hard else "complained with me about the bunker")
 			outcome = "vent_hard" if hard else "vent"
 		"firm":

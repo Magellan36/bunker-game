@@ -66,7 +66,7 @@ var _fists: Node = null                     ## Fists, created on first use as a 
 ## a resident is being attacked, or treating one who is at death's door.
 ## One rescue credit per RESCUE_REPEAT_H, so a long fight doesn't stack.
 const RESCUE_HEALTH: float = 25.0
-const PUNCH_FLOOR: float = 5.0              ## punches never take health below this
+const PLAYER_PUNCH_FLOOR: float = 5.0       ## a resident's punches never take the PLAYER below this
 const RESCUE_REPEAT_H: float = 12.0
 
 var _npc: NPC = null
@@ -152,13 +152,10 @@ func receive_hit(ctx: Dictionary) -> void:
 		defended = _npc.crash._find(attacking_id)
 		if defended != null and defended.is_dead():
 			defended = null
-	## Fists hurt; they don't kill (a beating leaves someone on the floor
-	## needing care, not dead — weapons are what kill).
+	## Punches can kill a resident (the player's, or another resident's in an
+	## escalated attack); only the player is spared death by fists.
 	var punch: bool = kind in ["punch", "fists"]
-	if punch:
-		_npc.health = maxf(minf(_npc.health, PUNCH_FLOOR), _npc.health - dmg)
-	else:
-		_npc.health = maxf(0.0, _npc.health - dmg)
+	_npc.health = maxf(0.0, _npc.health - dmg)
 	var injury: String = _injure(kind, part, dmg)
 	## Knocked back a little: a jab rocks them, a bat sends them stumbling.
 	var dir: Vector3 = ctx.get("direction", Vector3.ZERO)
@@ -435,7 +432,9 @@ func apply_player_hit(ctx: Dictionary) -> void:
 		return
 	var dmg: float = float(ctx.get("damage", 0.0))
 	var kind: String = String(ctx.get("kind", "fists"))
-	stats.health = maxf(0.0, float(stats.health) - dmg)
+	## A resident's fists can beat the player down but never kill them.
+	var floor_hp: float = minf(float(stats.health), PLAYER_PUNCH_FLOOR) if kind in ["punch", "fists"] else 0.0
+	stats.health = maxf(floor_hp, float(stats.health) - dmg)
 	stats.health_changed.emit(stats.health)   ## 0 → MainWorld opens the game over
 	if float(stats.health) > 0.0:
 		play_hit_reaction(player, ctx)
