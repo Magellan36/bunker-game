@@ -180,13 +180,16 @@ func finish() -> void:
 	_npc.morale_sys.morale = minf(100.0, _npc.morale_sys.morale + CATHARSIS)
 	match was:
 		Mode.OVERDRIVE:
+			_npc.bark(NPCDialogue.bark_line("calmed_overdrive"), true)
 			_npc.energy = maxf(0.0, _npc.energy - 35.0)
 			_npc.add_thought("burned_out")
 			_npc.log_event("crash", "Came down from the overdrive — completely burned out")
 		Mode.HOSTILE:
+			_npc.bark(NPCDialogue.bark_line("calmed_hostile"), true)
 			_npc.add_thought("vented_rage")
 			_npc.log_event("crash", "Calmed down after lashing out")
 		Mode.BREAKDOWN:
+			_npc.bark(NPCDialogue.bark_line("calmed_breakdown"), true)
 			_npc.add_thought("cried_it_out")
 			_npc.log_event("crash", "Pulled themselves back together")
 	_npc.bonds._remember("self", "Lost it on day %d" % (int(floor(started_at / 24.0)) + 1), -1.0)

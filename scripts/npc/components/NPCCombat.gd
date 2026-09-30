@@ -179,6 +179,7 @@ func receive_hit(ctx: Dictionary) -> void:
 		var now: float = NPCClock.now()
 		var repeat: bool = now - float(_last_hit_at.get(src_id, -99.0)) < REPEAT_HIT_WINDOW_H
 		_last_hit_at[src_id] = now
+		_npc.add_thought("was_attacked", who)
 		if repeat:
 			_npc.bonds.relate(src_id, -8.0, "kept hitting me")
 		else:
@@ -241,6 +242,8 @@ func _bystanders_clear_out(actor_id: String, actor: Node, punch: bool) -> void:
 		if not punch and nerve > 0.55:
 			continue
 		NPCCombatDebug.trace(wn, "clearing out of the way of %s (%s, nerve %.2f)" % [actor_id, "brawl" if punch else "weapon", nerve])
+		if punch:
+			wn.bark(NPCDialogue.bark_line("step_aside"))
 		wn.combat.flee_from = actor_id
 		wn.combat.flee_until_msec = Time.get_ticks_msec() + int((1.6 if punch else 4.5) * 1000.0)
 		if wn.brain != null and wn.brain.is_current_interruptible():
@@ -255,7 +258,8 @@ func credit_rescue(what: String) -> bool:
 	NPCCombatDebug.trace(_npc, "RESCUE credited: '%s' (+20 player)" % what)
 	last_rescued_hours = NPCClock.now()
 	_npc.log_event("care", "You %s" % what)
-	_npc.bark_event("thanks")
+	_npc.bark(NPCDialogue.bark_line("rescued_defended" if what.begins_with("stopped") else "rescued_revived"), true)
+	_npc.add_thought("saved_me", "You")
 	_npc.on_rescued_by_player(what)
 	return true
 
@@ -281,6 +285,7 @@ func shun_work_mult() -> float:
 		if NPCClock.now() - _shun_logged_at > 2.0:
 			_shun_logged_at = NPCClock.now()
 			NPCCombatDebug.trace(_npc, "shuns %s within %.0f m -> work scores x%.1f" % [(o as NPC).npc_name, SHUN_RANGE, SHUN_WORK_MULT])
+			_npc.bark(NPCDialogue.bark_line("shun_work", (o as NPC).npc_name))
 			_npc.log_event("bond", "Won't work next to %s" % (o as NPC).npc_name)
 		return SHUN_WORK_MULT
 	return 1.0
@@ -337,6 +342,11 @@ func _witnesses_react(actor_id: String, actor: Node, what: String, base: float, 
 		var care: float = maxf(0.0, wn.get_relationship(_npc.npc_id) / 100.0)
 		wn.bonds.relate(actor_id, base - care_mult * care, "%s in front of me" % what)
 		wn.morale_sys.note_shock(shock)
+		wn.add_thought("saw_fight", _npc.npc_name)
+		## The brave (or those who care about the victim) shout at it.
+		var brave: bool = wn._trait("resilience") - wn.social.fear / 200.0 > 0.5 or care > 0.3
+		if brave and not wn.crash.active() and wn.global_position.distance_to(_npc.global_position) < 8.0 and randf() < 0.35:
+			wn.bark(NPCDialogue.bark_line("witness_shout", _npc.npc_name))
 		if actor_id == "player":
 			wn.social.fear = minf(100.0, wn.social.fear + 10.0)
 
@@ -377,6 +387,8 @@ func die(cause: String, killer_id: String = "", quiet: bool = false) -> void:
 		var near: bool = wn.global_position.distance_to(_npc.global_position) < WITNESS_RANGE
 		wn.morale_sys.note_shock(0.35 + 0.4 * close + (0.25 if near else 0.0))
 		wn.log_event("mood", "%s died%s" % [_npc.npc_name, " in front of me" if near else ""])
+		if wn.get_relationship(_npc.npc_id) > -20.0 and wn.npc_id != killer_id:
+			wn.add_thought("grieving", _npc.npc_name)
 		if near:
 			wn.bark_event("horrified", _npc.npc_name)
 		if killer_id != "" and killer_id != wn.npc_id:

@@ -14,9 +14,12 @@ class_name TalkActivity
 ##     other side's session ends immediately — the initiator no longer keeps
 ##     talking to an empty spot and then applies a relationship swing for a
 ##     conversation that never finished.
-##   • Participants now "take turns": they face each other continuously
-##     (partners can shuffle a little from avoidance) and the NPC shows
-##     who is speaking via a small speech indicator (see NPC.set_speaking()).
+##   • Participants face each other continuously (partners can shuffle a
+##     little from avoidance).
+## Sep 2026 (Brannon): no overhead dialogue or typing indicator between
+## residents — chats read as cheesy. Residents only speak to show their
+## own state (NPCDialogue barks/greetings); a chat still shapes their
+## relationship.
 
 const SESSION_MIN: float = 8.0    ## real seconds — a quick social beat
 const SESSION_MAX: float = 20.0
@@ -113,7 +116,6 @@ func _face_partner(npc: NPC) -> void:
 	if _partner != null and is_instance_valid(_partner):
 		npc.lock_movement()
 		npc.face_toward((_partner as Node3D).global_position, 1.0)
-		npc.set_speaking(_speaking)
 
 func tick(npc: NPC, delta: float) -> void:
 	if _partner == null or not is_instance_valid(_partner):
@@ -141,12 +143,6 @@ func tick(npc: NPC, delta: float) -> void:
 		_turn_left = randf_range(TURN_MIN, TURN_MAX)
 		_speaking = not _speaking if _is_initiator else _speaking
 		if _is_initiator:
-			npc.set_speaking(_speaking)
-			_partner.set_speaking(not _speaking)
-			## Whoever holds the floor sometimes says something readable.
-			var speaker: NPC = npc if _speaking else _partner
-			if randf() < 0.55:
-				speaker.say_line(NPCDialogue.chat_line(speaker, _turns > 0))
 			_turns += 1
 	if not _is_initiator:
 		return   ## partner just waits — the initiator's end-of-session clears _partner via end_talk_session()

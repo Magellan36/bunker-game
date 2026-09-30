@@ -2,6 +2,11 @@ extends RefCounted
 class_name NPCDialogue
 ## NPCDialogue.gd (Sep 2026; pools formerly inline in NPC.gd).
 ##
+## Sep 2026 (Brannon): residents only say things that show the player their
+## state — mood, condition, wants, dislikes, how they feel about you — and
+## nothing between residents (no overhead chat). Every line here is a
+## placeholder; Brannon will replace them all with his own writing.
+##
 ## Line selection for the resident panel's "Talk" and "Ask about". Picks in
 ## priority order so what a resident says always matches what the player
 ## can see going on with them:
@@ -35,7 +40,6 @@ const LOW_MOOD: Array[String] = [
 ]
 const HAPPY: Array[String] = [
 	"\"Hey! Good to see you.\"",
-	"\"What's up?\"",
 	"\"Honestly? Today's not bad.\"",
 ]
 const NEUTRAL: Array[String] = [
@@ -53,6 +57,78 @@ const TOWARD_PLAYER_COLD: Array[String] = [
 	"\"If this is about work, just say it.\"",
 	"\"Mm.\"",
 ]
+## How they feel about YOU, beyond the relationship word (fear, grudges,
+## gratitude) — so the player reads it from what they say, not a number.
+const TOWARD_PLAYER_AFRAID: Array[String] = [
+	"\"Please — I don't want any trouble.\"",
+	"\"I'll do whatever you want. Just... stay over there.\"",
+	"\"W-what do you need?\"",
+	"\"I'm going, I'm going. Don't.\"",
+]
+const TOWARD_PLAYER_WARY: Array[String] = [
+	"\"...You need something?\"",
+	"\"I'm keeping my head down. Alright?\"",
+	"\"Didn't do anything. Just so you know.\"",
+]
+const TOWARD_PLAYER_GRUDGE: Array[String] = [
+	"\"I haven't forgotten what you did.\"",
+	"\"Don't act like nothing happened.\"",
+	"\"You've got a short memory. I don't.\"",
+	"\"Funny, you talking to me like we're fine.\"",
+]
+const TOWARD_PLAYER_FURIOUS: Array[String] = [
+	"\"Get away from me.\"",
+	"\"Don't. Don't even start.\"",
+	"\"You. Of all people.\"",
+]
+const TOWARD_PLAYER_GRATEFUL: Array[String] = [
+	"\"I wouldn't be standing here if it weren't for you.\"",
+	"\"I owe you. I mean it.\"",
+	"\"Still can't believe you came through for me.\"",
+]
+## Mid crash-out, whatever the player says.
+const CRASH_GREETING: Dictionary = {
+	"hostile":   ["\"Not. Now.\"", "\"Back off. I mean it.\"", "\"Leave me alone before I do something.\""],
+	"overdrive": ["\"Can't talk. Working.\"", "\"Later. There's too much to do.\"", "\"Move — I need to get past.\""],
+	"breakdown": ["\"Please... just leave me alone.\"", "\"*doesn't look up*\"", "\"I can't. Not right now.\""],
+}
+## Close to snapping (at crash-out risk).
+const BREAKING_POINT: Array[String] = [
+	"\"I'm not okay. I'm really not okay.\"",
+	"\"One more thing. One more thing goes wrong and I'm done.\"",
+	"\"Don't push me today. Please.\"",
+	"\"I can feel it slipping. Whatever 'it' is.\"",
+]
+## Grieving someone who died.
+const GRIEF: Array[String] = [
+	"\"I keep thinking about %s.\"",
+	"\"%s should still be here.\"",
+	"\"It's so quiet without %s.\"",
+	"\"...Sorry. I'm just thinking about %s.\"",
+]
+## The bunker condition dragging their mood down the most (NPCMorale ids),
+## said when their mood is low — so the player knows what to fix.
+const CONDITION_BAD: Dictionary = {
+	"light":   ["\"It's so dark down here I can't think straight.\"", "\"Can we get some light in here? Anything?\""],
+	"power":   ["\"The power cut out again. How are we supposed to live like this?\"", "\"Every time the lights flicker my heart stops.\""],
+	"water":   ["\"The water tastes like rust. It can't be safe.\"", "\"I'm scared to drink the water.\""],
+	"food":    ["\"Another cold can. I'm so sick of cold cans.\"", "\"When did we last eat a real meal?\""],
+	"rest":    ["\"I haven't slept properly in days.\"", "\"I'm running on nothing.\""],
+	"space":   ["\"No bed, no room, junk everywhere. It's a pit.\"", "\"There's nowhere to even breathe in here.\""],
+	"safety":  ["\"I don't feel safe down here anymore.\"", "\"After what happened... I keep looking over my shoulder.\""],
+	"company": ["\"Nobody really talks to each other down here.\"", "\"Some of these people... I can't stand being around them.\""],
+}
+const CONDITION_GOOD: Dictionary = {
+	"light":   ["\"Nice to actually see where I'm going for once.\""],
+	"power":   ["\"Power's been steady. Small mercies.\""],
+	"water":   ["\"The water's actually clean now. Didn't think I'd miss that.\""],
+	"food":    ["\"We've been eating well. Feels almost normal.\""],
+	"rest":    ["\"I've been sleeping well. Makes all the difference.\""],
+	"space":   ["\"The place is starting to feel like home.\""],
+	"safety":  ["\"It feels safe down here. For now.\""],
+	"company": ["\"The people down here are alright. Really.\""],
+}
+
 const TOWARD_PLAYER_CLOSE: Array[String] = [
 	"\"There you are! I was hoping you'd stop by.\"",
 	"\"Glad you're around. Seriously.\"",
@@ -81,19 +157,27 @@ const ON_MIND: Dictionary = {
 	"slept_in_chair":    ["\"Fell asleep in a chair. My neck is not happy.\""],
 	"slept_on_floor":    ["\"Slept on the floor. My back is killing me.\"", "\"We need more beds down here. The floor is concrete.\""],
 	"collapsed":         ["\"I pushed too hard and just... blacked out.\"", "\"Woke up on the floor. Don't ask.\""],
-	"good_chat":         ["\"Had a good talk with %s earlier.\"", "\"%s is alright, you know?\""],
 	"bad_chat":          ["\"%s and I got into it earlier. Don't ask.\"", "\"If %s says one more thing to me...\""],
-	"received_gift":     ["\"%s brought me something earlier. Good people.\""],
-	"helped_friend":     ["\"Made sure %s got something to eat. We look out for each other.\""],
 	"got_snatched":      ["\"%s snatched my food right out of my hands.\"", "\"Watch %s. They'll take the food out of your mouth.\""],
 	"food_taken":        ["\"Someone took my food while I was eating. Who does that?\""],
-	"relaxed":           ["\"Took a proper break. Needed that.\""],
 	"break_interrupted": ["\"I was on a break, you know.\""],
-	"productive":        ["\"Got a lot done today. Feels good.\""],
 	"cluttered":         ["\"This place is a mess. Someone should tidy up.\"", "\"I keep tripping over junk down here.\""],
 	"in_pain":           ["\"Everything hurts.\"", "\"I'm not in great shape right now.\""],
 	"lonely":            ["\"Feels like nobody talks to each other down here.\""],
 	"crowded_beds":      ["\"Would be nice to have a bed I could count on.\""],
+	"insulted":          ["\"I heard what you said. I'm not deaf.\"", "\"Nice words earlier. Really.\""],
+	"threatened":        ["\"You threatened me. I'm not going to forget that.\"", "\"I'm doing what you said. Happy?\""],
+	"under_pressure":    ["\"Everyone's breathing down my neck.\""],
+	"cowed":             ["\"I'm not going to cause trouble. Okay?\""],
+	"burned_out":        ["\"I think I worked myself into the ground.\"", "\"I've got nothing left. Nothing.\""],
+	"vented_rage":       ["\"I lost it earlier. I... needed that, I think.\"", "\"Sorry about before. I'm calmer now.\""],
+	"cried_it_out":      ["\"I'm alright. I just needed a minute. Or an hour.\""],
+	"was_attacked":      ["\"%s hit me. Just — hit me.\"", "\"Keep %s away from me.\"", "\"My face still hurts. Thanks, %s.\""],
+	"saw_fight":         ["\"Did you see what happened to %s?\"", "\"I can't stop thinking about the fight.\""],
+	"saved_me":          ["\"%s saved my life. I won't forget it.\""],
+	"broke_up_fight":    ["\"Somebody had to pull them apart.\""],
+	"backed_down":       ["\"I backed off from %s. Wasn't worth it.\"", "\"%s wanted a fight. I didn't.\""],
+	"talked_down":       ["\"%s talked me down. Probably a good thing.\""],
 }
 const ON_MIND_CHANCE: float = 0.55
 
@@ -138,42 +222,28 @@ const BARKS: Dictionary = {
 	"fight_back":    ["You want a fight? Fine!", "Big mistake.", "That's the last time you touch me!"],
 	"horrified":     ["Oh my God...", "What did you DO?!", "No, no, no...", "Is... is %s dead?"],
 	"attack":        ["This ends NOW!", "You did this to us!", "I warned you!", "Come here!"],
-}
-
-## Conversation snippets (TalkActivity turn-taking). About half the time a
-## resident brings up something real (their strongest thought, phrased for
-## a peer); otherwise bunker small talk, tinted by mood.
-const SMALL_TALK: Array[String] = [
-	"How are you holding up?", "Sleep okay?", "Think anyone's still up there?",
-	"I keep hearing the pipes at night.", "How long do you think the food will last?",
-	"We should fix up this place a bit.", "Heard anything on the radio?",
-	"I miss the sun.", "What day is it even?", "You doing alright?",
-	"Remember fresh coffee?", "We're going to make it. Probably.",
-]
-const SMALL_TALK_GLUM: Array[String] = [
-	"I don't know how much longer I can do this.", "Everything's so grey down here.",
-	"Some days I just... ugh.", "Don't you ever get tired of it?",
-]
-const SMALL_TALK_REPLY: Array[String] = [
-	"Yeah.", "Tell me about it.", "Ha, right?", "Mm-hm.", "Same.", "Don't remind me.",
-	"Could be worse.", "True.", "No kidding.",
-]
-const CHAT_ABOUT: Dictionary = {
-	"ate_hot_meal": ["That hot meal earlier was amazing.", "Someone actually cooked today!"],
-	"ate_cold_can": ["If I eat one more cold can...", "Canned again. Of course."],
-	"slept_in_bed": ["Actually slept well last night.", "Beds. Underrated."],
-	"slept_on_floor": ["My back is wrecked. Floor again.", "We need more beds."],
-	"slept_in_chair": ["Fell asleep in a chair. Big mistake."],
-	"collapsed": ["I literally passed out yesterday.", "Pushed myself too hard."],
-	"got_snatched": ["%s took my food. Just took it.", "Watch out for %s."],
-	"received_gift": ["%s brought me food earlier. Sweet of them."],
-	"bad_chat": ["%s and I aren't talking right now."],
-	"good_chat": ["%s is good company, you know?"],
-	"cluttered": ["This place is a mess.", "Somebody should really tidy up."],
-	"in_pain": ["Everything hurts today.", "Can't shake this injury."],
-	"lonely": ["Feels like nobody talks down here.", "Nice to actually talk to someone."],
-	"productive": ["Got a lot done today.", "Keeping busy helps."],
-	"relaxed": ["Took a proper break. Needed it."],
+	## Fights and their de-escalation (CrashOutActivity / NPCCombat).
+	"brawl_start":   ["You want to go? Let's go!", "Come on then!", "I've had it with you, %s!", "Put 'em up!"],
+	"grab_weapon":   ["Where is it — there.", "Fine. FINE.", "You asked for this."],
+	"back_down":     ["Okay! Okay — I'm sorry!", "Whoa, whoa. I don't want to fight.", "Forget it. You win.", "I'm not doing this."],
+	"stare_down":    ["That's what I thought.", "Yeah. Walk away.", "Coward."],
+	"talk_down":     ["Hey. HEY. Not worth it.", "%s, stop. Look at me.", "Walk away. Come on.", "Don't. You'll regret it."],
+	"talked_down":   ["...Fine. FINE.", "...You're right. You're right.", "Get out of my way, then.", "*breathes*"],
+	"held_back":     ["Not again. Not today.", "...Forget it.", "I'm not doing this again."],
+	"peacemaker_run": ["Hey! Break it up!", "Stop it! Both of you!", "Whoa — enough!"],
+	"peacemaker_separate": ["ENOUGH!", "Back off! Back OFF!", "It's over. It's over!"],
+	"pulled_off":    ["Get off me!", "Let go of me!", "This isn't over, %s!"],
+	"beat_down":     ["Stay down.", "Don't get up.", "Had enough?"],
+	"beaten":        ["Okay... okay... you win.", "Stop... please...", "*coughing*"],
+	"done_fighting": ["Stay away from me.", "We're done here.", "Don't ever — ever — do that again."],
+	"step_aside":    ["Whoa, whoa!", "Not my fight!", "Hey — watch it!"],
+	"witness_shout": ["Hey! Stop it!", "Somebody stop them!", "What are you DOING?!", "Leave %s alone!"],
+	"shun_work":     ["I'm not working next to %s.", "Not while %s is here.", "Keep %s away from me and I'll work."],
+	"rescued_defended": ["You — you stopped them. Thank you.", "I thought I was dead. Thank you.", "You saved me."],
+	"rescued_revived":  ["I... I'm still here?", "Thank you. I thought that was it.", "You kept me alive. I won't forget it."],
+	"calmed_hostile":   ["...I'm sorry. I don't know what came over me.", "I lost it. I know I lost it.", "Okay. I'm okay now."],
+	"calmed_breakdown": ["I'm alright. I think.", "Sorry. I just... couldn't.", "*wipes eyes*"],
+	"calmed_overdrive": ["I need to sit down.", "What... what time is it?", "I think I overdid it."],
 }
 
 ## Hostile crash-out rants, aimed at whoever they're furious at.
@@ -217,16 +287,6 @@ static func talk_reply(npc: NPC, outcome: String) -> String:
 		return greeting(npc)
 	return _pick(pool)
 
-static func chat_line(npc: NPC, replying: bool) -> String:
-	if replying and randf() < 0.45:
-		return _pick(SMALL_TALK_REPLY)
-	if npc.thoughts != null and randf() < 0.5:
-		var t: Dictionary = npc.thoughts.strongest(randf() < 0.5)
-		if not t.is_empty() and CHAT_ABOUT.has(t["id"]):
-			var line: String = _pick(CHAT_ABOUT[t["id"]])
-			return line % String(t["subject"]) if line.contains("%s") else line
-	return _pick(SMALL_TALK_GLUM if npc.mood < 35.0 else SMALL_TALK)
-
 static func bark_line(kind: String, subject: String = "") -> String:
 	var pool: Array = BARKS.get(kind, [])
 	if pool.is_empty():
@@ -234,20 +294,62 @@ static func bark_line(kind: String, subject: String = "") -> String:
 	var line: String = _pick(pool)
 	return line % subject if line.contains("%s") else line
 
-## greeting() without the surrounding quote marks, for a floating bark.
+## greeting() without the surrounding quote marks, for a floating bark as
+## the player walks by. Only when it says something about their state:
+## a plain "Hey." / "Need something?" isn't worth a bubble ("").
 static func greeting_bark(npc: NPC) -> String:
-	return greeting(npc).trim_prefix("\"").trim_suffix("\"")
+	var line: String = greeting(npc)
+	if NEUTRAL.has(line):
+		return ""
+	return line.trim_prefix("\"").trim_suffix("\"")
 
 static func _pick(pool: Array) -> String:
 	return String(pool[randi() % pool.size()])
 
+## Strongest thought of `id` ({} if none) — for subject-bearing lines.
+static func _thought(npc: NPC, id: String) -> Dictionary:
+	if npc.thoughts == null:
+		return {}
+	for t: Dictionary in npc.thoughts.describe():
+		if String(t["id"]) == id:
+			return t
+	return {}
+
+## Fills "%s"; the player ("You") reads "you" unless it starts the line.
+static func _sub(line: String, subject: String) -> String:
+	if not line.contains("%s"):
+		return line
+	if subject == "You" and not (line.begins_with("%s") or line.begins_with("\"%s")):
+		subject = "you"
+	return line % subject
+
 static func greeting(npc: NPC) -> String:
+	## Mid crash-out: nothing else gets through.
+	if npc.crash.active():
+		if npc.crash.mode == NPCCrashOut.Mode.HOSTILE and npc.crash.target_id == "player":
+			return _pick(TOWARD_PLAYER_FURIOUS)
+		return _pick(CRASH_GREETING.get(npc.crash.mode_name(), NEUTRAL))
 	var irr: String = npc.get_irritability_label()
 	if irr == "Rage" or irr == "Mad":
 		return _pick(ANGRY)
+	## Fear of the player beats everything else they might say.
+	if npc.social.fear >= 60.0:
+		return _pick(TOWARD_PLAYER_AFRAID)
 	var rel: String = npc.get_relationship_label("player")
 	if rel == "Hostile":
 		return _pick(TOWARD_PLAYER_HOSTILE)
+	if npc.bonds.grudge_against("player") <= -20.0 and randf() < 0.6:
+		return _pick(TOWARD_PLAYER_GRUDGE)
+	var saved: Dictionary = _thought(npc, "saved_me")
+	if not saved.is_empty() and String(saved["subject"]) == "You" and randf() < 0.7:
+		return _pick(TOWARD_PLAYER_GRATEFUL)
+	var grief: Dictionary = _thought(npc, "grieving")
+	if not grief.is_empty() and randf() < 0.6:
+		return "\"%s\"" % _sub(_pick(GRIEF).trim_prefix("\"").trim_suffix("\""), String(grief["subject"]))
+	if npc.crash.daily_risk() > 0.0 and randf() < 0.6:
+		return _pick(BREAKING_POINT)
+	if npc.social.fear >= 30.0 and randf() < 0.5:
+		return _pick(TOWARD_PLAYER_WARY)
 	if irr == "Frustrated":
 		return _pick(FRUSTRATED)
 	if npc.hunger < 20.0:
@@ -265,8 +367,14 @@ static func greeting(npc: NPC) -> String:
 		if t.is_empty():
 			t = npc.thoughts.strongest(npc.mood < 50.0)
 		if not t.is_empty() and absf(float(t["mood"])) >= 1.5 and ON_MIND.has(t["id"]):
-			var line: String = _pick(ON_MIND[t["id"]])
-			return line % String(t["subject"]) if line.contains("%s") else line
+			return _sub(_pick(ON_MIND[t["id"]]), String(t["subject"]))
+	## What's wearing them down (or lifting them up) about the bunker.
+	var reasons: Array[Dictionary] = npc.morale_sys.get_reasons()
+	if not reasons.is_empty() and randf() < 0.5:
+		var top: Dictionary = reasons[0]
+		var pool: Dictionary = CONDITION_BAD if float(top["points"]) < 0.0 else CONDITION_GOOD
+		if pool.has(String(top["id"])) and (npc.mood < 50.0) == (float(top["points"]) < 0.0):
+			return _pick(pool[String(top["id"])])
 	if rel == "Close" and randf() < 0.5:
 		return _pick(TOWARD_PLAYER_CLOSE)
 	if npc.mood < 25.0:

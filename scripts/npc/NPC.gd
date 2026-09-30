@@ -2228,6 +2228,7 @@ func bark(text: String, force: bool = false) -> void:
 	if not force and Time.get_ticks_msec() - _last_bark_msec < int(BARK_MIN_GAP_SEC * 1000.0):
 		return
 	_last_bark_msec = Time.get_ticks_msec()
+	NPCCombatDebug.trace(self, "says: %s" % text)
 	_get_bubble().say(text, BARK_DURATION)
 
 ## A conversation line: not rate-limited like event barks (TalkActivity

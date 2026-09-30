@@ -315,6 +315,7 @@ func _tick_arm(npc: NPC, delta: float) -> void:
 	if NPCItemUser.in_reach(npc, _weapon.global_position, NPCItemUser.PICKUP_RANGE):
 		if NPCItemUser.grab_loose(npc, _weapon):
 			npc.log_event("crash", "Grabbed a %s" % NPCCombat.weapon_name(String(_weapon.weapon_kind)))
+			npc.bark_event("grab_weapon")
 		else:
 			_weapon = null
 		_begin_attack(npc)
@@ -328,7 +329,7 @@ func _begin_attack(npc: NPC) -> void:
 		_weapon = null
 		npc.combat.raise_fists()
 	var who: String = "you" if npc.crash.target_id == "player" else String(t.get("npc_name")) if t != null else "someone"
-	npc.bark_event("attack")
+	npc.bark(NPCDialogue.bark_line("brawl_start" if _brawl else "attack", String(t.get("npc_name")) if t is NPC else "you"), true)
 	_swing_gap = 0.0   ## no waiting: the first blow lands as soon as they're in reach
 	_combo = 0
 	_out_of_reach = 0.0
@@ -363,6 +364,9 @@ func _tick_attack(npc: NPC, delta: float) -> void:
 	if not target_down and NPCCombat.health_of(t) <= stop_at:
 		target_down = true   ## beaten down: fists stop there
 		npc.log_event("crash", "Beat %s down" % who)
+		npc.bark(NPCDialogue.bark_line("beat_down"), true)
+		if t is NPC:
+			(t as NPC).bark(NPCDialogue.bark_line("beaten"), true)
 	## Someone got between them.
 	if npc.combat.separated:
 		npc.combat.separated = false
@@ -442,7 +446,8 @@ func _disengage(npc: NPC) -> void:
 		_weapon.set_aiming(false)
 	_to(Phase.GLARE)
 	_timer = -randf_range(GLARE_SECONDS.x, GLARE_SECONDS.y)
-	npc.bark_event("seething")
+	if not npc.combat.separated:
+		npc.bark(NPCDialogue.bark_line("done_fighting"), true)
 
 ## Why this fist fight doesn't happen ("" = it does): the colony just had
 ## one, the target backs down, or a friend talks them out of it. Being
@@ -461,6 +466,7 @@ func _held_back(npc: NPC, punched_first: bool, lethal: bool = false) -> String:
 	var since: float = NPCClock.now() - NPCCombat.last_fight_hours
 	if not lethal and since < NPCCombat.FIGHT_COOLDOWN_H and not NPCCombatDebug.ignore_cooldown:
 		NPCCombatDebug.trace(npc, "held back by colony cooldown (last fight %.1fh ago < %.0fh)" % [since, NPCCombat.FIGHT_COOLDOWN_H])
+		npc.bark(NPCDialogue.bark_line("held_back"), true)
 		return "Held back — nobody wants another fight"
 	var t: Node3D = npc.crash.target_node()
 	if not lethal and t is NPC and not (t as NPC).crash.active():
@@ -474,6 +480,9 @@ func _held_back(npc: NPC, punched_first: bool, lethal: bool = false) -> String:
 		NPCCombatDebug.trace(npc, "%s back-down roll %.2f < %.2f ? (neuroticism %.2f, fear %.0f)" % [tn.npc_name, roll, back_down, tn._trait("neuroticism"), tn.social.fear])
 		if roll < back_down:
 			tn.log_event("crash", "Backed down from a fight with %s" % npc.npc_name)
+			tn.bark(NPCDialogue.bark_line("back_down"), true)
+			tn.add_thought("backed_down", npc.npc_name)
+			npc.bark(NPCDialogue.bark_line("stare_down"), true)
 			return "%s backed down" % tn.npc_name
 	for o: Node in npc.get_tree().get_nodes_in_group("npc"):
 		var on: NPC = o as NPC
@@ -488,6 +497,9 @@ func _held_back(npc: NPC, punched_first: bool, lethal: bool = false) -> String:
 		if friends and randf() < chance:
 			on.log_event("bond", "Talked %s out of a fight" % npc.npc_name)
 			npc.bonds.relate(on.npc_id, 4.0, "talked me down")
+			on.bark(NPCDialogue.bark_line("talk_down", npc.npc_name), true)
+			npc.bark(NPCDialogue.bark_line("talked_down"), true)
+			npc.add_thought("talked_down", on.npc_name)
 			return "%s talked me down" % on.npc_name
 	NPCCombatDebug.trace(npc, "no de-escalation — the fight goes ahead")
 	return ""

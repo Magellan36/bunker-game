@@ -29,7 +29,7 @@ func backoff_on_futile() -> bool:
 
 func enter(npc: NPC) -> void:
 	_timer = 0.0
-	npc.bark_event("hurt")   ## "Stop!" and the like
+	npc.bark(NPCDialogue.bark_line("peacemaker_run"), true)
 
 func tick(npc: NPC, delta: float) -> void:
 	_timer += delta
@@ -75,6 +75,11 @@ func _separate(npc: NPC, b: NPC) -> void:
 	b.combat.separated = true
 	b.combat.separated_by = npc.npc_name
 	npc.combat.break_up_id = ""
+	npc.bark(NPCDialogue.bark_line("peacemaker_separate"), true)
+	b.bark(NPCDialogue.bark_line("pulled_off", victim.npc_name if victim != null else "you"), true)
+	npc.add_thought("broke_up_fight")
+	if victim != null:
+		victim.bark(NPCDialogue.bark_line("thanks_friend", npc.npc_name), true)
 	npc.log_event("bond", "Pulled %s off %s" % [b.npc_name, victim.npc_name if victim != null else "someone"])
 	if victim != null and victim != npc:
 		victim.bonds.relate(npc.npc_id, 12.0, "pulled %s off me" % b.npc_name,

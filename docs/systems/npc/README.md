@@ -150,6 +150,22 @@ ready for later.
 
 ### Morale, relationships & crash-outs (Sep 2026)
 Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
+- **What residents say** (`NPCDialogue`, Sep 2026, Brannon): only lines
+  that show the player their state — mood, condition, wants, dislikes, how
+  they feel about you, what just happened to them. No overhead dialogue
+  between residents (TalkActivity is silent; the chat still shapes the
+  relationship), no idle "Hey." as you walk by. Every line is a
+  placeholder Brannon will replace. Triggers: walking up to a resident
+  (greeting: crash-out / afraid / grudge / grateful / grieving / at
+  breaking point / wary / needs / what's on their mind / the bunker
+  condition hurting or helping most); fights (brawl start, weapon grab,
+  back down + stare down, talk down + talked down, held back by the
+  cooldown, peacemaker running in and separating, pulled off, beat down /
+  beaten, done fighting, step aside, witness shouting, rescued); shunning
+  ("I'm not working next to X"); crash-out start and calm-down. Combat
+  thoughts feed the panel and greetings: was attacked, saw a fight,
+  grieving, saved my life, broke up a fight, backed down, talked down.
+  With F7 combat logging on, every spoken line prints as "X says: ...".
 - **Mood is the one state** (Sep 2026: mood adopted morale). The player
   never sees its numbers: the resident panel shows the mood WORD (Breaking /
   Strained / Worn down / Getting by / Content), its trend and the top
