@@ -22,6 +22,8 @@ var _suppress_mouse_motion: bool = false
 const MOUSE_MOTION_MIN_PX: float       = 1.0
 const MOUSE_MOTION_THRESHOLD_PX: float = 4.0
 const MOUSE_MOTION_WINDOW_SEC: float   = 0.25
+## Stick/trigger deflection that counts as deliberate controller use.
+const JOY_MOTION_DEADZONE: float = 0.35
 
 var _mouse_move_accum: float = 0.0
 var _mouse_move_timer: float = 0.0
@@ -74,7 +76,11 @@ func _sync_cursor() -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 func _input(event: InputEvent) -> void:
-	if event is InputEventJoypadButton or event is InputEventJoypadMotion:
+	## Pad noise must not flip the mode: a resting stick/trigger streams tiny
+	## JoypadMotion events, and every flip swaps the OS cursor CAPTURED <->
+	## HIDDEN (which also dropped a held right-click mid-aim on mouse+keyboard).
+	if (event is InputEventJoypadButton and event.pressed) \
+			or (event is InputEventJoypadMotion and absf(event.axis_value) >= JOY_MOTION_DEADZONE):
 		_controller_mode = true
 		_mouse_move_accum = 0.0
 	elif event is InputEventKey or event is InputEventMouseButton:

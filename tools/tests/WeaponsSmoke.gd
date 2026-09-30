@@ -202,14 +202,14 @@ func _run() -> void:
 	rmb.pressed = true
 	Input.parse_input_event(rmb)
 	await ticks(2)
-	var start_point: Vector2 = controller._mouse_point
+	var start_offset: Vector2 = controller._mouse_offset
 	var yaw_before: float = player.rotation.y
 	var motion := InputEventMouseMotion.new()
-	motion.relative = Vector2(-20, -18)   ## headless viewport is only 64 px
+	motion.relative = start_offset.orthogonal() * 1.5   ## swing the ring point sideways
 	motion.button_mask = MOUSE_BUTTON_MASK_RIGHT
 	Input.parse_input_event(motion)
 	await ticks(12)
-	check(controller._mouse_point.distance_to(start_point + Vector2(-20, -18)) < 1.0, "mouse motion moves the aim point")
+	check(absf(controller._mouse_offset.angle_to(start_offset)) > 0.5 and is_equal_approx(controller._mouse_offset.length(), controller.ring_radius()), "mouse motion steers the aim around a fixed ring")
 	check(absf(angle_difference(player.rotation.y, yaw_before)) > 0.2, "mouse aim turns the player toward the aim point")
 	player.set_movement_locked(true)
 	await ticks(2)

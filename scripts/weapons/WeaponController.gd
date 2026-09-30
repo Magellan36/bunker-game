@@ -27,7 +27,12 @@ var _buffer_left: float = 0.0
 ## i.e. on the player. Mouse aim therefore uses its own virtual point: it
 ## starts ahead of the player on RMB and moves with raw mouse motion.
 const MOUSE_AIM_START: float = 2.5
-var _mouse_point: Vector2
+## The virtual point lives on a ring around the player's screen position, so
+## the mouse steers a direction like the right stick does (reversing is one
+## small flick, never a long drag back across the screen).
+## Radius as a fraction of screen height (≈140 px at 1080p).
+const MOUSE_RING_FRACTION: float = 0.13
+var _mouse_offset: Vector2 = Vector2(0, -1)   ## from the player on screen, on the ring
 var _aim_yaw: float = 0.0
 var _was_aiming: bool = false
 var _trigger_down: bool = false
@@ -71,6 +76,8 @@ func _input(event: InputEvent) -> void:
 		_rmb_down = event.pressed
 		if not event.pressed:
 			_mouse_aim = false
+	elif event is InputEventMouseMotion and _mouse_aim:
+		_steer_mouse_point(event.relative)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not _focused or not interaction.can_use_weapon() or not (interaction.held_item is Weapon or interaction.held_item == null):
@@ -88,9 +95,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		if is_instance_valid(_weapon) and _weapon.is_firearm():
 			_weapon.reload()
 			get_viewport().set_input_as_handled()
-	elif event is InputEventMouseMotion and _mouse_aim:
-		var rect: Rect2 = get_viewport().get_visible_rect()
-		_mouse_point = (_mouse_point + event.relative).clamp(rect.position, rect.end - Vector2.ONE)
 	elif event is InputEventJoypadMotion and event.axis == JOY_AXIS_TRIGGER_RIGHT:
 		var pressed: bool = event.axis_value > 0.55
 		if pressed and not _trigger_down:
@@ -125,7 +129,7 @@ func _physics_process(delta: float) -> void:
 	if _mouse_aim:
 		var camera: Camera3D = get_viewport().get_camera_3d()
 		if camera != null:
-			var mouse: Vector2 = _mouse_point
+			var mouse: Vector2 = _player_screen() + _mouse_offset
 			var plane := Plane(Vector3.UP, _weapon.get_aim_origin().y)
 			var point: Variant = plane.intersects_ray(camera.project_ray_origin(mouse), camera.project_ray_normal(mouse))
 			if point != null:
@@ -153,19 +157,38 @@ func _physics_process(delta: float) -> void:
 	if aim:
 		var camera: Camera3D = get_viewport().get_camera_3d()
 		if camera != null:
-			_reticle.aim_position = _mouse_point if _mouse_aim else camera.unproject_position(_weapon.global_position + _direction * minf(_weapon.reach, 7.0))
+			## Mouse and pad share one placement: a tight ring in the aim direction.
+			_reticle.aim_position = camera.unproject_position(_weapon.global_position + _direction * minf(_weapon.reach, 7.0))
 		_reticle.empty = _weapon.is_firearm() and _weapon.ammo == 0
+
+func _player_screen() -> Vector2:
+	var camera: Camera3D = get_viewport().get_camera_3d()
+	var player: CharacterBody3D = interaction.player
+	if camera == null or not is_instance_valid(player):
+		return get_viewport().get_visible_rect().size * 0.5
+	var at: Vector3 = player.global_position
+	if is_instance_valid(_weapon):
+		at.y = _weapon.get_aim_origin().y
+	return camera.unproject_position(at)
+
+func ring_radius() -> float:
+	return get_viewport().get_visible_rect().size.y * MOUSE_RING_FRACTION
+
+func _steer_mouse_point(relative: Vector2) -> void:
+	var offset: Vector2 = _mouse_offset + relative
+	if offset.length() > 1.0:
+		_mouse_offset = offset.normalized() * ring_radius()
 
 func _start_mouse_point() -> void:
 	var camera: Camera3D = get_viewport().get_camera_3d()
 	var player: CharacterBody3D = interaction.player
 	if camera == null or not is_instance_valid(player):
-		_mouse_point = get_viewport().get_visible_rect().size * 0.5
 		return
 	var ahead: Vector3 = player.global_position - player.global_basis.z * MOUSE_AIM_START
 	if is_instance_valid(_weapon):
 		ahead.y = _weapon.get_aim_origin().y
-	_mouse_point = camera.unproject_position(ahead)
+	_mouse_offset = camera.unproject_position(ahead) - _player_screen()
+	_steer_mouse_point(Vector2.ZERO)
 
 ## Closest valid target to the stick direction inside the assist cone, with a
 ## clear line; otherwise the raw direction.
