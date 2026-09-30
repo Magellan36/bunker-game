@@ -63,6 +63,8 @@ var _peace_check: float = 0.0
 var _peacemaker_called: bool = false
 
 func score(npc: NPC) -> float:
+	if npc.crash != null and npc.crash.mode == NPCCrashOut.Mode.BREAKDOWN and NPCCombat.should_hide(npc):
+		return 0.0   ## a weapon fight: even someone falling apart takes cover first
 	if npc.crash != null and npc.crash.active() and npc.crash.mode in [NPCCrashOut.Mode.HOSTILE, NPCCrashOut.Mode.BREAKDOWN]:
 		return 1000.0
 	return 0.0

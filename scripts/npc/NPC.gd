@@ -1553,6 +1553,7 @@ func get_thought_summaries() -> Array[Dictionary]:
 func _ready() -> void:
 	add_to_group("npc")
 	add_to_group("interactable")
+	NPCCombat.ensure_weapon_listener(get_tree())   ## gunshots send residents into hiding
 
 	if npc_id == "":
 		npc_id = "npc_%d" % _next_npc_id

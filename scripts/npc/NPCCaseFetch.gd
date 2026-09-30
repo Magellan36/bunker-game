@@ -115,10 +115,11 @@ func _tick_travel_loose(npc: NPC, delta: float) -> void:
 	NPCItemUser.track_fetch_target(npc, _case)
 	npc.nav_steer(delta)
 	if NPCItemUser.in_reach(npc, _case.global_position, CASE_RANGE):
-		if NPCItemUser.grab_loose(npc, _case):
+		if NPCItemUser.grab_loose(npc, _case, CASE_RANGE):   ## a case is grabbed at case range (was failing at 1.2–1.8 m)
 			_wait_timer = PRE_EJECT_WAIT
 			phase = Phase.WAIT_PRE_EJECT
 		else:
+			NPCCombatDebug.trace(npc, "case fetch: grab failed at %.2f m (nav finished %s)" % [NPCItemUser.flat_distance(npc.global_position, _case.global_position), npc.nav_finished()])
 			NPCItemUser.release_item(_case)
 			_case = null
 			phase = Phase.FAILED

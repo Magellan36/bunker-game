@@ -121,6 +121,36 @@ static func raise_alarm(tree: SceneTree, pos: Vector3, ids: Array) -> void:
 		if cur == null or cur.label() != "Hiding":
 			npc.brain.stop_current()   ## react now, whatever they were doing
 
+## Gunshots (Sep 2026): every revolver shot — the player's or a resident's,
+## hit or miss — raises the alarm. Weapons emit attack_started(kind, ...);
+## this listens to every WeaponItem in the tree (existing ones, and new
+## ones as they're added). Called from NPC._ready (idempotent).
+static var _listening_tree: SceneTree = null
+
+static func ensure_weapon_listener(tree: SceneTree) -> void:
+	if _listening_tree == tree:
+		return
+	_listening_tree = tree
+	tree.node_added.connect(_on_node_added)
+	for n: Node in tree.get_nodes_in_group("inventory_item"):
+		_watch_gun(n)
+
+static func _on_node_added(n: Node) -> void:
+	_watch_gun(n)
+
+static func _watch_gun(n: Node) -> void:
+	if not ("weapon_kind" in n) or not n.has_signal("attack_started"):
+		return
+	var cb: Callable = _on_weapon_attack.bind(n)
+	if not n.is_connected("attack_started", cb):
+		n.connect("attack_started", cb)
+
+static func _on_weapon_attack(kind: String, _variant: int, weapon: Node) -> void:
+	if kind != "revolver" or weapon == null or not is_instance_valid(weapon) or not weapon.is_inside_tree():
+		return   ## only gunfire is loud enough; melee raises it when it lands
+	var holder: Node = weapon.call("_get_holder") if weapon.has_method("_get_holder") else null
+	raise_alarm(weapon.get_tree(), (weapon as Node3D).global_position, [id_of(holder)])
+
 ## Is the alarm up (or was it, within `linger_s` seconds of quiet)?
 static func alarm_active(linger_s: float = 0.0) -> bool:
 	return Time.get_ticks_msec() - _alarm_msec < int((ALARM_HOLD_S + linger_s) * 1000.0)
@@ -130,7 +160,11 @@ static func alarm_involves(id: String) -> bool:
 
 ## Should this resident be hiding right now? (HideActivity's trigger.)
 static func should_hide(npc: NPC) -> bool:
-	if npc.combat.dead or npc.crash.active() or npc.is_passed_out():
+	if npc.combat.dead or npc.is_passed_out():
+		return false
+	## Someone mid breakdown/overdrive still takes cover; someone raging or
+	## fighting (hostile, self-defence) carries on.
+	if npc.crash.active() and npc.crash.mode == NPCCrashOut.Mode.HOSTILE:
 		return false
 	if npc.brain != null and npc.brain.is_sleeping():
 		return false

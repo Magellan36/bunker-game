@@ -276,7 +276,9 @@ static func find_fetch_target(npc: NPC, filter: Callable) -> Dictionary:
 static func hands_full(npc: NPC) -> bool:
 	return npc.held_item != null and is_instance_valid(npc.held_item)
 
-static func grab_loose(npc: NPC, item: RigidBody3D) -> bool:
+## `reach`: callers fetching something bigger than a can (a case, CASE_RANGE)
+## pass their own range, or the grab fails at the distance they stopped at.
+static func grab_loose(npc: NPC, item: RigidBody3D, reach: float = PICKUP_RANGE) -> bool:
 	if item == null or not is_instance_valid(item):
 		return false
 	if hands_full(npc):
@@ -307,7 +309,7 @@ static func grab_loose(npc: NPC, item: RigidBody3D) -> bool:
 	## design.
 	if is_on_stove(item):
 		return false
-	if not in_reach(npc, item.global_position, PICKUP_RANGE):
+	if not in_reach(npc, item.global_position, reach):
 		return false
 	if item.has_method("pickup"):
 		item.pickup(npc.hold_point)

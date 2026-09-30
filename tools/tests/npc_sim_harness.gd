@@ -431,6 +431,19 @@ func _tick_combat() -> void:
 		if _combat_done.has("feud") and not _combat_done.has("defend") and st >= 58.0:
 			_combat_done["defend"] = true
 			_flag("combat_feud_no_attack", c, "an escalated crash-out at a resident never attacked", "cfa")
+	## A gunshot at nothing (a real Webley's attack signal): everyone not
+	## fighting should take cover.
+	if st >= 16.0 and not _combat_done.has("gunshot"):
+		_combat_done["gunshot"] = true
+		var gun: Node = FarmingShopHelper.spawn_scene_settled(_world, "res://scenes/weapons/Webley.tscn", player.global_position + Vector3(0.5, 0.5, 0.0))
+		if gun != null:
+			gun.attack_started.emit("revolver", 0)
+	if st >= 19.0 and not _combat_done.has("gunshot_check"):
+		_combat_done["gunshot_check"] = true
+		var hiding: Array = get_tree().get_nodes_in_group("npc").filter(func(n): return n.brain.current_label() == "Hiding")
+		print("[combat] after a gunshot: hiding = %s" % str(hiding.map(func(n): return n.npc_name)))
+		if hiding.is_empty():
+			_flag("combat_gunshot_no_hide", all[0], "a gunshot sent nobody into hiding", "gh")
 	if st >= 20.0 and not _combat_done.has("rage"):
 		_combat_done["rage"] = true
 		_combat_player_hp = float(stats.health)
@@ -1081,7 +1094,7 @@ func _rand_floor_pos() -> Vector3:
 	return Vector3(x, 1.0, z)
 
 # ─── Sampling / invariants ────────────────────────────────────────────────
-const STATIONARY_OK: Array[String] = ["LeanActivity", "CrashOutActivity", 
+const STATIONARY_OK: Array[String] = ["LeanActivity", "CrashOutActivity", "HideActivity", "TreatActivity", 
 	"SitActivity", "LieActivity", "RelaxActivity", "RelaxSitActivity", "RelaxLieActivity",
 	"PassedOutActivity", "TalkActivity", "WanderActivity", "ForgetfulWanderActivity",
 	"SleepActivity", "", "Idle",
