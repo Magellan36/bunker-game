@@ -24,6 +24,9 @@ class_name NPC
 
 # ─── Tunables ─────────────────────────────────────────────────────────────
 @export var move_speed: float = 2.2
+## Running (fleeing, chasing, rushing to help): 2.2 × 1.9 ≈ 4.2 m/s, the
+## run clip's own pace, so the gait blend reads as a full run, not a jog.
+const RUN_MULT: float = 1.9
 @export var acceleration: float = 8.0
 @export var npc_name: String = "Survivor"
 @export var idle_time_min: float = 3.0   ## wander pauses: people mostly stand around in downtime
@@ -1972,7 +1975,7 @@ func get_status_speed_multiplier() -> float:
 	var thirst_mult: float = 0.90 if thirst < 25.0 else 1.0
 	var mood_mult: float = 0.85 if mood <= 25.0 else 1.0
 	var medical_mult: float = medical.get_medical_speed_multiplier() if medical != null else 1.0
-	var adrenaline: float = 1.6 if combat.is_fleeing() or combat.rushing else 1.0   ## running for it / charging in
+	var adrenaline: float = RUN_MULT if combat.is_fleeing() or combat.rushing else 1.0   ## running for it / charging in
 	return energy_mult * hunger_mult * thirst_mult * mood_mult * get_age_speed_mult() * medical_mult * adrenaline
 
 ## Chance to divert from a job into forgetful wandering: averaged across

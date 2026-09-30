@@ -123,8 +123,11 @@ func tick(npc: NPC, delta: float) -> void:
 				_start_attack_or_sabotage(npc)
 				return
 			npc.set_nav_target(t.global_position)
+			## Storming over to shout is a walk; coming to kill is a run.
+			npc.combat.rushing = _will_attack and NPCItemUser.flat_distance(npc.global_position, t.global_position) > 3.0
 			npc.nav_steer(delta)
 			if NPCItemUser.flat_distance(npc.global_position, t.global_position) < 2.2:
+				npc.combat.rushing = false
 				_to(Phase.RANT)
 				_timer = -randf_range(RANT_SECONDS.x, RANT_SECONDS.y) * (0.5 if _will_attack or _brawl else 1.0)
 				_on_confront(npc, t)
@@ -219,6 +222,7 @@ func attention_target(npc: NPC) -> Node3D:
 func _to(p: Phase) -> void:
 	_phase = p
 	if _npc_ref != null:
+		_npc_ref.combat.rushing = false   ## each phase decides for itself whether to run
 		_npc_ref.combat.debug_phase = Phase.keys()[p]
 		NPCCombatDebug.trace(_npc_ref, "crash-out phase -> %s" % Phase.keys()[p])
 	_timer = 0.0
@@ -391,7 +395,7 @@ func _tick_attack(npc: NPC, delta: float) -> void:
 	## Getting there: pathfind from afar; up close walk straight in and hold
 	## a fighting distance (a gun just stops once in range).
 	if (gun and d > reach * 0.9) or (not gun and d > maxf(CLOSE_IN_AT, reach + 0.4)):
-		npc.combat.rushing = d > 4.0
+		npc.combat.rushing = true   ## chasing them down
 		npc.set_nav_target(t.global_position)
 		npc.nav_steer(delta)
 		_squared = false

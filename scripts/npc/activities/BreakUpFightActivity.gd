@@ -41,7 +41,7 @@ func tick(npc: NPC, delta: float) -> void:
 		return
 	var d: float = NPCItemUser.flat_distance(npc.global_position, b.global_position)
 	if d > REACH:
-		npc.combat.rushing = d > 3.0
+		npc.combat.rushing = d > REACH + 0.5   ## run over to stop it
 		npc.set_nav_target(b.global_position)
 		npc.nav_steer(delta)
 		return

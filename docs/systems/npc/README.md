@@ -248,6 +248,14 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   clear for 1.6 s; within 6 m of a weapon attack the faint-hearted run for
   4.5 s (`combat.flee_from`, `FleeActivity` uses `threat_node()`). Nobody
   scatters when the player steps in to stop a fight.
+- **Running and looking.** Residents run (`NPC.RUN_MULT` ×1.9 ≈ 4.2 m/s,
+  the run clip's pace) when fleeing, clearing out of a fight, chasing
+  someone down (an armed attacker's approach, any chase out of reach) and
+  rushing over to break a fight up; storming over to shout is a walk. The
+  head looks only at people (`attention_target`: talk partner, crash-out
+  target, attacker being fled, brawler being stopped, someone nearby
+  while wandering/leaning) and is otherwise forward. Cooking and
+  gardening no longer look at the stove or tray.
 - **Combat debugging (F7 → NPC COMBAT, `NPCCombatDebug`).** A = the
   resident nearest you, B = the next nearest. Toggles: verbose `[Combat]`
   console trace of every decision (hits, fight-or-flight, tier choice,
