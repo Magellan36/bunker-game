@@ -50,6 +50,22 @@ const HOLD_FADE_RATE: float = 4.0
 ## Shots: play the recoil around the measured kick, briefly.
 const SHOT_LEAD: float = 0.08
 const SHOT_TAIL: float = 0.3
+## Two-hand handle grip in RIGHT-hand bone space (skeleton units; world is
+## ×1.25). A power grip runs the handle diagonally across the palm, from the
+## pinky side (knob) to the index side (+X) and slightly towards the fingers
+## (+Y); the fist centre sits FIST_LOCAL from the wrist. The right fist holds
+## the handle RIGHT_ON_HANDLE up from the weapon origin (models: grip at the
+## origin, tip along -Z) and the left wrist sits LEFT_BELOW further down,
+## towards the knob, placed by the support-hand IK.
+const HANDLE_LOCAL: Vector3 = Vector3(0.958, 0.287, 0.0)
+const FIST_LOCAL: Vector3 = Vector3(0.0, 0.055, 0.0)
+const RIGHT_ON_HANDLE: float = 0.024
+const LEFT_BELOW: float = 0.068
+## Pistol support hand in right-hand space, measured from the male "Pistol
+## Idle" (hand cupped under the grip). The female export crosses her hands
+## over; the IK puts her support hand here instead. Runtime only.
+const PISTOL_SUPPORT: Vector3 = Vector3(-0.004, 0.027, 0.05)
+const SUPPORT_FADE_RATE: float = 6.0
 ## Swing playback is clamped to a believable range of the authored speed.
 const STRIKE_RATE_RANGE: Vector2 = Vector2(0.7, 2.2)
 
@@ -65,11 +81,11 @@ class Strike:
 	var max_w: float = 1.0
 
 var weapons: AnimationLibrary
-var _melee_basis := Basis.IDENTITY
 var _hold_w: Dictionary = {}        ## hold clip -> weight
 var _hold_time: Dictionary = {}     ## hold clip -> loop time
 var _strikes: Array[Strike] = [Strike.new(), Strike.new()]
 var _melee: bool = false
+var _support_w: float = 0.0
 var _signal_weapon: Node = null
 var _chain_end: String = ""
 
@@ -125,7 +141,6 @@ func install(owner_model: Node3D) -> void:
 func _install_melee(graph: AnimationNodeBlendTree) -> void:
 	weapons = load("res://assets/models/player/weapons/weapons_%s_lib.res" % model._gender)
 	tree.add_animation_library("weapons", weapons)
-	_melee_basis = weapons.get_animation("melee_idle").get_meta("melee_grip", Basis.IDENTITY)
 	var layers: Array[String] = []
 	for hold: StringName in HOLD_CLIPS:
 		_hold_w[hold] = 0.0
@@ -181,6 +196,7 @@ func update(delta: float) -> void:
 	_watch_attacks(held if held != null and held.has_signal("attack_started") else fists)
 	_update_holds(delta, &"melee_idle" if melee else (&"punch_idle" if guard else &""))
 	_update_strikes(delta, free)
+	_update_support_hand(delta, melee, active)
 	weight = move_toward(weight, 1.0 if active else 0.0, delta * 8.0)
 	tree.set("parameters/pistol_mix/blend_amount", weight)
 	if weight <= 0.0:
@@ -334,15 +350,32 @@ func _update_strikes(delta: float, free: bool) -> void:
 		tree.set("parameters/%s_full/blend_amount" % name, w * (1.0 - upper))
 		tree.set("parameters/%s_upper/blend_amount" % name, w * upper)
 
+## Left hand on the handle below the right (melee), or cupped under the
+## pistol grip; eased out during the one-handed whip and punches.
+func _update_support_hand(delta: float, melee: bool, pistol: bool) -> void:
+	var whip: float = 0.0
+	for s: Strike in _strikes:
+		if s.clip == &"pistol_whip" or s.clip.begins_with("hit_"):
+			whip = maxf(whip, smoothstep(0.0, 1.0, s.w))
+	var want: float = 1.0 if melee or pistol else 0.0
+	_support_w = move_toward(_support_w, want, delta * SUPPORT_FADE_RATE)
+	var pose: Node = model._pose_mod
+	if pose == null:
+		return
+	pose.support_offset = -HANDLE_LOCAL * LEFT_BELOW if melee else PISTOL_SUPPORT
+	pose.support_weight = smoothstep(0.0, 1.0, _support_w) * (1.0 - whip)
+
 func sync_grip() -> void:
 	if not is_instance_valid(_weapon) or not _weapon.is_held or _hand < 0:
 		return
 	var hand: Transform3D = model._skeleton.global_transform * model._skeleton.get_bone_global_pose(_hand)
 	if _melee:
-		## Two-hand handle grip measured from Baseball Idle: the weapon origin
-		## (its grip) sits in the right palm, the handle runs towards the left.
-		var melee_basis: Basis = (hand.basis.orthonormalized() * _melee_basis).orthonormalized()
-		grip.global_transform = Transform3D(melee_basis, hand.origin + hand.basis.y * 0.055)
+		## Power grip across the right fist (see HANDLE_LOCAL); the palm normal
+		## (+Z) orients the head of a crowbar/hatchet.
+		var along: Vector3 = (hand.basis * HANDLE_LOCAL).normalized()
+		var palm: Vector3 = (hand.basis * Vector3.BACK).normalized()
+		var melee_basis := Basis.looking_at(along, palm.cross(along).cross(along) if absf(palm.dot(along)) > 0.99 else palm)
+		grip.global_transform = Transform3D(melee_basis, hand * (FIST_LOCAL - HANDLE_LOCAL * RIGHT_ON_HANDLE))
 		_weapon.sync_held_pose()
 		return
 	var basis: Basis = (hand.basis.orthonormalized() * _grip_basis).orthonormalized()

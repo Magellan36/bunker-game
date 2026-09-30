@@ -20,6 +20,9 @@ extends SkeletonModifier3D
 ##   look          turns neck + head toward a world point (the thing the
 ##                 character is about to use / talking to), clamped to a
 ##                 natural range and eased by look_weight.
+##   support hand  two-bone IK of the LEFT arm to a point in RIGHT-hand space
+##                 (the second hand on a bat/crowbar handle, the support hand
+##                 under a pistol). Set by the weapon layer.
 ##   lean_roll     banks the spine into a turn (centripetal lean), radians.
 ##   lean_pitch    tips the spine forward on acceleration / back on braking.
 ##
@@ -68,6 +71,10 @@ var foot_flatten: float = 0.0
 ## instead, so a clip placed lower than it was performed (e.g. a sit
 ## captured on a higher seat) never pushes the feet into the floor.
 var ankle_floor_height: float = 0.03
+## Support hand (left): offset in RIGHT-hand bone space (skeleton units) and
+## weight 0..1. Following the right hand directly means no frame lag.
+var support_offset: Vector3 = Vector3.ZERO
+var support_weight: float = 0.0
 var floor_y: float = 0.0
 ## Horizontal speed of the character; below ~0.05 m/s it is standing still.
 var body_speed: float = 0.0
@@ -89,6 +96,8 @@ var _neck: int = -1
 var _head: int = -1
 var _spine: Dictionary = {}   ## bone index -> share
 var _legs: Array[Leg] = []
+var _left_arm: Leg = null   ## same three-bone chain shape: upper, lower, "foot" = hand
+var _right_hand: int = -1
 
 func _skeleton_changed(_old: Skeleton3D, new_skeleton: Skeleton3D) -> void:
 	_cache(new_skeleton)
@@ -111,6 +120,11 @@ func _cache(sk: Skeleton3D) -> void:
 		leg.foot = sk.find_bone(side + "Foot")
 		if leg.upper != -1 and leg.lower != -1 and leg.foot != -1:
 			_legs.append(leg)
+	_left_arm = Leg.new()
+	_left_arm.upper = sk.find_bone("LeftUpperArm")
+	_left_arm.lower = sk.find_bone("LeftLowerArm")
+	_left_arm.foot = sk.find_bone("LeftHand")
+	_right_hand = sk.find_bone("RightHand")
 
 ## Drops any held foot locks (call after a teleport).
 func reset_locks() -> void:
@@ -137,6 +151,10 @@ func _process_modification_with_delta(delta: float) -> void:
 			_rotate_local(sk, i, Vector3.RIGHT, lean_pitch * share)
 	if look_weight > 0.001:
 		_look(sk)
+	if support_weight > 0.001 and _right_hand != -1 and _left_arm != null and _left_arm.foot != -1:
+		var target: Vector3 = sk.get_bone_global_pose(_right_hand) * support_offset
+		var now: Vector3 = sk.get_bone_global_pose(_left_arm.foot).origin
+		_two_bone_ik(sk, _left_arm, now.lerp(target, support_weight))
 	for leg: Leg in _legs:
 		_foot_lock(sk, leg, delta)
 		if foot_flatten > 0.001:

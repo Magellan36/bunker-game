@@ -85,6 +85,8 @@ const HEAD_SUPPORT_RATE: float = 1.2
 ## interaction prompt's focus; NPC: its activity's attention target).
 const LOOK_RANGE: float = 3.5
 const LOOK_HEIGHT: float = 0.3
+## People are looked at in the face: capsule centre + this.
+const LOOK_PERSON_HEIGHT: float = 0.62
 
 # ─── Furniture tuning (world metres) ─────────────────────────────────────────
 ## Hip bone height above a seat surface when sitting (pelvis half-depth).
@@ -493,6 +495,9 @@ func _update_procedural_pose(speed: float, delta: float) -> void:
 ## weight, slow easing, and a minimum hold per target so the head doesn't
 ## flick between every object that passes through range.
 const NPC_LOOK_WEIGHT: float = 0.4
+## The lean clip hangs the head down; a leaning NPC glancing at someone needs
+## more of the look-at to lift the chin to their face.
+const LEAN_LOOK_WEIGHT: float = 0.85
 const NPC_LOOK_FOLLOW_RATE: float = 1.6
 const NPC_LOOK_FADE_RATE: float = 1.2
 const NPC_LOOK_MIN_HOLD: float = 2.5
@@ -511,26 +516,33 @@ func _update_look(delta: float) -> void:
 			_look_held = target
 			_look_hold_left = NPC_LOOK_MIN_HOLD
 	if target != null:
-		var point: Vector3 = target.global_position + Vector3.UP * LOOK_HEIGHT
+		var point: Vector3 = target.global_position + Vector3.UP * (LOOK_PERSON_HEIGHT if target is CharacterBody3D else LOOK_HEIGHT)
 		var to: Vector3 = point - _visual.global_position
 		var facing := Vector3(-sin(_visual_yaw), 0.0, -cos(_visual_yaw))
 		if Vector2(to.x, to.z).length() < LOOK_RANGE and facing.dot(Vector3(to.x, 0.0, to.z).normalized()) > -0.35:
-			want = NPC_LOOK_WEIGHT
+			want = LEAN_LOOK_WEIGHT if _stage == Stage.LEAN else NPC_LOOK_WEIGHT
 			if _pose_mod.look_weight < 0.01:
 				_look_point = point
 			_look_point = _look_point.lerp(point, clampf(NPC_LOOK_FOLLOW_RATE * delta, 0.0, 1.0))
 	_pose_mod.look_weight = move_toward(_pose_mod.look_weight, want, NPC_LOOK_FADE_RATE * delta)
 	_pose_mod.look_at_world = _look_point
 
-## Duck-typed: the player's interaction focus, or an NPC activity's
-## attention target. Nothing to look at → null.
+## Head look-at rule (Brannon, 2026-09-29): straight ahead by default; only
+## PEOPLE (an NPC activity's attention_target: talk partner, fight target,
+## someone nearby) or an explicit `look_focus` set by gameplay code.
+## Objects on the floor never pull the head down.
+var look_focus: Node3D = null
+
 func _look_target() -> Node3D:
+	if is_instance_valid(look_focus):
+		return look_focus
 	var target: Variant = null
 	if "brain" in _player and _player.brain != null and _player.brain.has_method("current_activity"):
 		var activity: Variant = _player.brain.current_activity()
 		if activity != null and activity.has_method("attention_target"):
 			target = activity.attention_target(_player)
-	return target as Node3D if is_instance_valid(target) and target is Node3D else null   ## validity first: `is` on a freed object errors
+	## validity first: `is` on a freed object errors. People only.
+	return target as Node3D if is_instance_valid(target) and target is CharacterBody3D and target != _player else null
 
 ## True once whatever started the current sequence has been let go.
 func _released(furniture: Node3D) -> bool:

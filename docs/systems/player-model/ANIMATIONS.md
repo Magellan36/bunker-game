@@ -263,8 +263,21 @@ the idle, in right-hand space).
 - **Shots:** `revolver` plays `pistol_shoot` around its measured recoil kick
   (0.08 s before to 0.3 s after), upper body only, so the legs never flick
   between stances at the fire rate.
-- **Grip:** melee weapons anchor to the right palm with `melee_grip`; the
-  Webley keeps its pistol grip.
+- **Grip (revised 2026-09-29):** melee weapons sit in a power grip across
+  the right fist (handle diagonal from the pinky side to the index side,
+  `HANDLE_LOCAL` in right-hand space; the palm normal orients the head). The
+  left hand is put on the handle just below the right by a support-hand IK
+  (`AdventurerProceduralPose.support_offset/weight`). The bake's
+  `melee_grip` meta (wrist-to-wrist axis) is no longer used: the wrists are
+  only 4–8 cm apart, too noisy. The Webley keeps its pistol grip, and the same
+  IK puts the support hand at the male Pistol Idle's offset
+  (`PISTOL_SUPPORT`), because the female export crosses her hands. The IK eases
+  out for the one-handed whip and hit reactions.
+- **Head look-at (2026-09-29):** straight ahead by default. It only turns
+  toward people (an NPC activity's `attention_target`, currently only while
+  leaning) or an explicit `look_focus`, aimed at their face (capsule centre
+  +0.62 m), with a higher weight while leaning because the lean clip hangs
+  the head.
 - **No pops (polish pass, 2026-09-28):** strikes, shots, punches and hit
   reactions run in two cross-fading slots (A/B). A new one takes the quieter
   slot and the other fades out over 0.12 s, so combos, interrupts and hit
