@@ -194,6 +194,28 @@ func _run() -> void:
 	Input.action_release("aim_right")
 	await ticks(2)
 	check(not gun.aiming, "release stick returns to carry")
+	# Mouse aim: the OS cursor is captured at screen centre in gameplay, so
+	# aiming must follow raw motion from a virtual point, not the cursor.
+	var rmb := InputEventMouseButton.new()
+	rmb.button_index = MOUSE_BUTTON_RIGHT
+	rmb.button_mask = MOUSE_BUTTON_MASK_RIGHT
+	rmb.pressed = true
+	Input.parse_input_event(rmb)
+	await ticks(2)
+	var start_point: Vector2 = controller._mouse_point
+	var yaw_before: float = player.rotation.y
+	var motion := InputEventMouseMotion.new()
+	motion.relative = Vector2(-20, -18)   ## headless viewport is only 64 px
+	motion.button_mask = MOUSE_BUTTON_MASK_RIGHT
+	Input.parse_input_event(motion)
+	await ticks(12)
+	check(controller._mouse_point.distance_to(start_point + Vector2(-20, -18)) < 1.0, "mouse motion moves the aim point")
+	check(absf(angle_difference(player.rotation.y, yaw_before)) > 0.2, "mouse aim turns the player toward the aim point")
+	rmb.pressed = false
+	rmb.button_mask = 0
+	Input.parse_input_event(rmb)
+	await ticks(2)
+	controller._reset()
 	gun.drop(room, Vector3(5, 0.4, 0))
 	interaction.held_item = null
 	check(not gun.aiming and gun._reload_left == 0 and not gun.freeze, "drop clears actions and restores loose physics")

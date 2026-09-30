@@ -101,7 +101,7 @@ Run with isolated user data (see `docs/AGENT_GIT_WORKFLOW.md`):
 XDG_DATA_HOME=$(mktemp -d) XDG_CONFIG_HOME=$(mktemp -d) /path/to/godot --headless --path . res://tools/tests/WeaponsTest.tscn --quit-after 120
 ```
 
-Headless behavior checks (expects `WEAPONS_SMOKE: 43 checks, 0 failures`):
+Headless behavior checks (expects `WEAPONS_SMOKE: 45 checks, 0 failures`):
 
 ```
 XDG_DATA_HOME=$(mktemp -d) XDG_CONFIG_HOME=$(mktemp -d) /path/to/godot --headless --path . res://tools/tests/WeaponsSmoke.tscn

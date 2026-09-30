@@ -19,6 +19,11 @@ const ASSIST_MELEE_DEG: float = 32.0
 const ASSIST_FIREARM_RANGE: float = 12.0
 const Melee = preload("res://scripts/weapons/MeleeStrike.gd")
 var _buffer_left: float = 0.0
+## Gameplay keeps the OS cursor CAPTURED (InputMode), pinned at screen centre,
+## i.e. on the player. Mouse aim therefore uses its own virtual point: it
+## starts ahead of the player on RMB and moves with raw mouse motion.
+const MOUSE_AIM_START: float = 2.5
+var _mouse_point: Vector2
 var _aim_yaw: float = 0.0
 var _was_aiming: bool = false
 var _trigger_down: bool = false
@@ -64,11 +69,16 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_RIGHT:
+			if event.pressed and not _mouse_aim:
+				_start_mouse_point()
 			_mouse_aim = event.pressed
 			get_viewport().set_input_as_handled()
 		elif event.button_index == MOUSE_BUTTON_LEFT and event.pressed and _mouse_aim:
 			_buffer_left = ATTACK_BUFFER
 			get_viewport().set_input_as_handled()
+	elif event is InputEventMouseMotion and _mouse_aim:
+		var rect: Rect2 = get_viewport().get_visible_rect()
+		_mouse_point = (_mouse_point + event.relative).clamp(rect.position, rect.end - Vector2.ONE)
 	elif event is InputEventJoypadMotion and event.axis == JOY_AXIS_TRIGGER_RIGHT:
 		var pressed: bool = event.axis_value > 0.55
 		if pressed and not _trigger_down:
@@ -103,7 +113,7 @@ func _physics_process(delta: float) -> void:
 	if _mouse_aim:
 		var camera: Camera3D = get_viewport().get_camera_3d()
 		if camera != null:
-			var mouse: Vector2 = get_viewport().get_mouse_position()
+			var mouse: Vector2 = _mouse_point
 			var plane := Plane(Vector3.UP, _weapon.get_aim_origin().y)
 			var point: Variant = plane.intersects_ray(camera.project_ray_origin(mouse), camera.project_ray_normal(mouse))
 			if point != null:
@@ -131,9 +141,20 @@ func _physics_process(delta: float) -> void:
 	if aim:
 		var camera: Camera3D = get_viewport().get_camera_3d()
 		if camera != null:
-			_reticle.aim_position = get_viewport().get_mouse_position() if _mouse_aim else camera.unproject_position(_weapon.global_position + _direction * minf(_weapon.reach, 7.0))
+			_reticle.aim_position = _mouse_point if _mouse_aim else camera.unproject_position(_weapon.global_position + _direction * minf(_weapon.reach, 7.0))
 		_reticle.empty = _weapon.is_firearm() and _weapon.ammo == 0
 		_reticle.rounds = _rounds_text() if _weapon.is_firearm() else ""
+
+func _start_mouse_point() -> void:
+	var camera: Camera3D = get_viewport().get_camera_3d()
+	var player: CharacterBody3D = interaction.player
+	if camera == null or not is_instance_valid(player):
+		_mouse_point = get_viewport().get_visible_rect().size * 0.5
+		return
+	var ahead: Vector3 = player.global_position - player.global_basis.z * MOUSE_AIM_START
+	if is_instance_valid(_weapon):
+		ahead.y = _weapon.get_aim_origin().y
+	_mouse_point = camera.unproject_position(ahead)
 
 func _rounds_text() -> String:
 	if _weapon._reload_left > 0.0:
