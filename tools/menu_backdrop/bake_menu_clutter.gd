@@ -19,6 +19,17 @@ const D := "res://assets/models/menu_backdrop/destroyed/"
 const SEED := 20260927
 
 const CAMERA := Vector2(-1.5, 9.0)
+## Hand corrections applied after placement (no RNG, so the layout is
+## unchanged): the register by the cart lies on its back, and one cat statue
+## sits upright facing the camera as an Easter egg. Every other cat is left
+## out of the scene (still reserved in the layout) so this one is unique.
+const OVERRIDES := {
+	"cash_register_27": "on_back",
+	"concrete_cat_statue_3": "easter_egg",
+}
+const SOLO_ITEM := "concrete_cat_statue"
+## The Easter-egg cat sits just lower-left of the lantern cart, in its glow.
+const EASTER_EGG_POS := Vector2(2.8, -3.9)
 ## Ground zero lies far off to the back-left; debris was thrown away from it.
 const BLAST_DIR := Vector2(0.62, 0.78)
 
@@ -112,6 +123,10 @@ func _run() -> void:
 			var s: float = lerpf(band[3], band[4], far_t) * _rng.randf_range(0.85, 1.15)
 			var node := _place(item, pos, s)
 			if node == null:
+				continue
+			if item == SOLO_ITEM and not OVERRIDES.has(String(node.name)):
+				node.free()   ## reserved in the layout, not shown
+				placed += 1
 				continue
 			root.add_child(node)
 			node.owner = root
@@ -270,10 +285,31 @@ func _place(item: String, pos: Vector2, s: float) -> Node3D:
 		var y: float = (basis * aabb.get_endpoint(i)).y
 		min_y = minf(min_y, y)
 		max_y = maxf(max_y, y)
+	var node_name := "%s_%d" % [item, _placed.size()]
+	match String(OVERRIDES.get(node_name, "")):
+		"on_back":
+			# Back face (-Z) down, front up; model front faces +Z.
+			basis = (Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, deg_to_rad(-90.0))).scaled(Vector3.ONE * s)
+			sink = 0.03
+		"easter_egg":
+			pos = EASTER_EGG_POS
+			var to_camera: Vector2 = CAMERA - pos
+			basis = Basis(Vector3.UP, atan2(to_camera.x, to_camera.y)).scaled(Vector3.ONE * s)
+			sink = 0.02
+	min_y = INF
+	max_y = -INF
+	for i: int in 8:
+		var y: float = (basis * aabb.get_endpoint(i)).y
+		min_y = minf(min_y, y)
+		max_y = maxf(max_y, y)
+	# Rest on the LOWEST ground under the footprint so no corner floats.
 	var ground: float = _height(pos)
+	for i: int in 8:
+		var corner: Vector3 = basis * aabb.get_endpoint(i)
+		ground = minf(ground, _height(pos + Vector2(corner.x, corner.z)))
 	var origin := Vector3(pos.x, ground - min_y - sink * (max_y - min_y), pos.y)
 	var node: Node3D = (_scenes[item] as PackedScene).instantiate()
-	node.name = "%s_%d" % [item, _placed.size()]
+	node.name = node_name
 	node.transform = Transform3D(basis, origin)
 	_placed.append([pos, radius])
 	return node

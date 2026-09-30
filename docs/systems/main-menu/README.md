@@ -168,7 +168,16 @@ terrain and following its slope. Small props sit 11–48 m out, medium
 they still read). 60% land in debris fields stretched along the blast
 direction. It keeps clear of slot footprints, most of the near street, and
 the area behind the menu text. Tune `ITEMS` (weights, allowed poses) and
-`BANDS` (count, distance, scale), then re-run it.
+`BANDS` (count, distance, scale), then re-run it. Pieces rest on the lowest
+ground under their whole footprint. `OVERRIDES` hand-corrects named pieces
+without changing the layout: the cash register by the cart lies on its back,
+and a single concrete cat statue sits upright in the lantern's glow,
+lower-left of the cart. It's an Easter egg; the other cats are left out.
+
+Grounding: terrain pads cover each slot's full base diagonal. The Malik ruin
+sits at y −1.25 because a few stray vertices hang 1.2 m below its real base.
+Ground specular 0.08 (dry dust, no sheen). Fog: density 0.0046, volumetric
+0.011, so the mid-ground ruins (55–75 m) keep their value.
 
 Composition intent: the street leads the eye from the menu into the fog; the
 snapped tower sits on the right-third line with its broken notch turned to

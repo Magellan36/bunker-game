@@ -113,8 +113,10 @@ void fragment() {
 	ALBEDO = albedo;
 	NORMAL_MAP = nrm;
 	NORMAL_MAP_DEPTH = normal_strength * (1.0 - far * 0.7);
-	ROUGHNESS = clamp(mix(ord.g, 1.0, ash * 0.6) * 1.05, 0.0, 1.0);
+	// Dry, dusty ground: keep it rough so the overcast sky and lightning
+	// don't wash out its colour.
+	ROUGHNESS = clamp(mix(ord.g, 1.0, 0.45 + ash * 0.4), 0.0, 1.0);
 	AO = ord.r;
 	AO_LIGHT_AFFECT = 0.25;
-	SPECULAR = 0.25;
+	SPECULAR = 0.08;
 }

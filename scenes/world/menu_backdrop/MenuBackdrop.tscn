@@ -62,13 +62,13 @@ glow_bloom = 0.04
 glow_hdr_threshold = 1.2
 fog_enabled = true
 fog_light_color = Color(0.4, 0.415, 0.36, 1)
-fog_density = 0.0055
+fog_density = 0.0046
 fog_aerial_perspective = 0.35
 fog_sky_affect = 0.2
 fog_height = 3.0
 fog_height_density = 0.035
 volumetric_fog_enabled = true
-volumetric_fog_density = 0.016
+volumetric_fog_density = 0.011
 volumetric_fog_albedo = Color(0.66, 0.68, 0.6, 1)
 volumetric_fog_emission = Color(0.01, 0.011, 0.009, 1)
 volumetric_fog_anisotropy = 0.45
@@ -212,7 +212,7 @@ greybox_broken = false
 brief = "Terrain baked by tools/menu_terrain/bake_menu_terrain.gd (street, ditches, craters, hills, far ridge, level pads under every slot), textured by assets/shaders/menu_ground.gdshader from four ambientCG CC0 ground sets. Authored in world space: keep this slot at the origin, and re-bake after moving slots."
 
 [node name="HeroFacadeRight" type="Node3D" parent="Slots/RightFlank"]
-position = Vector3(19, 0, -12)
+position = Vector3(19, -1.25, -12)
 rotation = Vector3(0, -0.698132, 0)
 script = ExtResource("5_slot")
 asset_scene = ExtResource("b00_ruin_malik_facade")

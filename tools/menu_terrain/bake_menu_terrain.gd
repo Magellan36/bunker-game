@@ -43,7 +43,8 @@ func _run() -> void:
 		if first:
 			continue
 		var centre := Vector2(box.get_center().x, box.get_center().z)
-		var radius: float = maxf(box.size.x, box.size.z) * 0.5 * 0.8
+		## Full half-diagonal: every corner of the base sits on the level pad.
+		var radius: float = Vector2(box.size.x, box.size.z).length() * 0.5
 		var falloff: float = clampf(radius * 0.35, 2.5, 18.0)
 		builder.call("add_pad", centre, radius, falloff)
 		print("pad %-16s centre=(%.1f, %.1f) r=%.1f falloff=%.1f" % [slot.name, centre.x, centre.y, radius, falloff])
