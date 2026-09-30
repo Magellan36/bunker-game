@@ -124,6 +124,9 @@ reconnect to them):
   group — the clutter state), **`zone_customization`** (player-set breaker
   zone display names + color overrides) — applied once the whole world above
   already exists.
+  **`surface_hatch`** (registered after `npcs`) — Surface Hatch expeditions,
+  including each away resident's full NPC save dict; see
+  `docs/systems/hatch/README.md`.
 
 Saves to `user://save_slot_<1|2|3>.json`. Loading a save silently skips any
 key that isn't currently registered (safe for adding new fields later — no

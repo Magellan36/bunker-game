@@ -36,6 +36,8 @@ const DEFS: Dictionary = {
 	"relaxed":           {"label": "Took a proper break",              "mood": 2.0,  "hours": 4.0,  "stack": 1},
 	"break_interrupted": {"label": "My break got cut short",           "mood": -3.0, "hours": 4.0,  "stack": 1},
 	"productive":        {"label": "Got something useful done",        "mood": 1.5,  "hours": 4.0,  "stack": 1},
+	"went_topside":      {"label": "Saw the sky again",                "mood": 4.0,  "hours": 16.0, "stack": 1},
+	"rough_trip_topside": {"label": "Got hurt topside",                "mood": -6.0, "hours": 24.0, "stack": 1},
 	## Conditions — held while a situation lasts (set_condition()), then fade.
 	"cluttered":         {"label": "The bunker is a mess",             "mood": -3.0, "hours": 0.0,  "stack": 1},
 	"in_pain":           {"label": "I'm hurt",                         "mood": -4.0, "hours": 0.0,  "stack": 1},

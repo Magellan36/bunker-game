@@ -439,6 +439,20 @@ func _register_save_fields() -> void:
 				pm.restore_zone_customization_from_save(v),
 		4)
 
+	## Phase 4 — Surface Hatch expeditions (after "npcs": residents who are
+	## topside live inside this field as NPC save dicts, not in the "npc"
+	## group, so _restore_npcs() never sees or clears them).
+	SaveManager.register_field(
+		"surface_hatch",
+		func() -> Dictionary:
+			var hatch: Node = get_tree().get_first_node_in_group("surface_hatch")
+			return hatch.get_save_data() if hatch != null else {},
+		func(v: Dictionary) -> void:
+			var hatch: Node = get_tree().get_first_node_in_group("surface_hatch")
+			if hatch != null:
+				hatch.restore_save_data(v),
+		4)
+
 ## ── NPC save/restore (NPC Pass 2, Part 6) ───────────────────────────────────
 func _get_npcs_for_save() -> Array:
 	var out: Array = []
@@ -971,6 +985,7 @@ const SHARED_PANELS: Array[String] = [
 	"res://scripts/ui/water/WaterDispenserUI.gd",
 	"res://scripts/ui/water/WaterInfoUI.gd",
 	"res://scripts/ui/farming/FarmingTrayUI.gd",
+	"res://scripts/ui/hatch/HatchInspectUI.gd",
 ]
 
 func _prewarm_interfaces() -> void:
@@ -1462,6 +1477,7 @@ func _setup_build_mode() -> void:  ## coroutine — called via process_frame one
 	await _spawn_initial_water_hookup()
 	await _spawn_initial_build_station()
 	await _spawn_initial_research_station()
+	await _spawn_surface_hatch()
 
 	## Apply concrete floor texture to the GridMap's floor tile mesh.
 	## We override the material on the MeshLibrary item directly so all
@@ -1931,6 +1947,71 @@ func _spawn_initial_research_station() -> void:
 		"player_placed": true,
 	})
 	bc.notify_navigation_topology_changed()
+
+
+## Surface Hatch (expeditions) — a fixed fixture, not a build tile: never
+## purchasable, moved or demolished, so it stays out of _placed_objects and
+## the build save. Placed flush against the first free wall spot from a
+## preference list (east wall first, then south, north, west), checked with
+## a physics box query so it never lands inside a pregen object, light or
+## pillar. Navigation picks up its collider from the real physics world
+## once notify_navigation_topology_changed() triggers a rebake.
+const SURFACE_HATCH_SCRIPT: GDScript = preload("res://scripts/world/hatch/SurfaceHatch.gd")
+
+func _spawn_surface_hatch() -> void:
+	if rock_surround == null:
+		push_warning("MainWorld: _spawn_surface_hatch skipped — rock_surround not ready.")
+		return
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+
+	var x_min: float = rock_surround.OFFSET_X
+	var x_max: float = rock_surround.OFFSET_X + float(rock_surround.bunker_depth)
+	var z_min: float = rock_surround.OFFSET_Z
+	var z_max: float = rock_surround.OFFSET_Z + float(rock_surround.bunker_width)
+	var inset: float = SurfaceHatch.HALF_DEPTH + 0.05
+	var floor_y: float = 0.45
+	## [position, yaw] — yaw turns the model's local +Z (front) into the room.
+	var candidates: Array = []
+	for f: float in [0.85, 0.6, 0.35, 0.15]:
+		candidates.append([Vector3(x_max - inset, floor_y, lerpf(z_min, z_max, f)), -PI * 0.5])
+	for f: float in [0.85, 0.6, 0.4, 0.2]:
+		candidates.append([Vector3(lerpf(x_min, x_max, f), floor_y, z_max - inset), PI])
+	for f: float in [0.15, 0.35]:
+		candidates.append([Vector3(lerpf(x_min, x_max, f), floor_y, z_min + inset), 0.0])
+	candidates.append([Vector3(x_min + inset, floor_y, lerpf(z_min, z_max, 0.85)), PI * 0.5])
+
+	var chosen: Array = candidates[0]
+	for c: Array in candidates:
+		if _surface_hatch_spot_clear(c[0], c[1]):
+			chosen = c
+			break
+	var hatch: StaticBody3D = SURFACE_HATCH_SCRIPT.new()
+	hatch.name = "SurfaceHatch"
+	add_child(hatch)
+	hatch.global_position = chosen[0]
+	hatch.rotation.y = chosen[1]
+	if _build_controller != null:
+		(_build_controller as BuildModeController).notify_navigation_topology_changed()
+
+## True when the ladder plus a standing space in front of it is free of
+## anything solid except characters and loose items.
+func _surface_hatch_spot_clear(pos: Vector3, yaw: float) -> bool:
+	var basis := Basis(Vector3.UP, yaw)
+	var box := BoxShape3D.new()
+	box.size = Vector3(SurfaceHatch.HALF_WIDTH * 2.0 + 0.1, 1.6, SurfaceHatch.HALF_DEPTH * 2.0 + 0.9)
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = box
+	query.transform = Transform3D(basis, pos + basis * Vector3(0.0, 1.0, 0.45))
+	query.collision_mask = 0xFFFFFFFF
+	for hit: Dictionary in get_world_3d().direct_space_state.intersect_shape(query, 8):
+		var collider: Object = hit.get("collider")
+		if collider is CharacterBody3D or collider is RigidBody3D:
+			continue
+		if collider is Node and (collider as Node).is_in_group("physics_failsafe"):
+			continue
+		return false
+	return true
 
 
 func _on_chunk_deconstructed(chunk_origin: Vector2i) -> void:
