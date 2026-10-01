@@ -539,8 +539,25 @@ func _update_look(delta: float) -> void:
 			if _pose_mod.look_weight < 0.01:
 				_look_point = point
 			_look_point = _look_point.lerp(point, clampf(NPC_LOOK_FOLLOW_RATE * delta, 0.0, 1.0))
+	if want == 0.0 and _stage == Stage.LEAN:
+		## Nobody to glance at: the lean clip hangs the head at the floor, so
+		## hold a level gaze straight out from the body instead.
+		var point: Vector3 = _level_gaze_point()
+		want = LEAN_LOOK_WEIGHT
+		if _pose_mod.look_weight < 0.01:
+			_look_point = point
+		_look_point = _look_point.lerp(point, clampf(NPC_LOOK_FOLLOW_RATE * delta, 0.0, 1.0))
 	_pose_mod.look_weight = move_toward(_pose_mod.look_weight, want, NPC_LOOK_FADE_RATE * delta)
 	_pose_mod.look_at_world = _look_point
+
+## Head height, 3 m straight out along the body's facing (the hips' forward,
+## which is right in every stage, unlike _visual_yaw mid-sequence).
+func _level_gaze_point() -> Vector3:
+	var xf: Transform3D = _skeleton.global_transform
+	var head: Vector3 = xf * _skeleton.get_bone_global_pose(_skeleton.find_bone("Head")).origin
+	var forward: Vector3 = xf.basis * _skeleton.get_bone_global_pose(_skeleton.find_bone("Hips")).basis.z
+	forward.y = 0.0
+	return head + forward.normalized() * 3.0 if forward.length_squared() > 0.0001 else head
 
 func _update_guard_look(delta: float, guard: float) -> void:
 	var facing := Vector3(-sin(_visual_yaw), 0.0, -cos(_visual_yaw))

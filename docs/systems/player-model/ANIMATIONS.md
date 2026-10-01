@@ -202,7 +202,10 @@ model.is_leaning() -> bool   # true once settled in the loop
   frozen (`NPC.in_sit_sequence()`). When it ends, `stand_animation_finished`
   is emitted and `get_stand_end_position()` is the capsule's spot.
 - Loop start times are randomised so neighbours don't breathe in sync, and
-  the head look-at still works while leaning.
+  the head look-at still works while leaning. With nobody in range to
+  glance at, the head holds a level gaze 3 m straight out (along the hips'
+  forward, at 0.85 weight), because the lean clip hangs the head at the
+  floor (2026-10-01, from playtest).
 - Needs ~0.5 m of clear floor in front of the wall (the raised knee pokes
   forward). Pick a flat wall stretch: the pose assumes a vertical wall from
   floor to shoulder height.
