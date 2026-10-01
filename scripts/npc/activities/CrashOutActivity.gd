@@ -37,7 +37,16 @@ const MIN_SPACING: float = 0.9           ## never crowd closer than this (centre
 const FACING_OK: float = 0.6             ## rad (~35°): only strike when roughly facing them
 const FIGHT_TURN: float = 10.0           ## face_toward weight per second while fighting (rate-capped)
 const BRAWL_GIVE_UP: float = 2.5         ## s with the target out of reach (got away): the brawl ends
-const RANT_FOLLOW_RANGE: float = 3.0      ## they walk after a target who backs off
+const RANT_FOLLOW_RANGE: float = 3.0      ## they go after a target who backs off
+## Pursuit pace (Oct 2026, Brannon's playtest: a sprinting player was
+## followed at a slow walk): by DISTANCE, not by how fast the other one
+## moves. Run once the gap is large, drop back to a walk once close; in
+## between, keep the current pace so it doesn't flicker.
+const PURSUE_RUN_GAP: float = 6.0
+const PURSUE_WALK_GAP: float = 3.5
+## Guns fire only with a clear line to the target (they used to shoot at
+## the player round corners). Re-checked this often (seconds).
+const LOS_CHECK_SECONDS: float = 0.15
 const RANT_GIVE_UP_RANGE: float = 10.0
 const RANT_GIVE_UP_SECONDS: float = 5.0
 const GLARE_SECONDS: Vector2 = Vector2(0.9, 1.5)  ## disengage: hold ground, glaring, before pacing off
@@ -63,6 +72,8 @@ var _attack_left: float = 0.0
 var _swing_gap: float = 0.0
 var _combo: int = 0
 var _out_of_reach: float = 0.0
+var _los_timer: float = 0.0
+var _los_clear: bool = false
 var _lost: float = 0.0   ## RANT: seconds the target has been gone
 var _peace_check: float = 0.0
 var _peacemaker_called: bool = false
@@ -97,6 +108,8 @@ var _npc_ref: NPC = null   ## for debug labels in _to()
 func enter(npc: NPC) -> void:
 	_npc_ref = npc
 	_timer = 0.0
+	_los_timer = 0.0
+	_los_clear = false
 	_sabotage_done = npc.crash.sabotaged
 	_leaning = false
 	if npc.crash.mode == NPCCrashOut.Mode.HOSTILE and npc.crash.defense:
@@ -142,8 +155,13 @@ func tick(npc: NPC, delta: float) -> void:
 				_start_attack_or_sabotage(npc)
 				return
 			npc.set_nav_target(t.global_position)
-			## Storming over to shout is a walk; coming to kill is a run.
-			npc.combat.rushing = _will_attack and NPCItemUser.flat_distance(npc.global_position, t.global_position) > 3.0
+			## Coming to kill is a run; storming over to shout is a walk unless
+			## the gap is large (_pursuit_pace).
+			var gap: float = NPCItemUser.flat_distance(npc.global_position, t.global_position)
+			if _will_attack:
+				npc.combat.rushing = gap > 3.0
+			else:
+				_pursuit_pace(npc, gap)
 			npc.nav_steer(delta)
 			if NPCItemUser.flat_distance(npc.global_position, t.global_position) < 2.2:
 				npc.combat.rushing = false
@@ -166,8 +184,10 @@ func tick(npc: NPC, delta: float) -> void:
 						_start_attack_or_sabotage(npc)
 						return
 					npc.set_nav_target(t.global_position)
+					_pursuit_pace(npc, d)
 					npc.nav_steer(delta)
 				else:
+					npc.combat.rushing = false
 					npc.halt_movement(delta)
 					npc.face_toward(t.global_position, delta * 5.0)
 			if gone:
@@ -469,10 +489,21 @@ func _tick_attack(npc: NPC, delta: float) -> void:
 		NPCCombat.raise_alarm(npc.get_tree(), npc.global_position, [npc.npc_id, npc.crash.target_id])
 	var gun: bool = _weapon != null and is_instance_valid(_weapon) and _weapon.is_firearm() and _weapon.ammo > 0
 	_out_of_reach = _out_of_reach + delta if d > reach + 1.5 else 0.0
+	var aim_at: Vector3 = t.global_position + Vector3.UP * 0.35
+	if gun:
+		_los_timer -= delta
+		if _los_timer <= 0.0:
+			_los_timer = LOS_CHECK_SECONDS
+			_los_clear = _line_of_fire(npc, t, aim_at)
 	## Getting there: pathfind from afar; up close walk straight in and hold
-	## a fighting distance (a gun just stops once in range).
-	if (gun and d > reach * 0.9) or (not gun and d > maxf(CLOSE_IN_AT, reach + 0.4)):
-		npc.combat.rushing = true   ## chasing them down
+	## a fighting distance. A gun stops once in range AND in sight; with
+	## no clear shot (a corner, a doorframe, someone in the way) it keeps
+	## moving along the path until it has one.
+	if (gun and (d > reach * 0.9 or not _los_clear)) or (not gun and d > maxf(CLOSE_IN_AT, reach + 0.4)):
+		if gun and d <= reach * 0.9:
+			_pursuit_pace(npc, d)   ## just repositioning for a clear shot
+		else:
+			npc.combat.rushing = true   ## chasing them down
 		npc.set_nav_target(t.global_position)
 		npc.nav_steer(delta)
 		return
@@ -490,7 +521,6 @@ func _tick_attack(npc: NPC, delta: float) -> void:
 	if _bark_timer <= 0.0:
 		_bark_timer = randf_range(4.0, 7.0)
 		npc.bark_event("attack")
-	var aim_at: Vector3 = t.global_position + Vector3.UP * 0.35
 	var dir: Vector3 = Vector3(t.global_position.x - npc.global_position.x, 0.0, t.global_position.z - npc.global_position.z)
 	if _weapon != null and is_instance_valid(_weapon) and npc.held_item == _weapon:
 		## Melee swings from the body toward the target (the held weapon sits
@@ -509,6 +539,28 @@ func _tick_attack(npc: NPC, delta: float) -> void:
 			_combo += 1
 			var follow_up: bool = _combo % 2 == 1 and randf() < 0.75
 			_swing_gap = randf_range(0.3, 0.42) if follow_up else randf_range(0.9, 1.5)
+
+## Run while the gap is large, walk once close, hold pace in between.
+static func _pursuit_pace(npc: NPC, gap: float) -> void:
+	if gap > PURSUE_RUN_GAP:
+		npc.combat.rushing = true
+	elif gap < PURSUE_WALK_GAP:
+		npc.combat.rushing = false
+
+## A clear shot: a ray from the gun to where it would aim hits the target
+## (or nothing) before any wall, furniture or other person.
+func _line_of_fire(npc: NPC, t: Node3D, aim_at: Vector3) -> bool:
+	var from: Vector3 = _weapon.global_position
+	var q: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(from, aim_at)
+	var exclude: Array[RID] = [npc.get_rid()]
+	if _weapon is CollisionObject3D:
+		exclude.append((_weapon as CollisionObject3D).get_rid())
+	q.exclude = exclude
+	var hit: Dictionary = npc.get_world_3d().direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		return true
+	var c: Object = hit.get("collider")
+	return c == t or (c is Node and t.is_ancestor_of(c as Node))
 
 ## Stop fighting: lower the guard, then a moment's glare before storming off.
 func _disengage(npc: NPC) -> void:

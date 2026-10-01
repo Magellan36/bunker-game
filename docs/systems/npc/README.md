@@ -303,11 +303,22 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
 - **Running and looking.** Residents run (`NPC.RUN_MULT` ×1.9 ≈ 4.2 m/s,
   the run clip's pace) when fleeing, clearing out of a fight, chasing
   someone down (an armed attacker's approach, any chase out of reach) and
-  rushing over to break a fight up; storming over to shout is a walk. The
+  rushing over to break a fight up; storming over to shout is a walk.
+  Pursuit pace is by DISTANCE (Oct 2026, playtest: a sprinting player was
+  followed at a slow walk): going after someone to shout, following a
+  target who walks off mid-rant, or repositioning for a shot runs once the
+  gap is over 6 m and drops back to a walk under 3.5 m
+  (`CrashOutActivity._pursuit_pace`). Guns fire only with a clear line of
+  fire: a ray from the gun to the aim point must reach the target before
+  any wall, furniture or other person (`_line_of_fire`, re-checked every
+  0.15 s); otherwise they keep moving along the path until they have one
+  (they used to shoot at the player round corners). The
   head looks at someone ONLY while leaning on a wall (`LeanActivity`: the
   player within 3.5 m first, else the nearest resident, re-checked every
   second). Every other activity's `attention_target` returns null: the
-  head faces forward.
+  head faces forward. With nobody near, a leaning resident's gaze is the
+  lean clip's (head down); a level forward gaze for that case is with the
+  Animation session (`AdventurerModelController._update_look`).
 - **Combat debugging (F7 → NPC COMBAT, `NPCCombatDebug`).** A = the
   resident nearest you, B = the next nearest. Toggles: verbose `[Combat]`
   console trace of every decision (hits, fight-or-flight, tier choice,
