@@ -6,7 +6,7 @@ extends CharacterBody3D
 
 # ─── Exports (tweak in Inspector) ────────────────────────────────────────────
 @export var move_speed: float = 4.0        ## Base walk speed (20% slower than original 5.0)
-@export var sprint_speed: float = 7.5      ## Sprint speed (1.5× walk — feels punchy but not insane)
+@export var sprint_speed: float = 5.625    ## Sprint speed (0.75× the old 7.5, Brannon 2026-10-01; ~1.4× walk)
 @export var acceleration: float = 12.0
 @export var friction: float = 16.0
 
