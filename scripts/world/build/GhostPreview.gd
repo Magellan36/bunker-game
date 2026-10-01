@@ -649,7 +649,8 @@ func _update_ghost() -> void:
 	var snap_pos: Vector3  = _owner._snap_to_grid(world_pos)
 	_owner._ghost_door_candidate = {}
 	if _owner._selected_tile == _owner.TILE_BUNKER_DOOR:
-		var door_candidate: Dictionary = _owner._resolve_door_placement(world_pos)
+		var door_candidate: Dictionary = _owner._resolve_door_placement(
+			world_pos, null, Input.is_key_pressed(KEY_CTRL))
 		_owner._ghost_door_candidate = door_candidate
 		if door_candidate.has("pos"):
 			snap_pos = door_candidate["pos"]

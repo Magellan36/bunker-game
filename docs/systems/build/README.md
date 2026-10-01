@@ -519,8 +519,8 @@ renders and stores at its own layout (Medium reproduces the previous 10-slot
 
 ## Wall Draw Mode
 Full/Half/Quarter Wall placement is no longer a single-click, single-tile
-action — selecting any of the three from Construct → Structure
-auto-activates `WallDrawMode.gd`, a click-drag-click sub-mode (same
+action — selecting **Wall** from Construct → Structure auto-activates
+`WallDrawMode.gd`, a click-drag-click sub-mode (same
 activate()/deactivate()/handle_input()->bool contract as
 `WireDrawMode.gd`/`WaterPipeDrawMode.gd`, but auto-activated by tile
 selection rather than a separate toolbar tool).
@@ -534,10 +534,28 @@ selection rather than a separate toolbar tool).
 - **Direction:** free 360°, not locked to cardinal/8-direction — angle
   taken directly from the cursor, only endpoint *position* snaps to the
   fine grid.
-- **Height tiers:** Q/E cycle Full ↔ Half ↔ Quarter at any time, before or
-  during a drag. E is NOT used for exit (unlike Wire/Pipe draw modes) to
+- **Height tiers:** Q/E (LT/RT on a controller, which otherwise rotate
+  ghosts) cycle Full → Half → Quarter at any time, before or during a drag,
+  wrapping. `HEIGHT_TIERS` is ordered tallest → shortest so Q steps left
+  (taller) and E steps right (shorter), matching the HUD indicator. E is NOT
+  used for exit (unlike Wire/Pipe draw modes) to
   avoid the conflict — RMB and ESC both exit/cancel instead, mirroring
   each other exactly (phase 0 = exit tool, phase 1 = cancel current drag).
+- **Tier indicator (Oct 2026):** `scripts/ui/build/WallHeightIndicator.gd`
+  draws three code-drawn bars (full / half / quarter, descending, bottom-
+  aligned) just right of the Build crosshair while wall draw is active; the
+  current tier is `Q.ACCENT`, the others `Q.TEXT` @30 %. WallDrawMode pushes
+  the tier through `BuildModeHUD.set_wall_height_tier()` (0 = full).
+- **Catalog:** Half-Wall / Quarter-Wall are no longer catalog entries (Oct
+  2026) — Q/E covers them. Their tile ids (`TILE_HALF_WALL` 25,
+  `TILE_QUARTER_WALL` 26) are unchanged and still saved, restored
+  (`_spawn_wall_run`), undone and refunded; their per-metre prices live in
+  `BuildModeHUD.WALL_TIER_VARIANTS`, which `get_item_price()` falls back to.
+- **Pillar connection dots:** the blue socket dots are drawn through
+  geometry a little above the floor, so the physics hit under a dot lands on
+  the pillar/wall, parallax-shifted away from the socket. `_resolve_cursor()`
+  therefore first picks the drawn dot in screen space
+  (`CONNECTION_DOT_PICK_PIXELS` = 14) and snaps to exactly that socket.
 - **Idle sliver:** before the first click, shows a short (`WALL_CELL_SIZE
   * 0.25`) sliver ghost — same height/thickness as a real wall — marking
   where a drag would start. `MIN_LENGTH` matches this exactly, so a
@@ -554,6 +572,27 @@ selection rather than a separate toolbar tool).
   by `get_placed_objects_for_save()`; restore passes it back to
   `_spawn_wall_run()`. (Before this fix, a drawn wall collapsed to a single
   cell on reload.)
+
+## Wire-connectable dots (`_refresh_connectable_dots`)
+The light-blue dots on generators, grow lights, the stove and water devices
+sit on the **exact node the Wire/Pipe tools hit-test** — the device's
+PowerManager wire node (matched by `device_id` = instance id) or its
+WaterManager node (`_node_key`). Devices register those nodes from a
+deferred call, so `_sync_connectable_dot_positions()` runs again deferred
+after every refresh, PowerManager `wire_node_registered/unregistered` mark
+the dots dirty (rebuilt next build-mode frame — covers place, move,
+duplicate, undo), and a 0.5 s resync covers water devices. A device whose
+node is not registered shows no dot. (Before Oct 2026 a freshly placed or
+moved device drew its dot at a hard-coded local offset, so players had to
+aim off the dot to connect.)
+
+## Bunker Door — Hold CTRL to centre
+While placing (or moving) a Bunker Door, holding CTRL is its alternate
+placement: `_resolve_door_placement(..., centered = true)` puts the door's
+centre on the exact centre of the hovered player wall run (a run's body
+origin is its midpoint, so local z = 0). Validity rules are unchanged. The
+helper strip shows `CTRL Center on wall` for doors and `Q / E Height` for
+walls (`BuildWorkspace._rebuild_helper_hints`).
 
 ## Ghost Model System (`GhostModelBuilder.gd`)
 **Master file** for every ghost/preview visual in Build Mode — both the

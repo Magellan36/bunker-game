@@ -52,6 +52,30 @@ func _run() -> void:
 	var over_end: Dictionary = controller._resolve_door_placement(Vector3(0.0, 0.0, 2.45))
 	check(not bool(over_end.get("valid", true)), "an opening extending past a wall end must be rejected")
 
+	## Hold CTRL (alternate placement): the door centre sits exactly on the
+	## centre of the hovered player wall run, wherever along it the cursor is.
+	var free_place: Dictionary = controller._resolve_door_placement(Vector3(0.1, 0.0, 1.2))
+	check((free_place.get("pos", Vector3.INF) as Vector3).is_equal_approx(Vector3(0.0, 0.0, 1.2)),
+		"without CTRL the door follows the cursor along the wall")
+	var ctrl_place: Dictionary = controller._resolve_door_placement(Vector3(0.1, 0.0, 1.2), null, true)
+	check((ctrl_place.get("pos", Vector3.INF) as Vector3).is_equal_approx(Vector3.ZERO)
+		and bool(ctrl_place.get("valid", false)),
+		"CTRL centres the door on the wall run's exact centre")
+	var angled_wall := make_wall(4.0)
+	angled_wall.global_position = Vector3(10.0, 0.5, 3.0)
+	angled_wall.rotation_degrees.y = 30.0
+	controller._placed_objects.append({"node": angled_wall, "tile_id": controller.TILE_WALL,
+		"price": 200, "world_pos": angled_wall.global_position, "angle_deg": 30.0,
+		"player_placed": true, "footprint": Vector2(0.15, 2.0)})
+	var near_end: Vector3 = angled_wall.to_global(Vector3(0.2, 0.0, 1.6))
+	var angled_ctrl: Dictionary = controller._resolve_door_placement(near_end, null, true)
+	check(angled_ctrl.get("wall") == angled_wall
+		and (angled_ctrl.get("pos", Vector3.INF) as Vector3).is_equal_approx(Vector3(10.0, 0.5, 3.0))
+		and is_equal_approx(float(angled_ctrl.get("angle_deg", 0.0)), 30.0),
+		"CTRL centring holds for an angled, offset wall run")
+	controller._placed_objects.pop_back()
+	angled_wall.free()
+
 	var crossing_wall := make_wall(2.0)
 	crossing_wall.rotation_degrees.y = 90.0
 	controller._placed_objects.append({"node": crossing_wall, "tile_id": controller.TILE_WALL,

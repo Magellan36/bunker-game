@@ -292,6 +292,7 @@ func _run() -> void:
 	ghost._process(0.016)
 	check(ghost._material.albedo_color == WireSegment.COLOR_DELETE, "reduced motion immediate")
 	ghost.free()
+	await check_connectable_dots(build)
 	tool.free()
 	build.free()
 	world.free()
@@ -345,6 +346,42 @@ func check_angled_breaker_pair() -> void:
 			pair[1].free()
 			await get_tree().process_frame
 			clear_graph()
+
+## A connection dot must sit exactly on the wire node the Wire tool hit-tests,
+## including right after placement (devices register their node deferred) and
+## after the device's node moves.
+func check_connectable_dots(build: TestBuild) -> void:
+	clear_graph()
+	var device := Node3D.new()
+	world.add_child(device)
+	device.position = Vector3(3.1, 0.5, 2.05)   ## off the 0.25 m wire grid
+	build._placed_objects.append({"node": device, "tile_id": build.TILE_GEN_S,
+		"world_pos": device.position, "angle_deg": 0.0, "player_placed": true})
+	build._refresh_connectable_dots()
+	var dot: MeshInstance3D = build._connectable_dots.get(device) as MeshInstance3D
+	check(dot != null and not dot.visible,
+		"connection dot stays hidden until its device registers a wire node")
+	var key: String = pm.register_wire_node(device.global_position, "generator",
+		str(device.get_instance_id()))
+	var node_pos: Vector3 = pm.get_wire_node_pos(key)
+	check(build._connectable_dots_dirty, "wire node registration marks the dots stale")
+	build._refresh_connectable_dots()
+	dot = build._connectable_dots.get(device) as MeshInstance3D
+	check(dot != null and dot.visible and dot.global_position.is_equal_approx(node_pos),
+		"connection dot is drawn exactly on the registered wire node")
+	pm.unregister_wire_node(key)
+	device.position += Vector3(1.0, 0.0, 0.0)
+	key = pm.register_wire_node(device.global_position, "generator",
+		str(device.get_instance_id()))
+	node_pos = pm.get_wire_node_pos(key)
+	build._sync_connectable_dot_positions()
+	check(dot.global_position.is_equal_approx(node_pos),
+		"connection dot follows a moved device's re-registered wire node")
+	build._clear_connectable_dots()
+	build._placed_objects.pop_back()
+	pm.unregister_wire_node(key)
+	device.free()
+	await get_tree().process_frame
 
 func save_vec(pos: Vector3) -> Dictionary:
 	return {"x": pos.x, "y": pos.y, "z": pos.z}

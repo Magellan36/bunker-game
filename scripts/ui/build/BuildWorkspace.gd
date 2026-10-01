@@ -41,6 +41,11 @@ var _pointer_focus: Control
 var _last_pointer_position := Vector2(-1000, -1000)
 var _placement_was_active: bool = false
 var _controller_hints: bool = false
+## Tile whose placement the helper strip currently describes. Walls and the
+## Bunker Door use their own modifier hints (height tiers / centre on wall).
+const HINT_TILE_WALL: int = 1
+const HINT_TILE_DOOR: int = 39
+var _hint_tile: int = -1
 
 
 func _ready() -> void:
@@ -199,12 +204,22 @@ func _rebuild_helper_hints() -> void:
 		child.queue_free()
 	if _controller_hints:
 		BunkerUIComponents.key_hint(_helper_row, "A", "Place", "A", "A", true)
-		BunkerUIComponents.key_hint(_helper_row, "LT / RT", "Rotate", "LT / RT", "LT / RT", true)
+		if _hint_tile == HINT_TILE_WALL:
+			BunkerUIComponents.key_hint(_helper_row, "LT / RT", "Height", "LT / RT", "LT / RT", true)
+		elif _hint_tile != HINT_TILE_DOOR:
+			BunkerUIComponents.key_hint(_helper_row, "LT / RT", "Rotate", "LT / RT", "LT / RT", true)
 		BunkerUIComponents.key_hint(_helper_row, "B", "Cancel", "B", "B", true)
 	else:
 		BunkerUIComponents.key_hint(_helper_row, "LMB", "Place", "LMB", "LMB", true)
-		BunkerUIComponents.key_hint(_helper_row, "CTRL", "45° Snap", "CTRL", "CTRL", true)
-		BunkerUIComponents.key_hint(_helper_row, "WHEEL", "Rotate", "WHEEL", "WHEEL", true)
+		if _hint_tile == HINT_TILE_DOOR:
+			## Hold CTRL — the door's alternate placement: centred on its wall run.
+			BunkerUIComponents.key_hint(_helper_row, "CTRL", "Center on wall", "CTRL", "CTRL", true)
+		else:
+			BunkerUIComponents.key_hint(_helper_row, "CTRL", "45° Snap", "CTRL", "CTRL", true)
+		if _hint_tile == HINT_TILE_WALL:
+			BunkerUIComponents.key_hint(_helper_row, "Q / E", "Height", "Q / E", "Q / E", true)
+		elif _hint_tile != HINT_TILE_DOOR:
+			BunkerUIComponents.key_hint(_helper_row, "WHEEL", "Rotate", "WHEEL", "WHEEL", true)
 		BunkerUIComponents.key_hint(_helper_row, "RMB", "Cancel", "RMB", "RMB", true)
 	var separator := VSeparator.new()
 	separator.custom_minimum_size.x = 1
@@ -295,6 +310,9 @@ func placement_started(tile_id: int, item_name: String, price: int) -> void:
 	summary.hide()
 	catalog.set_selected_item(tile_id, item_name, price)
 	catalog.show()
+	if tile_id != _hint_tile:
+		_hint_tile = tile_id
+		_rebuild_helper_hints()
 	_helper_panel.show()
 	_toolbar_panel.show()
 	shop_button.show()

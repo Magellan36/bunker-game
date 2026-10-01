@@ -276,7 +276,7 @@ mode-flipping is suppressed (see [InputMode](#inputmode--device-detection--curso
 | **B** | Active placement → cancel it (and restore the submenu that launched it). Open submenu → back **one level** (`_submenu_back`: items → root; root → close). Wire/pipe → `cancel_placement()` — cancels the in-progress draw but **stays on the Wire/Pipe tab**. |
 | **LB / RB or d-pad L/R** | Cycle toolbar tabs and **auto-select** the tool (`_change_selected_tool`) — the old tool's ghost/draw is cancelled and the new tool activates immediately, no A needed. Menu tabs follow: scrolling onto one reopens ITS menu if a menu was already open; a closed menu stays closed until A opens it. |
 | **d-pad U/D** | Scroll the open submenu (moves the selection cursor). |
-| **LT / RT** | Rotate the placement ghost CCW/CW once per press (triggers report as axes, `TRIGGER_THRESHOLD = 0.5`, edge-detected in `_process`). |
+| **LT / RT** | Rotate the placement ghost CCW/CW once per press (triggers report as axes, `TRIGGER_THRESHOLD = 0.5`, edge-detected in `_process`). While drawing walls (no ghost) they step the wall height instead — LT taller, RT shorter — the controller's Q / E. |
 | **Start** | Pause (see [Player & world input](#player--world-input)). |
 
 ### Toolbar & submenus

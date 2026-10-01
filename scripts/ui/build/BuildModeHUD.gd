@@ -40,8 +40,6 @@ const CATEGORIES: Dictionary = {
 	"Structure": [
 		{ "tile_id": 1, "name": "Wall",         "price": 50  },
 		{ "tile_id": 39, "name": "Bunker Door", "price": 500 },
-		{ "tile_id": 25, "name": "Half-Wall",   "price": 30  },
-		{ "tile_id": 26, "name": "Quarter-Wall","price": 15  },
 		{ "tile_id": 2, "name": "Pillar",       "price": 25  },
 	],
 	"Furniture": [
@@ -212,10 +210,15 @@ const PREVIEW_SOURCES: Dictionary = {
 	27: { "scene": "res://scenes/weapons/Crowbar.tscn", "is_script": false },
 }
 
-## Tiles previewed as the wall mesh scaled in Y (see BuildModeController
-## spawn: TILE_HALF_WALL = 25 at 0.5, TILE_QUARTER_WALL = 26 at 0.25).
-const SCALED_WALL_SOURCE_TILE: int = 1
-const SCALED_WALL_PREVIEWS: Dictionary = {25: 0.5, 26: 0.25}
+## Half and quarter walls are height tiers of "Wall", reached with Q / E
+## (LT / RT) while drawing — not catalog entries. They keep their tile ids
+## (BuildModeController.TILE_HALF_WALL / TILE_QUARTER_WALL) for saves, undo
+## and refunds, and their per-metre prices live here so get_item_price()
+## still answers for them.
+const WALL_TIER_VARIANTS: Dictionary = {
+	25: { "tile_id": 25, "name": "Half-Wall",    "price": 30 },
+	26: { "tile_id": 26, "name": "Quarter-Wall", "price": 15 },
+}
 
 ## Flat list used only for legacy compat (3D preview viewports, etc.)
 ## Generated from CATEGORIES at runtime — do NOT edit directly.
@@ -227,6 +230,8 @@ func get_item_price(tile_id: int) -> int:
 		for item: Dictionary in cat_items:
 			if item["tile_id"] == tile_id:
 				return item["price"]
+	if WALL_TIER_VARIANTS.has(tile_id):
+		return int(WALL_TIER_VARIANTS[tile_id]["price"])
 	return 0
 
 func available_cash() -> int:
@@ -529,6 +534,11 @@ var _ghost_active: bool = false
 ## walls have no ghost, so the HUD must know wall-draw is active to block the
 ## tabs / make B exit the placement. See set_wall_draw_active().
 var _wall_draw_active: bool = false
+const WALL_HEIGHT_INDICATOR: GDScript = preload("res://scripts/ui/build/WallHeightIndicator.gd")
+## Offset of the tier bars from the pointer: right of the crosshair ring
+## (radius 15), vertically centred on it.
+const WALL_TIER_INDICATOR_OFFSET: Vector2 = Vector2(21.0, -8.0)
+var _wall_tier_indicator: Control = null
 ## Cached copy of BuildModeController's current placement grid. The redesigned
 ## helper strip renders this as text instead of relying on the retired image
 ## badges, keeping the information visible without another generated asset.
@@ -619,6 +629,14 @@ func _ready() -> void:
 	_cursor.z_index = 100
 	add_child(_cursor)
 
+	## Wall-height tier bars (full / half / quarter) beside the crosshair
+	## while drawing walls. See WallHeightIndicator.gd.
+	_wall_tier_indicator = WALL_HEIGHT_INDICATOR.new()
+	_wall_tier_indicator.name = "WallHeightIndicator"
+	_wall_tier_indicator.z_index = 100
+	_wall_tier_indicator.visible = false
+	add_child(_wall_tier_indicator)
+
 	# Grid-size indicator — top-right, directly beneath the main HUD's cash
 	# panel (cash occupies y 12-56; this sits at y 60). 36px, well under the
 	# cash element's 44px height so the big source icons never overtake the
@@ -667,6 +685,11 @@ func _process(delta: float) -> void:
 	var placement_cursor_active := _ghost_active or _wall_draw_active
 	_cursor.visible = not dig_confirm_open and (InputMode.is_controller() \
 		or placement_cursor_active or not _submenu_open)
+	if _wall_tier_indicator != null:
+		_wall_tier_indicator.visible = _wall_draw_active and _cursor.visible \
+			and not cursor_over_ui
+		if _wall_tier_indicator.visible:
+			_wall_tier_indicator.position = (_mouse_pos + WALL_TIER_INDICATOR_OFFSET).round()
 	if _workspace != null:
 		_workspace.refresh(active_tool, _submenu_open, _submenu_source,
 			_ghost_active or _wall_draw_active, _grid_size_value)
@@ -741,6 +764,17 @@ func set_ghost_active(active: bool) -> void:
 ## no ghost — see _wall_draw_active).
 func set_wall_draw_active(active: bool) -> void:
 	_wall_draw_active = active
+	if not active and _wall_tier_indicator != null:
+		_wall_tier_indicator.visible = false
+
+## Called by WallDrawMode whenever the wall-height tier changes (and on
+## activation): 0 = full, 1 = half, 2 = quarter.
+func set_wall_height_tier(tier: int) -> void:
+	if _wall_tier_indicator != null:
+		_wall_tier_indicator.set("tier", tier)
+
+func get_wall_height_tier() -> int:
+	return int(_wall_tier_indicator.get("tier")) if _wall_tier_indicator != null else 0
 
 ## Called by BuildModeController every frame — true while the player is in
 ## reach of the Build Station, where A must ALWAYS exit build mode.
@@ -1465,18 +1499,15 @@ func _hibernate_preview_pool_if_unused() -> void:
 	pass
 
 ## PreviewStudio factory for a construct tile: a detached, side-effect-free
-## model. MeshLibrary tiles use their mesh (Half/Quarter walls = the wall
-## mesh scaled in Y, exactly as BuildModeController places them); every other
-## tile uses GhostModelBuilder's preview-only real instance.
+## model. MeshLibrary tiles use their mesh; every other tile uses
+## GhostModelBuilder's preview-only real instance.
 func _make_construct_model(tile_id: int) -> Node3D:
 	if gridmap != null and gridmap.mesh_library != null:
 		var lib: MeshLibrary = gridmap.mesh_library
-		var mesh_id: int = SCALED_WALL_SOURCE_TILE if SCALED_WALL_PREVIEWS.has(tile_id) else tile_id
-		if lib.get_item_list().has(mesh_id) and lib.get_item_mesh(mesh_id) != null:
+		if lib.get_item_list().has(tile_id) and lib.get_item_mesh(tile_id) != null:
 			var root := Node3D.new()
 			var mi := MeshInstance3D.new()
-			mi.mesh = lib.get_item_mesh(mesh_id)
-			mi.scale = Vector3(1.0, float(SCALED_WALL_PREVIEWS.get(tile_id, 1.0)), 1.0)
+			mi.mesh = lib.get_item_mesh(tile_id)
 			root.add_child(mi)
 			return root
 	var inst: Node3D = _build_procedural_preview_instance(tile_id)

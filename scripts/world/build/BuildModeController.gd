@@ -288,6 +288,21 @@ var _pending_dig_chunk: Vector2i = Vector2i(-9999, -9999)
 ## mode is active, so players can see what's wireable at a glance.
 ## Keys = Node3D object, Values = MeshInstance3D dot node added as child.
 var _connectable_dots: Dictionary = {}
+var _connectable_dots_dirty: bool = false
+var _connectable_dot_sync_t: float = 0.0
+const CONNECTABLE_DOT_SYNC_INTERVAL: float = 0.5   ## safety net for water moves
+## Power-connectable tiles (dot = PowerManager wire node, matched by device id)
+## and water-connectable tiles (dot = the device's WaterManager node).
+const POWER_DOT_TILES: Array[int] = [
+	TILE_GEN_S, TILE_GEN_M, TILE_GEN_L,
+	TILE_GROW_LIGHT_NORMAL, TILE_GROW_LIGHT_PRO, TILE_STOVE,
+]
+const CONNECTABLE_DOT_TILES: Array[int] = [
+	TILE_GEN_S, TILE_GEN_M, TILE_GEN_L,
+	TILE_WATER_HOOKUP, TILE_WATER_SINK, TILE_WATER_DISPENSER,
+	TILE_TRAY_SINGLE, TILE_TRAY_DOUBLE, TILE_GROW_LIGHT_NORMAL, TILE_GROW_LIGHT_PRO,
+	TILE_STOVE,
+]
 
 # ─── Placed-object registry ───────────────────────────────────────────────────
 ## Each entry: {
@@ -850,18 +865,13 @@ func _cancel_ghost() -> void:
 		build_hud.set_ghost_active(false)
 
 # ─── Process ──────────────────────────────────────────────────────────────────
-## Build and attach billboard dots above all wire-connectable objects.
-## Called once on build mode entry; call again if new objects are placed.
+## Build and attach billboard dots on every connectable object's real
+## connection point. Called on build mode entry and after placements; the
+## positions are then kept live by _sync_connectable_dot_positions().
 func _refresh_connectable_dots() -> void:
 	_clear_connectable_dots()
-
-	## Connectable tile IDs — generators, terminal, wall lights, water hookup/sink/dispenser
-	const CONNECTABLE_TILES: Array[int] = [
-		TILE_GEN_S, TILE_GEN_M, TILE_GEN_L,
-		TILE_WATER_HOOKUP, TILE_WATER_SINK, TILE_WATER_DISPENSER,
-		TILE_TRAY_SINGLE, TILE_TRAY_DOUBLE, TILE_GROW_LIGHT_NORMAL, TILE_GROW_LIGHT_PRO,
-		TILE_STOVE
-	]
+	_connectable_dots_dirty = false
+	_connect_connection_point_signals()
 
 	## Dot material — light blue, billboard, always-on-top
 	var mat: StandardMaterial3D = StandardMaterial3D.new()
@@ -877,7 +887,7 @@ func _refresh_connectable_dots() -> void:
 
 	for entry: Dictionary in _placed_objects:
 		var tile_id: int = entry.get("tile_id", -1)
-		if tile_id not in CONNECTABLE_TILES:
+		if tile_id not in CONNECTABLE_DOT_TILES:
 			continue
 		var obj: Node3D = entry.get("node", null)
 		if obj == null or not is_instance_valid(obj):
@@ -892,34 +902,69 @@ func _refresh_connectable_dots() -> void:
 		dot_mi.mesh = sphere
 		dot_mi.set_surface_override_material(0, mat)
 		dot_mi.extra_cull_margin = 10.0
-		var dot_y: float = 0.30
-		var dot_x: float = 0.0
-		if tile_id == TILE_LIGHT:
-			dot_y = 1.0
-		elif tile_id == TILE_WATER_HOOKUP:
-			dot_y = 0.20
-		elif tile_id == TILE_WATER_SINK:
-			dot_y = 0.45
-		elif tile_id == TILE_WATER_DISPENSER:
-			dot_y = 0.65
-		elif tile_id == TILE_TRAY_SINGLE or tile_id == TILE_TRAY_DOUBLE:
-			dot_y = 0.85
-			dot_x = 0.45 if tile_id == TILE_TRAY_SINGLE else 0.95
-		elif tile_id == TILE_GROW_LIGHT_NORMAL or tile_id == TILE_GROW_LIGHT_PRO:
-			dot_y = 0.15
-		elif tile_id == TILE_STOVE:
-			dot_y = 0.25
-			dot_x = 0.0
-		dot_mi.position = Vector3(dot_x, dot_y, 0.0)
+		dot_mi.set_meta("tile_id", tile_id)
+		dot_mi.visible = false   ## shown once its real connection point resolves
 		obj.add_child(dot_mi)
-		if tile_id in [TILE_GEN_S, TILE_GEN_M, TILE_GEN_L, TILE_GROW_LIGHT_NORMAL, TILE_GROW_LIGHT_PRO, TILE_STOVE]:
-			var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
-			if pm != null:
-				for data: Dictionary in pm.get_wire_nodes():
-					if data.get("device_id", "") == str(obj.get_instance_id()):
-						dot_mi.global_position = data["pos"]
-						break
 		_connectable_dots[obj] = dot_mi
+	_sync_connectable_dot_positions()
+	## Devices register their power/water node from a deferred call queued in
+	## _ready(). Queued after it, this second pass lands every dot placed this
+	## frame on that real node instead of leaving it hidden for a cycle.
+	call_deferred("_sync_connectable_dot_positions")
+
+## Moves every dot onto the exact point the wire/pipe tools hit-test: the
+## device's registered PowerManager wire node (matched by device_id) or its
+## WaterManager node. A device whose node is not registered yet shows no dot,
+## so a dot never advertises a connection that a click would miss.
+func _sync_connectable_dot_positions() -> void:
+	_connectable_dot_sync_t = 0.0
+	if _connectable_dots.is_empty():
+		return
+	var power_points: Dictionary = {}
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm != null:
+		for data: Dictionary in pm.get_wire_nodes():
+			var device_id: String = String(data.get("device_id", ""))
+			if not device_id.is_empty():
+				power_points[device_id] = data.get("pos", Vector3.ZERO)
+	var wm: Node = get_tree().get_first_node_in_group("water_manager")
+	for obj: Variant in _connectable_dots.keys():
+		var dot: MeshInstance3D = _connectable_dots[obj] as MeshInstance3D
+		if dot == null or not is_instance_valid(dot):
+			continue
+		var point: Vector3 = _connection_point_for(obj as Node3D,
+			int(dot.get_meta("tile_id", -1)), power_points, wm)
+		dot.visible = point.is_finite()
+		if dot.visible:
+			dot.global_position = point
+
+func _connection_point_for(obj: Node3D, tile_id: int, power_points: Dictionary,
+		wm: Node) -> Vector3:
+	if obj == null or not is_instance_valid(obj) or not obj.is_inside_tree():
+		return Vector3.INF
+	if tile_id in POWER_DOT_TILES:
+		return power_points.get(str(obj.get_instance_id()), Vector3.INF)
+	if wm == null or not wm.has_method("get_node_data"):
+		return Vector3.INF
+	var key: String = String(obj.get("_node_key")) if "_node_key" in obj else ""
+	if key.is_empty():
+		return Vector3.INF
+	var data: Dictionary = wm.call("get_node_data", key)
+	return data.get("pos", Vector3.INF)
+
+func _connect_connection_point_signals() -> void:
+	var pm: PowerManager = get_tree().get_first_node_in_group("power_manager") as PowerManager
+	if pm == null:
+		return
+	if not pm.wire_node_registered.is_connected(_on_connection_point_changed):
+		pm.wire_node_registered.connect(_on_connection_point_changed)
+	if not pm.wire_node_unregistered.is_connected(_on_connection_point_changed):
+		pm.wire_node_unregistered.connect(_on_connection_point_changed)
+
+## A device registering/moving/removing its wire node (place, move, duplicate,
+## undo) rebuilds the dots on the next build-mode frame.
+func _on_connection_point_changed(_node_key: String) -> void:
+	_connectable_dots_dirty = true
 
 func _clear_connectable_dots() -> void:
 	for obj in _connectable_dots.keys():
@@ -958,11 +1003,15 @@ func _process(_delta: float) -> void:
 	## rotate once per press.
 	var lt := Input.get_joy_axis(0, JOY_AXIS_TRIGGER_LEFT)
 	var rt := Input.get_joy_axis(0, JOY_AXIS_TRIGGER_RIGHT)
+	## Wall runs take their angle from the drag, so while drawing walls the
+	## triggers step the height tier instead (the controller's Q / E).
 	if lt >= TRIGGER_THRESHOLD:
 		if not _lt_held:
 			_lt_held = true
 			if _ghost_active:
 				_rotate_ccw()
+			elif _wall_draw_active and _wall_draw_mode != null:
+				_wall_draw_mode.call("cycle_tier", -1)
 	else:
 		_lt_held = false
 	if rt >= TRIGGER_THRESHOLD:
@@ -970,6 +1019,8 @@ func _process(_delta: float) -> void:
 			_rt_held = true
 			if _ghost_active:
 				_rotate_cw()
+			elif _wall_draw_active and _wall_draw_mode != null:
+				_wall_draw_mode.call("cycle_tier", 1)
 	else:
 		_rt_held = false
 
@@ -989,6 +1040,16 @@ func _process(_delta: float) -> void:
 
 	if _wall_draw_active:
 		_update_wall_draw_refs()
+
+	## Connection dots follow the real wire/pipe nodes (see
+	## _sync_connectable_dot_positions): rebuild after any wire-node change,
+	## and re-sync periodically for water devices, which publish no signal.
+	if _connectable_dots_dirty:
+		_refresh_connectable_dots()
+	else:
+		_connectable_dot_sync_t += _delta
+		if _connectable_dot_sync_t >= CONNECTABLE_DOT_SYNC_INTERVAL:
+			_sync_connectable_dot_positions()
 
 	if _ghost_active:
 		_update_ghost()
@@ -4008,7 +4069,11 @@ func _obb_projection(he: Vector2, rad: float, n: Vector2) -> float:
 ## Finds the nearest legal 1.8m opening on a full-height player-drawn wall.
 ## Returns the nearest wall even when invalid so the ghost can turn red and a
 ## precise toast can explain the failed click.
-func _resolve_door_placement(cursor_pos: Vector3, exclude_door: Node3D = null) -> Dictionary:
+## `centered` (Hold CTRL — the door's alternate placement) puts the opening's
+## centre exactly on the centre of the hovered wall run. A drawn run's body
+## origin IS its midpoint (_spawn_wall_run), so that is local z = 0.
+func _resolve_door_placement(cursor_pos: Vector3, exclude_door: Node3D = null,
+		centered: bool = false) -> Dictionary:
 	var best: Dictionary = {}
 	var best_distance := 1.35
 	for entry: Dictionary in _placed_objects:
@@ -4025,7 +4090,7 @@ func _resolve_door_placement(cursor_pos: Vector3, exclude_door: Node3D = null) -
 		if distance >= best_distance:
 			continue
 		best_distance = distance
-		var center_z := clampf(local.z, -half_length, half_length)
+		var center_z := 0.0 if centered else clampf(local.z, -half_length, half_length)
 		var door_pos := wall.to_global(Vector3(0.0, 0.0, center_z))
 		var valid := true
 		var reason := ""

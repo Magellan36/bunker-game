@@ -173,7 +173,8 @@ func _update_move_ghost() -> void:
 	_owner._move_door_candidate = {}
 
 	if mv_tile == _owner.TILE_BUNKER_DOOR:
-		var door_candidate: Dictionary = _owner._resolve_door_placement(result["position"], _owner._move_source_body)
+		var door_candidate: Dictionary = _owner._resolve_door_placement(
+			result["position"], _owner._move_source_body, Input.is_key_pressed(KEY_CTRL))
 		_owner._move_door_candidate = door_candidate
 		if not door_candidate.has("pos"):
 			_owner._move_ghost.visible = false

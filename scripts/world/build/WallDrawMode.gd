@@ -3,7 +3,8 @@ extends Node
 ## Click-drag-click wall placement. Both anchors snap to nearby registered wall
 ## runs, otherwise they use the build grid. Dragging stretches ONE wall
 ## mesh/collision at a free 360° angle; click 2 confirms a StaticBody3D sized
-## to the exact run length. Q/E cycle height tier at any time.
+## to the exact run length. Q/E (LT/RT on a controller) cycle the height tier
+## at any time; the Build HUD mirrors it as three bars beside the cursor.
 
 signal wall_placed(node: Node3D, tile_id: int, price: int, pos: Vector3, angle_deg: float)
 signal wall_tool_exit_requested()
@@ -20,9 +21,17 @@ const IDLE_WALL_PREVIEW_OFFSET: float = 0.28
 const IDLE_PILLAR_PREVIEW_OFFSET: float = 0.16
 const CONNECTION_DOT_RADIUS: float = 0.065
 const CONNECTION_DOT_COLOR: Color = Color(0.45, 0.85, 1.0, 0.92)
+## Screen-space pick radius for a pillar connection dot. Dots are drawn
+## through geometry (no depth test) a little above the floor, so the physics
+## cursor under a dot usually lands on the pillar or wall instead, parallax-
+## shifted away from the socket. Picking the drawn dot on screen first makes
+## the hit point match exactly what the player is aiming at.
+const CONNECTION_DOT_PICK_PIXELS: float = 14.0
 
 const MIN_LENGTH: float = IDLE_SLIVER_LENGTH   ## Matches the idle sliver exactly — see class comment
 
+## Ordered tallest → shortest, matching the HUD's three bars left → right:
+## Q / LT step left (taller), E / RT step right (shorter), wrapping.
 var HEIGHT_TIERS: Array[int] = []
 var _tier_index: int = 0
 
@@ -63,13 +72,27 @@ func activate() -> void:
 	_refresh_pillar_connection_dots()
 	if build_controller != null:
 		HEIGHT_TIERS = [
-			build_controller.TILE_QUARTER_WALL,
-			build_controller.TILE_HALF_WALL,
 			build_controller.TILE_WALL,
+			build_controller.TILE_HALF_WALL,
+			build_controller.TILE_QUARTER_WALL,
 		]
-		if HEIGHT_TIERS.has(build_controller._selected_tile):
-			_tier_index = HEIGHT_TIERS.find(build_controller._selected_tile)
+		sync_selected_tier_from_controller()
 	set_process(true)
+
+## Adopts the controller's selected wall tile as the current tier (the catalog
+## only offers Wall; saves/undo may still hand back a half or quarter tile).
+func sync_selected_tier_from_controller() -> void:
+	if build_controller != null and HEIGHT_TIERS.has(build_controller._selected_tile):
+		_tier_index = HEIGHT_TIERS.find(build_controller._selected_tile)
+	_publish_tier()
+
+## 0 = full, 1 = half, 2 = quarter — the HUD indicator's bar index.
+func current_tier_index() -> int:
+	return _tier_index
+
+func _publish_tier() -> void:
+	if build_hud != null and build_hud.has_method("set_wall_height_tier"):
+		build_hud.call("set_wall_height_tier", _tier_index)
 
 func deactivate() -> void:
 	set_process(false)
@@ -105,6 +128,9 @@ func handle_input(event: InputEvent) -> bool:
 			return true
 	return false
 
+func cycle_tier(delta: int) -> void:
+	_cycle_tier(delta)
+
 func _cycle_tier(delta: int) -> void:
 	if HEIGHT_TIERS.is_empty():
 		return
@@ -112,6 +138,7 @@ func _cycle_tier(delta: int) -> void:
 	if build_controller != null:
 		build_controller._selected_tile       = HEIGHT_TIERS[_tier_index]
 		build_controller._selected_tile_price = build_controller._price_for_tile(HEIGHT_TIERS[_tier_index])
+	_publish_tier()
 	if _phase == 1:
 		_rebuild_ghost()
 
@@ -183,6 +210,13 @@ func _ctrl_constrained_snap(hit_pos: Vector3, candidate: Dictionary) -> Dictiona
 ## calls this resolver, so the idle marker cannot advertise a junction that the
 ## click or final placement later quantizes somewhere else.
 func _resolve_cursor(hit_pos: Vector3) -> Dictionary:
+	var dot_point: Vector3 = _connection_dot_under_pointer()
+	if dot_point.is_finite():
+		var dot_snap: Dictionary = build_controller._snap_wall_run_point(
+			Vector3(dot_point.x, TRUE_FLOOR_Y, dot_point.z),
+			WallSnapHelpers.WALL_RUN_JUNCTION_EPSILON * 2.0)
+		if not dot_snap.is_empty():
+			return dot_snap
 	var wall_snap: Dictionary = build_controller._snap_wall_run_point(hit_pos)
 	if not wall_snap.is_empty():
 		var snapped: Vector3 = wall_snap["pos"]
@@ -192,6 +226,33 @@ func _resolve_cursor(hit_pos: Vector3) -> Dictionary:
 	var grid_pos: Vector3 = build_controller._snap_to_grid(hit_pos)
 	grid_pos.y = TRUE_FLOOR_Y
 	return {"pos": grid_pos, "wall": null, "walls": [], "at_cap": false}
+
+## The drawn pillar connection dot nearest the pointer on screen (within
+## CONNECTION_DOT_PICK_PIXELS), or INF. Tests the dot nodes themselves, so the
+## hit target is by construction exactly where the dot is drawn.
+func _connection_dot_under_pointer() -> Vector3:
+	var cam: Camera3D = build_controller.camera if build_controller != null else null
+	if cam == null:
+		return Vector3.INF
+	return _connection_dot_near(cam.get_viewport().get_mouse_position())
+
+func _connection_dot_near(mouse: Vector2) -> Vector3:
+	var cam: Camera3D = build_controller.camera if build_controller != null else null
+	if cam == null or _pillar_connection_dots.is_empty():
+		return Vector3.INF
+	var best_distance: float = CONNECTION_DOT_PICK_PIXELS
+	var best: Vector3 = Vector3.INF
+	for dot: MeshInstance3D in _pillar_connection_dots:
+		if not is_instance_valid(dot) or not dot.is_inside_tree():
+			continue
+		var point: Vector3 = dot.global_position
+		if cam.is_position_behind(point):
+			continue
+		var distance: float = cam.unproject_position(point).distance_to(mouse)
+		if distance < best_distance:
+			best_distance = distance
+			best = point
+	return best
 
 func _snap_nodes(snap: Dictionary) -> Array[Node3D]:
 	var nodes: Array[Node3D] = []
