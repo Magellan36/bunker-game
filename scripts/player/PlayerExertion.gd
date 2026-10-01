@@ -69,7 +69,7 @@ func movement_multiplier(sprinting: bool) -> float:
 		return 1.0
 	if arms_active:
 		return lerpf(0.65, 0.45, intensity())
-	return lerpf(0.78, 0.60, intensity()) if sprinting else 1.0
+	return lerpf(0.85, 0.75, intensity()) if sprinting else 1.0
 
 func note_accident() -> void:
 	accident_cooldown = ACCIDENT_COOLDOWN

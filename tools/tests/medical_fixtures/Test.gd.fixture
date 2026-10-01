@@ -74,7 +74,7 @@ func _test_exposure() -> void:
 	near(state.leg_dose, 0.0, "accident cooldown prevents immediate pile-on")
 	state.advance(0.5, 0.0, true, false, 18.0, 8.0, 20.0)
 	check(state.leg_dose > 0.0, "continuing eventually exposes limb again")
-	check(state.movement_multiplier(true) * 7.5 > 4.0, "exhausted running retains value over walking")
+	check(state.movement_multiplier(true) * 5.625 > 4.0, "exhausted running retains value over walking")
 	check(state.movement_multiplier(true) < 1.0, "overdrive slows movement")
 
 func _integrated_dose(step: float) -> float:

@@ -12,9 +12,10 @@ are superseded here.
 - Normal running/heavy holding drains stamina at existing rates, summed when
   both occur. At zero, the action continues in overdrive. Controller sprint
   latching survives zero stamina and cancels on stopping/clicking again.
-- Running alone slows from 78% toward 60% of sprint speed (still faster than
-  walking at current base speeds). Carrying overdrive slows movement from 65%
-  toward 45%; existing medical movement penalties then apply.
+- Running alone slows from 85% toward 75% of sprint speed (4.8 to 4.2 m/s at
+  the 5.625 m/s sprint; still faster than the 4.0 m/s walk). Carrying
+  overdrive slows movement from 65% toward 45%; existing medical movement
+  penalties then apply.
 - Legs accumulate exposure only while overdrive sprinting; arms only while
   overdrive holding a heavy item, including standing still. Stopping either
   activity ends only that limb family's risk. Holding light items is safe.
