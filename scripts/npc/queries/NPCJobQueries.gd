@@ -157,6 +157,10 @@ static func _nearest_cleaning_destination(npc: NPC, group_names: Array, item: Ri
 			if npc.job_state.is_unreachable(candidate):
 				continue
 			var d: float = NPCItemUser.flat_distance(npc.global_position, (candidate as Node3D).global_position)
+			## Someone's already putting things there: prefer other storage
+			## (five residents used to jam one shelf in a corner).
+			if NPCItemUser.is_claimed_by_other(candidate, npc):
+				d += 8.0
 			if d < best_d:
 				best_d = d
 				best = candidate

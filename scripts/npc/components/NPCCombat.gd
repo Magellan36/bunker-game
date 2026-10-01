@@ -152,6 +152,10 @@ static func _on_weapon_attack(kind: String, _variant: int, weapon: Node) -> void
 	raise_alarm(weapon.get_tree(), (weapon as Node3D).global_position, [id_of(holder)])
 
 ## Is the alarm up (or was it, within `linger_s` seconds of quiet)?
+## Hit by `id` within the last `hours` (game hours; 0.25 = 15 real s).
+func hit_recently_by(id: String, hours: float = 0.25) -> bool:
+	return id != "" and NPCClock.now() - float(_last_hit_at.get(id, -99.0)) < hours
+
 static func alarm_active(linger_s: float = 0.0) -> bool:
 	return Time.get_ticks_msec() - _alarm_msec < int((ALARM_HOLD_S + linger_s) * 1000.0)
 
@@ -168,7 +172,7 @@ static func should_hide(npc: NPC) -> bool:
 		return false
 	if npc.brain != null and npc.brain.is_sleeping():
 		return false
-	if not alarm_active(8.0) or alarm_involves(npc.npc_id):   ## 8 s = HideActivity.LINGER.x
+	if not alarm_active(45.0) or alarm_involves(npc.npc_id):   ## 45 s = HideActivity.LINGER.x
 		return false
 	return npc.global_position.distance_to(alarm_pos) < 40.0
 
@@ -320,6 +324,11 @@ func _react(src_id: String, kind: String) -> void:
 		return
 	var lethal: bool = not kind in ["punch", "fists"]
 	var crash: NPCCrashOut = _npc.crash
+	## Beaten down in a fist fight: they've given up (they used to raise
+	## their fists and drop them again on every punch).
+	if not lethal and _npc.health <= BEATEN_HEALTH:
+		NPCCombatDebug.trace(_npc, "too beaten to fight back vs %s" % src_id)
+		return
 	if crash.active() and crash.mode == NPCCrashOut.Mode.HOSTILE and crash.target_id == src_id:
 		if crash.defense and lethal and not crash.defense_lethal:
 			crash.defense_lethal = true   ## CrashOutActivity sees `escalate` and goes for a weapon
@@ -334,6 +343,7 @@ func _react(src_id: String, kind: String) -> void:
 ## brave stay put and just react). Only bystanders who aren't busy with
 ## something they can't drop (a crash-out, sleeping, already running).
 const CLEAR_OUT_BRAWL: float = 1.8
+const BEATEN_HEALTH: float = 45.0   ## a fist fight stops here, for either side (CrashOutActivity.BRAWL_STOP_HEALTH)
 const CLEAR_OUT_WEAPON: float = 6.0
 func _bystanders_clear_out(actor_id: String, actor: Node, punch: bool) -> void:
 	if actor == null or not (actor is Node3D):
@@ -443,23 +453,38 @@ func _injure(kind: String, part: int, dmg: float) -> String:
 ## Everyone who sees violence reacts: a little against the attacker even as
 ## a bystander, much more if they cared about the victim; the player being
 ## violent also makes people afraid (which, like threats, buys compliance).
+## One reaction per witness per incident (Sep 2026): every blow used to
+## count again, so watching one beating took a bystander from neutral to
+## −100 in seconds. Blows within INCIDENT_GAP_S of the last one are the same
+## incident; the reaction also fades with distance.
+const INCIDENT_GAP_S: float = 20.0
+static var _witnessed: Dictionary = {}   ## "witness|actor|victim" -> msec of the last blow seen
+
 func _witnesses_react(actor_id: String, actor: Node, what: String, base: float, care_mult: float, shock: float, skip: NPC = null) -> void:
+	var now_ms: int = Time.get_ticks_msec()
 	for w: Node in _npc.get_tree().get_nodes_in_group("npc"):
 		if not (w is NPC) or w == _npc or w == skip or (w as NPC).npc_id == actor_id:
 			continue
 		var wn: NPC = w as NPC
-		if wn.global_position.distance_to(_npc.global_position) > WITNESS_RANGE or not wn._can_see(_npc):
+		var d: float = wn.global_position.distance_to(_npc.global_position)
+		if d > WITNESS_RANGE or not wn._can_see(_npc):
 			continue
+		var key: String = "%s|%s|%s" % [wn.npc_id, actor_id, _npc.npc_id]
+		var seen_before: bool = now_ms - int(_witnessed.get(key, -1000000)) < int(INCIDENT_GAP_S * 1000.0)
+		_witnessed[key] = now_ms
+		if seen_before:
+			continue   ## same incident — already reacted
+		var f: float = lerpf(1.0, 0.4, d / WITNESS_RANGE)
 		var care: float = maxf(0.0, wn.get_relationship(_npc.npc_id) / 100.0)
-		wn.bonds.relate(actor_id, base - care_mult * care, "%s in front of me" % what)
-		wn.morale_sys.note_shock(shock)
+		wn.bonds.relate(actor_id, (base - care_mult * care) * f, "%s in front of me" % what)
+		wn.morale_sys.note_shock(shock * f)
 		wn.add_thought("saw_fight", _npc.npc_name)
 		## The brave (or those who care about the victim) shout at it.
 		var brave: bool = wn._trait("resilience") - wn.social.fear / 200.0 > 0.5 or care > 0.3
 		if brave and not wn.crash.active() and wn.global_position.distance_to(_npc.global_position) < 8.0 and randf() < 0.35:
 			wn.bark(NPCDialogue.bark_line("witness_shout", _npc.npc_name))
 		if actor_id == "player":
-			wn.social.fear = minf(100.0, wn.social.fear + 10.0)
+			wn.social.fear = minf(100.0, wn.social.fear + 10.0 * f)
 
 # ─── Death ──────────────────────────────────────────────────────────────────
 func die(cause: String, killer_id: String = "", quiet: bool = false) -> void:
@@ -498,10 +523,26 @@ func die(cause: String, killer_id: String = "", quiet: bool = false) -> void:
 		var near: bool = wn.global_position.distance_to(_npc.global_position) < WITNESS_RANGE
 		wn.morale_sys.note_shock(0.35 + 0.4 * close + (0.25 if near else 0.0))
 		wn.log_event("mood", "%s died%s" % [_npc.npc_name, " in front of me" if near else ""])
-		if wn.get_relationship(_npc.npc_id) > -20.0 and wn.npc_id != killer_id:
-			wn.add_thought("grieving", _npc.npc_name)
-		if near:
-			wn.bark_event("horrified", _npc.npc_name)
+		## Grief scales with how close they were — and shows in what they do
+		## (NPC.mourning: fewer chats, less work, settling alone; a close
+		## friend may break down). Enemies feel relief instead.
+		var rel_v: float = wn.get_relationship(_npc.npc_id)
+		if wn.npc_id != killer_id:
+			if rel_v >= 50.0:
+				wn.add_thought("grieving", _npc.npc_name, 1.5)
+				wn.begin_mourning(_npc.npc_name, 1.0, 36.0)
+				wn.crash.schedule_grief_breakdown(_npc.npc_name, 0.6)
+			elif rel_v >= 20.0:
+				wn.add_thought("grieving", _npc.npc_name, 1.0)
+				wn.begin_mourning(_npc.npc_name, 0.6, 18.0)
+				wn.crash.schedule_grief_breakdown(_npc.npc_name, 0.2)
+			elif rel_v > -20.0:
+				wn.add_thought("grieving", _npc.npc_name, 0.5)
+				wn.begin_mourning(_npc.npc_name, 0.3, 6.0)
+			elif rel_v <= -40.0:
+				wn.add_thought("relieved", _npc.npc_name)
+		if near and wn.npc_id != killer_id:
+			wn.bark_event("death_enemy" if rel_v <= -40.0 else ("horrified_killing" if killer_id != "" else "horrified"), _npc.npc_name)
 		if killer_id != "" and killer_id != wn.npc_id:
 			wn.bonds.relate(killer_id, -25.0 - 50.0 * close, "killed %s" % _npc.npc_name,
 				"%s killed %s" % ["You" if killer_id == "player" else wn.bonds.display_name(killer_id), _npc.npc_name], true)

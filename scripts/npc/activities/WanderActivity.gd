@@ -14,7 +14,10 @@ class_name WanderActivity
 ##     endless and could only be displaced by a large score margin.)
 ## `leisurely` (RelaxActivity's stroll fallback): slower pace, longer pauses.
 
-const BASE_SCORE: float = 6.0
+## Sep 2026 human-likeness pass: wandering is the fallback when there's
+## nowhere to settle (LeisureSit 7, Lean 6.5) — it was the default and
+## filled ~half of all time in 15-second bursts.
+const BASE_SCORE: float = 3.0
 const LOOK_RANGE: float = 4.5
 
 var leisurely: bool = false
@@ -36,7 +39,7 @@ func label() -> String:
 	return "Taking a stroll" if leisurely else "Wandering"
 
 func enter(npc: NPC) -> void:
-	_legs_left = randi_range(1, 3)
+	_legs_left = randi_range(1, 2)
 	_walking = false
 	_idle_left = randf_range(0.5, 1.5)
 
@@ -102,7 +105,8 @@ func _pick_destination(npc: NPC) -> Vector3:
 				if snapped != Vector3.INF:
 					p = snapped
 				var ok: bool = snapped != Vector3.INF and NPCItemUser.is_reachable(npc, p, 0.6)
-				if attempt == 4 or (ok and not _crowded(npc, p)):
+				## Not next to a body / the feared player (NPC.leisure_spot_penalty).
+				if attempt == 4 or (ok and not _crowded(npc, p) and npc.leisure_spot_penalty(p) <= 0.0):
 					return p if ok else fallback
 				break
 	return fallback

@@ -30,12 +30,16 @@ const GUN_RANGE: float = 7.0
 const BRAWL_BELOW: float = -50.0         ## hatred between this and ESCALATE_BELOW: a fist fight, not sabotage
 const BRAWL_SECONDS: Vector2 = Vector2(6.0, 10.0)
 const BRAWL_STOP_HEALTH: float = 45.0    ## a brawl stops once the target is beaten down to this
+const ATTACKER_GIVE_UP_HEALTH: float = 20.0   ## a lethal attacker this hurt gives up
 ## Fight feel. Capsules touch at 0.8 m between centres; fists reach 1.1 m.
 const CLOSE_IN_AT: float = 2.4           ## within this, walk straight in (avoidance would steer around them)
 const MIN_SPACING: float = 0.9           ## never crowd closer than this (centre to centre)
 const FACING_OK: float = 0.6             ## rad (~35°): only strike when roughly facing them
 const FIGHT_TURN: float = 10.0           ## face_toward weight per second while fighting (rate-capped)
 const BRAWL_GIVE_UP: float = 2.5         ## s with the target out of reach (got away): the brawl ends
+const RANT_FOLLOW_RANGE: float = 3.0      ## they walk after a target who backs off
+const RANT_GIVE_UP_RANGE: float = 10.0
+const RANT_GIVE_UP_SECONDS: float = 5.0
 const GLARE_SECONDS: Vector2 = Vector2(0.9, 1.5)  ## disengage: hold ground, glaring, before pacing off
 ## De-escalation (colony first: fights are rare). Before a fist fight the
 ## target may back down, or a friend nearby may talk them out of it; during
@@ -59,6 +63,7 @@ var _attack_left: float = 0.0
 var _swing_gap: float = 0.0
 var _combo: int = 0
 var _out_of_reach: float = 0.0
+var _lost: float = 0.0   ## RANT: seconds the target has been gone
 var _peace_check: float = 0.0
 var _peacemaker_called: bool = false
 
@@ -72,7 +77,8 @@ func score(npc: NPC) -> float:
 func label() -> String:
 	if _npc_desc == "defending themselves":
 		return "Fighting back"
-	return "Crashing out — %s" % _npc_desc
+	## (The brain logs the label before enter() fills _npc_desc.)
+	return "Crashing out — %s" % (_npc_desc if _npc_desc != "" else "losing it")
 
 var _npc_desc: String = ""
 
@@ -146,9 +152,29 @@ func tick(npc: NPC, delta: float) -> void:
 				_on_confront(npc, t)
 		Phase.RANT:
 			var t: Node3D = npc.crash.target_node()
-			npc.halt_movement(delta)
+			## Someone walking away mid-rant (Sep 2026: they used to stand and
+			## stare after them): if they meant to fight, the fight starts now;
+			## otherwise they follow, still shouting, and give up once the
+			## target is well away or out of sight for a few seconds.
+			var gone: bool = t == null
 			if t != null:
-				npc.face_toward(t.global_position, delta * 5.0)
+				var d: float = NPCItemUser.flat_distance(npc.global_position, t.global_position)
+				_lost = _lost + delta if (d > RANT_GIVE_UP_RANGE or not npc._can_see(t)) else 0.0
+				gone = _lost > RANT_GIVE_UP_SECONDS
+				if d > RANT_FOLLOW_RANGE and not gone:
+					if _will_attack or _brawl:
+						_start_attack_or_sabotage(npc)
+						return
+					npc.set_nav_target(t.global_position)
+					npc.nav_steer(delta)
+				else:
+					npc.halt_movement(delta)
+					npc.face_toward(t.global_position, delta * 5.0)
+			if gone:
+				npc.log_event("crash", "Gave up shouting after %s walked off" % ("you" if npc.crash.target_id == "player" else npc.bonds.display_name(npc.crash.target_id)))
+				npc.bark_event("seething")
+				_to(Phase.SABOTAGE if _sabotage_done < MAX_SABOTAGE else Phase.PACE)
+				return
 			if _bark_timer <= 0.0:
 				_bark_timer = randf_range(3.0, 4.5)
 				npc.bark(NPCDialogue.rant_line(npc, npc.crash.target_id), true)
@@ -163,11 +189,14 @@ func tick(npc: NPC, delta: float) -> void:
 		Phase.ATTACK:
 			_tick_attack(npc, delta)
 		Phase.GLARE:
-			## Disengaging: hold ground and stare them down, then storm off.
+			## Disengaging: a moment's glare, then storm off — cut short if the
+			## other one walks away (no staring after someone across the room).
 			var t: Node3D = npc.crash.target_node()
 			npc.halt_movement(delta)
 			if t != null:
 				npc.face_toward(t.global_position, minf(FIGHT_TURN * delta, 0.99))
+			if t == null or NPCItemUser.flat_distance(npc.global_position, t.global_position) > 4.0:
+				_timer = maxf(_timer, 0.0)
 			if _timer >= 0.0:
 				if npc.crash.defense:
 					npc.crash.finish()   ## self-defence ends with the fight
@@ -238,6 +267,7 @@ func attention_target(_npc: NPC) -> Node3D:
 
 func _to(p: Phase) -> void:
 	_phase = p
+	_lost = 0.0
 	if _npc_ref != null:
 		_npc_ref.combat.rushing = false   ## each phase decides for itself whether to run
 		_npc_ref.combat.debug_phase = Phase.keys()[p]
@@ -284,7 +314,11 @@ func _start_attack_or_sabotage(npc: NPC) -> void:
 	if npc.crash.target_node() == null or not (_will_attack or _brawl):
 		_to(Phase.SABOTAGE if _sabotage_done < MAX_SABOTAGE else Phase.PACE)
 		return
-	var punched_first: bool = npc.crash.defense or (npc.combat.attacked_by == npc.crash.target_id and npc.combat.last_hit_kind in ["punch", "fists"])
+	## Sep 2026: only a FRESH punch is self-defence. attacked_by never
+	## expires, so a punch hours ago let a revenge attack skip the colony
+	## cooldown, backing down and friends talking them out of it.
+	var punched_first: bool = npc.crash.defense or (npc.combat.attacked_by == npc.crash.target_id \
+			and npc.combat.last_hit_kind in ["punch", "fists"] and npc.combat.hit_recently_by(npc.crash.target_id))
 	var held_back: String = _held_back(npc, punched_first, not _brawl)
 	if held_back != "":
 		npc.log_event("crash", held_back)
@@ -383,11 +417,25 @@ func _tick_attack(npc: NPC, delta: float) -> void:
 	## A brawl stops once they're beaten down; an escalated attack (fists or
 	## weapon) goes on until they're dead or it runs its course.
 	var stop_at: float = BRAWL_STOP_HEALTH if _brawl else -1.0
+	## Sep 2026: and the one who's been beaten down gives up too. Only the
+	## winner used to check, so a beaten attacker kept swinging while
+	## begging "Stop... please...", the winner kept re-entering self-defence,
+	## and in two runs out of two the winner was punched to death.
+	## A lethal attacker badly hurt themselves gives up as well (not someone
+	## fighting for their life).
+	if (_brawl and npc.health <= stop_at) or (not _brawl and not npc.crash.defense and npc.health <= ATTACKER_GIVE_UP_HEALTH):
+		NPCCombatDebug.trace(npc, "disengage: beaten down myself (health %.0f)" % npc.health)
+		npc.log_event("crash", "Gave up the fight with %s" % who)
+		npc.bark(NPCDialogue.bark_line("beaten"), true)
+		_disengage(npc)
+		return
 	if not target_down and NPCCombat.health_of(t) <= stop_at:
 		target_down = true   ## beaten down: fists stop there
 		npc.log_event("crash", "Beat %s down" % who)
 		npc.bark(NPCDialogue.bark_line("beat_down"), true)
-		if t is NPC:
+		## Only someone who's actually stopping says so (one still attacking
+		## us gives up in their own tick, or fights on if it's lethal).
+		if t is NPC and (t as NPC).combat.attacking_id != npc.npc_id:
 			(t as NPC).bark(NPCDialogue.bark_line("beaten"), true)
 	## Someone got between them.
 	if npc.combat.separated:
@@ -481,6 +529,11 @@ func _disengage(npc: NPC) -> void:
 ## half the odds); the colony cooldown and the target backing down don't
 ## stop it.
 func _held_back(npc: NPC, punched_first: bool, lethal: bool = false) -> String:
+	## Already beaten down (a fight earlier): in no state to start another;
+	## the anger comes out as shouting and sabotage instead.
+	if not npc.crash.defense and npc.health <= NPCCombat.BEATEN_HEALTH:
+		NPCCombatDebug.trace(npc, "too hurt to start a fight (health %.0f)" % npc.health)
+		return "Too hurt to fight"
 	if punched_first:
 		NPCCombatDebug.trace(npc, "de-escalation skipped: punched first (self-defence)")
 		return ""

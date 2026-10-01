@@ -17,12 +17,17 @@ class_name LeanActivity
 ## keeps residents rotating between them instead of leaning all day.
 
 const BASE_SCORE: float = 6.5
-const DURATION_HOURS_MIN: float = 0.35   ## game hours (~20-50 game minutes)
-const DURATION_HOURS_MAX: float = 0.8
-const COOLDOWN_HOURS_MIN: float = 0.4
-const COOLDOWN_HOURS_MAX: float = 1.2
-const SEARCH_RADIUS: float = 7.0
-const SAMPLES: int = 10
+## Sep 2026 human-likeness pass: REAL seconds (a game hour is a real minute;
+## the old 0.35–0.8 game hours was 21–48 s on screen, then up to wander).
+const LEAN_SECONDS: Vector2 = Vector2(90.0, 240.0)
+const COOLDOWN_SECONDS: Vector2 = Vector2(20.0, 60.0)
+const NO_SPOT_RETRY_SECONDS: float = 15.0
+const SEARCH_RADIUS: float = 10.0
+const SAMPLES: int = 14
+const DIRS_PER_SAMPLE: int = 6
+## Spots that worked before (walls don't move often): checked first, so a
+## resident who leaned once can lean again instead of failing a random search.
+static var _known: Array[Dictionary] = []
 const RAY_LEN: float = 2.6
 const STANDOFF: float = 0.55              ## approach point distance from the wall
 const CLEAR_RADIUS: float = 0.3           ## free floor needed in front of the wall
@@ -37,7 +42,7 @@ static var _spots: Dictionary = {}        ## npc instance id -> wall point (othe
 var _phase: Phase = Phase.DONE
 var _wall_point: Vector3 = Vector3.ZERO
 var _wall_normal: Vector3 = Vector3.ZERO
-var _left_hours: float = 0.0
+var _left: float = 0.0   ## real seconds
 var _walk_time: float = 0.0
 var _started_lean: bool = false
 var _look: Node3D = null
@@ -49,11 +54,11 @@ func label() -> String:
 func score(npc: NPC) -> float:
 	if npc.is_night_for_me() or NPCItemUser.hands_full(npc) or npc.crash.active() or npc.social.drive() >= 0.4:
 		return 0.0
-	if NPCClock.now() < float(npc.get_meta("_lean_cooldown_until", -1.0)):
+	if Time.get_ticks_msec() < int(npc.get_meta("_lean_cooldown_msec", 0)):
 		return 0.0
 	if npc.get_node_or_null("CharacterModel") == null or not npc.get_node("CharacterModel").has_method("begin_lean"):
 		return 0.0
-	return BASE_SCORE * npc.get_work_ethic_passive_mult()
+	return BASE_SCORE * npc.get_work_ethic_passive_mult() * npc.leisure_bias("lean")
 
 func enter(npc: NPC) -> void:
 	_started_lean = false
@@ -61,12 +66,12 @@ func enter(npc: NPC) -> void:
 	var spot: Dictionary = find_spot(npc)
 	if spot.is_empty():
 		_phase = Phase.DONE
-		npc.set_meta("_lean_cooldown_until", NPCClock.now() + 0.5)   ## nowhere to lean nearby — don't retry every second
+		npc.set_meta("_lean_cooldown_msec", Time.get_ticks_msec() + int(NO_SPOT_RETRY_SECONDS * 1000.0))   ## nowhere to lean nearby
 		return
 	_wall_point = spot["point"]
 	_wall_normal = spot["normal"]
 	_spots[npc.get_instance_id()] = _wall_point
-	_left_hours = randf_range(DURATION_HOURS_MIN, DURATION_HOURS_MAX)
+	_left = randf_range(LEAN_SECONDS.x, LEAN_SECONDS.y)
 	_phase = Phase.WALK
 	npc.set_nav_target(spot["stand"])
 
@@ -86,9 +91,9 @@ func tick(npc: NPC, delta: float) -> void:
 			if _model(npc) != null and _model(npc).is_leaning():
 				_phase = Phase.LEANING
 		Phase.LEANING:
-			_left_hours -= npc.game_hours(delta)
+			_left -= delta
 			_tick_look(npc, delta)
-			if _left_hours <= 0.0:
+			if _left <= 0.0:
 				_phase = Phase.DONE
 
 func _begin(npc: NPC) -> bool:
@@ -110,7 +115,7 @@ func exit(npc: NPC) -> void:
 		if model != null:
 			model.end_lean()
 		npc.request_stand_at(npc.global_position)   ## waits for the stand-up, then settles where the clip leaves them
-		npc.set_meta("_lean_cooldown_until", NPCClock.now() + randf_range(COOLDOWN_HOURS_MIN, COOLDOWN_HOURS_MAX))
+		npc.set_meta("_lean_cooldown_msec", Time.get_ticks_msec() + int(randf_range(COOLDOWN_SECONDS.x, COOLDOWN_SECONDS.y) * 1000.0))
 	_started_lean = false
 	_phase = Phase.DONE
 
@@ -150,30 +155,56 @@ func _tick_look(npc: NPC, delta: float) -> void:
 # ─── Spot search ────────────────────────────────────────────────────────────
 ## Returns {"point": wall surface point at floor height, "normal": outward
 ## wall normal (horizontal), "stand": approach point} or {}.
-static func find_spot(npc: NPC) -> Dictionary:
+## `radius` limits how far to look; `avoid` / `avoid_min` (hiding) skips
+## spots closer than that to a point (the fight).
+static func find_spot(npc: NPC, radius: float = SEARCH_RADIUS, avoid: Vector3 = Vector3.INF, avoid_min: float = 0.0) -> Dictionary:
 	var map: RID = npc.get_world_3d().navigation_map
 	if not map.is_valid() or NavigationServer3D.map_get_iteration_id(map) == 0:
 		return {}
 	var space: PhysicsDirectSpaceState3D = npc.get_world_3d().direct_space_state
 	var floor_y: float = NPCStuckRecovery.FLOOR_Y
 	var best: Dictionary = {}
-	var best_d: float = INF
+	var best_cost: float = INF
+	var candidates: Array[Dictionary] = []
+	for k: Dictionary in _known:
+		if NPCItemUser.flat_distance(npc.global_position, k["stand"]) < radius * 1.5:
+			## Re-check: the wall may have been torn down since.
+			var fresh: Dictionary = _wall_along(npc, space, k["stand"], -(k["normal"] as Vector3), floor_y)
+			if not fresh.is_empty():
+				candidates.append(fresh)
 	for i: int in SAMPLES:
 		## A random walkable point near the resident, then look for a wall
-		## in a random direction from it.
+		## around it (several directions — one random ray rarely hit one).
 		var a: float = randf() * TAU
-		var r: float = randf_range(1.0, SEARCH_RADIUS)
+		var r: float = randf_range(minf(1.0, radius * 0.5), radius)
 		var probe: Vector3 = NavigationServer3D.map_get_closest_point(map,
 			Vector3(npc.global_position.x + cos(a) * r, floor_y, npc.global_position.z + sin(a) * r))
-		var dir: Vector3 = Vector3(cos(randf() * TAU), 0.0, sin(randf() * TAU)).normalized()
-		var spot: Dictionary = _wall_along(npc, space, probe, dir, floor_y)
-		if spot.is_empty():
+		var a0: float = randf() * TAU
+		for j: int in DIRS_PER_SAMPLE:
+			var ang: float = a0 + TAU * float(j) / float(DIRS_PER_SAMPLE)
+			var spot: Dictionary = _wall_along(npc, space, probe, Vector3(cos(ang), 0.0, sin(ang)), floor_y)
+			if not spot.is_empty():
+				candidates.append(spot)
+	for spot: Dictionary in candidates:
+		if avoid != Vector3.INF and NPCItemUser.flat_distance(spot["stand"], avoid) < avoid_min:
 			continue
-		var d: float = NPCItemUser.flat_distance(npc.global_position, spot["stand"])
-		if d < best_d and _spot_free(npc, spot) and NPCItemUser.is_reachable(npc, spot["stand"], 0.5):
-			best_d = d
+		## Near is good; next to a body / the feared player / (mourning)
+		## other people is not (NPC.leisure_spot_penalty).
+		var cost: float = NPCItemUser.flat_distance(npc.global_position, spot["stand"]) + 3.0 * npc.leisure_spot_penalty(spot["stand"])
+		if cost < best_cost and _spot_free(npc, spot) and NPCItemUser.is_reachable(npc, spot["stand"], 0.5):
+			best_cost = cost
 			best = spot
+	if not best.is_empty():
+		_remember(best)
 	return best
+
+static func _remember(spot: Dictionary) -> void:
+	for k: Dictionary in _known:
+		if NPCItemUser.flat_distance(k["point"], spot["point"]) < 0.5:
+			return
+	_known.append(spot)
+	if _known.size() > 40:
+		_known.pop_front()
 
 static func _wall_along(npc: NPC, space: PhysicsDirectSpaceState3D, from: Vector3, dir: Vector3, floor_y: float) -> Dictionary:
 	var knee: Dictionary = _ray(npc, space, Vector3(from.x, floor_y + 0.45, from.z), dir)

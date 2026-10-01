@@ -174,6 +174,8 @@ const ON_MIND: Dictionary = {
 	"cried_it_out":      ["\"I'm alright. I just needed a minute. Or an hour.\""],
 	"body_in_bunker":    ["\"There's a body in here. A BODY. And we just... walk past it?\"", "\"I can't stop looking at it. Can we do something with it?\""],
 	"weapon_fight":      ["\"After that fight... I jump at every sound.\"", "\"Someone could've been killed. Someone WAS.\""],
+	"near_body":         ["\"I have to work right next to it. Every day. Can't we move it?\"", "\"Don't make me go near that corner again.\""],
+	"relieved":          ["\"%s is gone. I'm not going to pretend I'm sad.\"", "\"Can't say I'll miss %s.\""],
 	"unsafe_with":       ["\"I have to live next to the person who attacked me. Think about that.\""],
 	"patched_up":        ["\"%s patched me up. Good people.\""],
 	"was_attacked":      ["\"%s hit me. Just — hit me.\"", "\"Keep %s away from me.\"", "\"My face still hurts. Thanks, %s.\""],
@@ -224,7 +226,10 @@ const BARKS: Dictionary = {
 	"hurt":          ["Agh!", "Ow — what the hell?!", "Stop!", "Argh!"],
 	"flee":          ["Get away from me!", "Help! Somebody!", "Don't — please!", "Stay back!"],
 	"fight_back":    ["You want a fight? Fine!", "Big mistake.", "That's the last time you touch me!"],
-	"horrified":     ["Oh my God...", "What did you DO?!", "No, no, no...", "Is... is %s dead?"],
+	"horrified":     ["Oh my God...", "No, no, no...", "Is... is %s dead?", "%s?! No..."],
+	"horrified_killing": ["What did you DO?!", "You killed %s!", "Oh my God... %s...", "No — no, no, no!"],
+	## Someone they hated died: no grief, no gloating in front of the body.
+	"death_enemy":   ["...Huh.", "Can't say I'll miss %s.", "Well. That's that.", "..."],
 	"attack":        ["This ends NOW!", "You did this to us!", "I warned you!", "Come here!"],
 	## Fights and their de-escalation (CrashOutActivity / NPCCombat).
 	"brawl_start":   ["You want to go? Let's go!", "Come on then!", "I've had it with you, %s!", "Put 'em up!"],
@@ -242,6 +247,7 @@ const BARKS: Dictionary = {
 	"done_fighting": ["Stay away from me.", "We're done here.", "Don't ever — ever — do that again."],
 	"treat_self":    ["*hisses* Come on...", "Ow — okay, okay.", "This is going to sting.", "Hold it together..."],
 	"treat_other":   ["Hold still.", "Let me see that.", "This'll sting.", "Easy. I've got you."],
+	"keep_away":     ["Don't come any closer.", "I'm going, I'm going.", "Just... stay over there.", "Please. Not me."],
 	"hide_run":      ["Get down! Everybody get down!", "They've got a weapon!", "Run! RUN!", "Oh God, oh God—"],
 	"hide_cower":    ["Stay quiet... stay quiet...", "Is it over?", "Please let it be over.", "*breathing hard*"],
 	"step_aside":    ["Whoa, whoa!", "Not my fight!", "Hey — watch it!"],

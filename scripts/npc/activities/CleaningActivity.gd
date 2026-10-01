@@ -35,6 +35,8 @@ var _session_duration: float = 0.0
 var _finished: bool = false
 var _no_reach_time: float = 0.0             ## fetch: seconds at the path end without the item in reach
 var _skipped_ids: Dictionary = {}           ## item instance_id -> true (nowhere to put it this session)
+var _carry_time: float = 0.0
+const FETCH_GIVE_UP_SECONDS: float = 20.0
 var _no_storage_categories: Dictionary = {} ## "light"/"heavy"/"trash" -> true
 var _basket: Basket = null                  ## held while gathering produce
 var _relocating: bool = false
@@ -67,6 +69,7 @@ func interruptible() -> bool:
 	return _item == null and _basket == null
 
 func enter(npc: NPC) -> void:
+	_carry_time = 0.0
 	## The Lazy tidy an item or two and call it a day.
 	_session_duration = randf_range(SESSION_MIN_SEC, SESSION_MAX_SEC) \
 		* (1.0 - 0.5 * npc.get_sloth() * (1.0 - npc.social.drive()))
@@ -162,6 +165,7 @@ func tick(npc: NPC, delta: float) -> void:
 		return
 
 	if npc.held_item == _item:
+		_carry_time = NPCItemUser.add_carry_time(_item, delta)   ## kept on the item across restarts
 		_tick_carry(npc, delta)
 		return
 
@@ -177,6 +181,23 @@ func tick(npc: NPC, delta: float) -> void:
 	NPCItemUser.track_fetch_target(npc, _item)
 	npc.nav_steer(delta)
 	var reachable: bool = NPCItemUser.in_reach(npc, _item.global_position, NPCItemUser.PICKUP_RANGE)
+	## Sep 2026: jostling in a cramped corner never "arrives", so the check
+	## below never fired, and the stuck-recovery abandon restarted the try,
+	## so the same item was retried for hours. 20 s in total (kept on the
+	## item, per resident, across restarts) to get to it, then it's
+	## remembered as out of reach.
+	var fetch_key: String = "_fetch_s_%d" % npc.get_instance_id()
+	var fetch_spent: float = float(_item.get_meta(fetch_key, 0.0)) + delta
+	_item.set_meta(fetch_key, fetch_spent)
+	if fetch_spent > FETCH_GIVE_UP_SECONDS and not reachable:
+		_item.remove_meta(fetch_key)
+		npc.job_state.mark_unreachable(_item)
+		_skipped_ids[_item.get_instance_id()] = true
+		NPCItemUser.release_item(_item)
+		if _item.has_method("set_nav_obstacle_enabled"):
+			_item.set_nav_obstacle_enabled(true)
+		_item = null
+		return
 	## Wedged where no one can get at it (against a wall, behind furniture):
 	## the path ends short of reach. Give up on it instead of circling there.
 	_no_reach_time = _no_reach_time + delta if npc.nav_finished() and not reachable else 0.0
@@ -198,6 +219,7 @@ func tick(npc: NPC, delta: float) -> void:
 			_item = null
 
 func _on_picked_up(npc: NPC) -> void:
+	_item.remove_meta("_fetch_s_%d" % npc.get_instance_id())
 	_destination = NPCJobQueries.find_cleaning_destination(npc, _is_trash, _item)
 	if _destination != null:
 		npc.set_nav_target((_destination as Node3D).global_position)
@@ -228,12 +250,31 @@ func _tick_carry(npc: NPC, delta: float) -> void:
 			NPCItemUser.drop_held(npc)
 			_item = null
 			return
+	## Sep 2026: storage that can't be reached (boxed in, deep shelf) used to
+	## be carried toward for minutes; set it down and skip it this session.
+	if _carry_time > NPCItemUser.CARRY_LIMIT_S:
+		_skipped_ids[_item.get_instance_id()] = true
+		## Remember it: that storage can't be reached, and this item isn't
+		## worth picking straight back up (5 s later) to try again.
+		if _destination != null and is_instance_valid(_destination):
+			npc.job_state.mark_unreachable(_destination)
+		npc.job_state.blacklist_cleaning_item(npc, _item, "couldn't reach its storage")
+		NPCItemUser.clear_carry_time(_item)
+		NPCItemUser.drop_held(npc)
+		_item = null
+		_carry_time = 0.0
+		return
 	npc.set_nav_target((_destination as Node3D).global_position)
+	if NPCItemUser.wait_turn_at(npc, _destination, delta):
+		return   ## someone's using that storage — wait a little way back
 	npc.nav_steer(delta)
-	if NPCItemUser.in_reach(npc, (_destination as Node3D).global_position, NPCItemUser.SNATCH_RANGE):
+	## Shelf reach (furniture), not the snatch range meant for people.
+	if NPCItemUser.in_reach(npc, (_destination as Node3D).global_position, NPCItemUser.SHELF_RANGE):
 		npc.lock_movement()
 		var item_name: String = display_name(_item)
 		var was_basket: bool = _item == _basket
+		NPCItemUser.clear_carry_time(_item)
+		var used_storage: Node = _destination
 		if NPCItemUser.store_held(npc, _destination):
 			_delivered += 1
 			if not was_basket:
@@ -244,6 +285,8 @@ func _tick_carry(npc: NPC, delta: float) -> void:
 		if was_basket:
 			_basket = null
 		_item = null
+		_carry_time = 0.0
+		NPCItemUser.release_item(used_storage)   ## next person's turn at that shelf
 		if _is_forced_session:
 			_finished = true
 

@@ -176,9 +176,10 @@ func get_sleep_drive() -> float:
 		var hours_left: float = fposmod(get_wake_time() - NPCClock.hour_of_day(), 24.0)
 		if hours_left < 1.5:
 			return exhausted
-		if energy >= 92.0:
-			return 0.0
-		var drive: float = clampf(0.45 + 0.55 * tired, 0.0, 1.0)
+		## Sep 2026: people sleep at night whatever their energy (energy drains
+		## slowly, so most went to bed near full and then never felt sleepy —
+		## residents wandered the bunker at 4 AM).
+		var drive: float = clampf(0.6 + 0.4 * tired, 0.0, 1.0)
 		## Grab a bite / a drink before turning in, unless dead on their feet.
 		if (hunger < 50.0 or thirst < 55.0) and exhausted < 0.5:
 			drive *= 0.6
@@ -322,6 +323,63 @@ func get_work_ethic_job_mult(raw: float = JOB_BASE_SCORE, job_type: String = "")
 		m *= 1.0 - 0.7 * sloth * (1.0 - clampf(since / LAZY_BREAK_AFTER_WORK_H, 0.0, 1.0))
 	return m * (1.0 + 2.5 * drive)
 
+# ─── Settling, grief and fear (Sep 2026 human-likeness pass) ──────────────
+## Mourning: who they've lost recently and how hard it hit
+## ({victim name -> {"s": 0..1 strength, "until": game hour}}). It shows in
+## what they DO (no freezing — limited animations): they stop starting
+## chats, work a little less, settle somewhere alone, and a close friend
+## may break down (the slump-and-sob crash-out).
+var mourning: Dictionary = {}
+
+func mourning_strength() -> float:
+	var s: float = 0.0
+	var now: float = NPCClock.now()
+	for k: Variant in mourning.keys():
+		var m: Dictionary = mourning[k]
+		if now >= float(m["until"]):
+			mourning.erase(k)
+			continue
+		## Fades over the second half of the mourning period.
+		var left: float = float(m["until"]) - now
+		var span: float = maxf(float(m.get("span", 1.0)), 0.01)
+		s = maxf(s, float(m["s"]) * clampf(left / (span * 0.5), 0.0, 1.0))
+	return s
+
+func begin_mourning(victim_name: String, strength: float, hours: float) -> void:
+	mourning[victim_name] = {"s": strength, "until": NPCClock.now() + hours, "span": hours}
+
+## Settled free time: some people would rather sit, others lean. A stable
+## per-resident preference (elders sit more) tilts SitLeisure vs Lean.
+func leisure_bias(kind: String) -> float:
+	if not has_meta("_leisure_pref"):
+		set_meta("_leisure_pref", randf_range(-1.0, 1.0))
+	var pref: float = float(get_meta("_leisure_pref")) + (0.5 if is_elder() else 0.0)
+	return 1.0 + 0.15 * pref if kind == "sit" else 1.0 - 0.15 * pref
+
+## Afraid of the player (a killing, threats): keeps its distance.
+func fears_player() -> bool:
+	if crash.active() and crash.mode == NPCCrashOut.Mode.HOSTILE and crash.target_id == "player":
+		return false   ## furious, not frightened
+	return social.fear >= 35.0
+
+## How wrong a spot is to settle in (0 = fine): next to a body (avoided
+## when there's any choice), near the player when afraid of them, and —
+## mourning — near other people.
+func leisure_spot_penalty(pos: Vector3) -> float:
+	var p: float = 0.0
+	for b: Node3D in NPCCombat.bodies(get_tree()):
+		if NPCItemUser.flat_distance(pos, b.global_position) < 4.0:
+			p += 10.0
+	if fears_player():
+		var pl: Node3D = get_tree().get_first_node_in_group("player") as Node3D
+		if pl != null and NPCItemUser.flat_distance(pos, pl.global_position) < 6.0:
+			p += 8.0
+	if mourning_strength() >= 0.4:
+		for o: Node in get_tree().get_nodes_in_group("npc"):
+			if o != self and o is Node3D and NPCItemUser.flat_distance(pos, (o as Node3D).global_position) < 2.5:
+				p += 3.0
+	return p
+
 func get_work_ethic_passive_mult() -> float:
 	if crash != null and crash.mode == NPCCrashOut.Mode.OVERDRIVE:
 		return 0.3   ## overdrive: no breaks, only pacing between jobs
@@ -339,11 +397,12 @@ func thought_weight(mood_delta: float) -> float:
 		return lerp(0.75, 1.25, _trait("optimism"))
 	return lerp(0.75, 1.3, _trait("neuroticism"))
 
-func add_thought(id: String, subject: String = "") -> void:
+## `scale`: how hard it hits (grief for a close friend vs an acquaintance).
+func add_thought(id: String, subject: String = "", scale: float = 1.0) -> void:
 	var def: Dictionary = NPCThoughts.DEFS.get(id, {})
 	if def.is_empty():
 		return
-	thoughts.add(id, subject, thought_weight(float(def["mood"])))
+	thoughts.add(id, subject, thought_weight(float(def["mood"])) * scale)
 	## Meals and nights also shape the slow Food/Rest conditions of morale.
 	if id.begins_with("ate_"):
 		morale_sys.note_meal(id)
@@ -399,7 +458,8 @@ func work_score(job_type: String, urgency_mult: float = 1.0, base: float = JOB_B
 	if not is_passion_job(job_type) and _passion_holder_free(job_type):
 		raw *= 0.6   ## "that's Ruth's thing" — leave it to the Gourmand/Gardener
 	var shun: float = combat.shun_work_mult() if combat != null else 1.0   ## not beside someone who attacked them
-	return raw * get_work_ethic_job_mult(raw, job_type) * skill_pref * willingness * overdrive * shun
+	var grief: float = 1.0 - 0.35 * mourning_strength()   ## heart's not in it
+	return raw * get_work_ethic_job_mult(raw, job_type) * skill_pref * willingness * overdrive * shun * grief
 
 ## How fast this resident gets physical work done (age, injuries, skill).
 ## Every job's work timer multiplies its delta by this.
@@ -497,7 +557,7 @@ func _tick_mood(h: float) -> void:
 	morale_sys.tick(h, thoughts.total())
 	mood = move_toward(mood, get_mood_target(), MOOD_FOLLOW_PER_GAME_HOUR * h)
 	if NPCDebug.enabled:
-		NPCDebug.log_mood(self, mood - before, 0.0, 0.0, mood)
+		NPCDebug.log_mood(self, morale_sys.morale, get_feelings(), mood - before, mood)
 
 func _tick_irritability(h: float) -> void:
 	var need_contrib: float = maxf(0.0, 50.0 - energy) + maxf(0.0, 50.0 - hunger) + maxf(0.0, 50.0 - thirst)
@@ -535,6 +595,14 @@ func _update_condition_thoughts() -> void:
 	thoughts.set_condition("body_in_bunker", not NPCCombat.bodies(get_tree()).is_empty(), thought_weight(-1.0))
 	thoughts.set_condition("weapon_fight", NPCCombat.weapon_fight_fear() > 0.5, thought_weight(-1.0))
 	thoughts.set_condition("unsafe_with", combat.lives_with_attacker(), thought_weight(-1.0))
+	## In a small bunker there may be no way to avoid the body: having to be
+	## right beside it (working, walking past, sitting) hits hard.
+	var beside_body: bool = false
+	for b: Node3D in NPCCombat.bodies(get_tree()):
+		if NPCItemUser.flat_distance(global_position, b.global_position) < 3.5:
+			beside_body = true
+			break
+	thoughts.set_condition("near_body", beside_body, thought_weight(-1.0))
 	var now: float = NPCClock.now()
 	if _last_social_time < 0.0:
 		_last_social_time = now
@@ -1180,8 +1248,8 @@ func is_npc_snatch_eligible(need_filter: Callable) -> bool:
 			continue
 		if get_relationship(other.npc_id) > SNATCH_RELATIONSHIP_THRESHOLD:
 			continue
-		var held: Node = other.held_item
-		if held != null and is_instance_valid(held) and need_filter.call(held):
+		var held: Variant = other.held_item   ## untyped: may be a freed instance (eaten/used this frame)
+		if is_instance_valid(held) and need_filter.call(held):
 			return true
 	return false
 
@@ -1210,8 +1278,8 @@ func find_snatch_target(need_filter: Callable) -> Node:
 		if not force_npc and (get_relationship(other.npc_id) > SNATCH_RELATIONSHIP_THRESHOLD \
 				or is_npc_snatch_pair_on_cooldown(other.npc_id)):
 			continue
-		var held2: Node = other.held_item
-		if held2 == null or not is_instance_valid(held2) or not need_filter.call(held2):
+		var held2: Variant = other.held_item   ## may be freed (see is_npc_snatch_eligible)
+		if not is_instance_valid(held2) or not need_filter.call(held2):
 			continue
 		var d: float = NPCItemUser.flat_distance(global_position, other.global_position)
 		if d < best_d:
@@ -2331,6 +2399,8 @@ func _update_debug_nameplate(delta: float, bubble_up: bool) -> void:
 	if not NPCDebug.show_nameplates or NPCDebug.natural_view:
 		if _overhead_label != null:
 			_overhead_label.visible = false
+			## Keep the text current while hidden, so it isn't stale when shown again.
+			_overhead_label.text = "%s — %s" % [npc_name, brain.current_label() if brain != null else "Idle"]
 		_update_relationship_debug_label()
 		return
 	if _overhead_label == null:
@@ -2421,6 +2491,7 @@ func get_save_dict() -> Dictionary:
 		"personality": personality.duplicate(), "skills": skills.duplicate(),
 		"age": age, "birthday": _birthday_day_of_year, "birthday_checked": _birthday_last_checked_day,
 		"chronotype": chronotype,
+		"mourning": mourning,
 		"relationships": relationships.duplicate(),
 		"contagion_exposure": _contagion_exposure.duplicate(),
 		"gift_saturation": gift_saturation,
@@ -2478,6 +2549,7 @@ func apply_save_dict(d: Dictionary) -> void:
 	_birthday_day_of_year = int(d.get("birthday", randi_range(1, 365)))
 	_birthday_last_checked_day = int(d.get("birthday_checked", -1))
 	chronotype = float(d.get("chronotype", randf_range(-1.5, 1.5)))
+	mourning = d.get("mourning", {})
 	relationships = (d.get("relationships", {}) as Dictionary).duplicate()
 	_contagion_exposure = (d.get("contagion_exposure", {}) as Dictionary).duplicate()
 	gift_saturation = float(d.get("gift_saturation", 0.0))

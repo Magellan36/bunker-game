@@ -61,6 +61,8 @@ const DEFS: Dictionary = {
 	## Danger in the bunker (conditions, re-checked every mood tick).
 	"body_in_bunker":    {"label": "There's a body in here",           "mood": -7.0, "hours": 0.0,  "stack": 1},
 	"weapon_fight":      {"label": "There was a fight with weapons in here", "mood": -6.0, "hours": 0.0, "stack": 1},
+	"near_body":         {"label": "Right next to the body",           "mood": -6.0, "hours": 0.0,  "stack": 1},
+	"relieved":          {"label": "%s is gone. Good riddance",        "mood": 2.0,  "hours": 12.0, "stack": 2},
 	"unsafe_with":       {"label": "Living with someone who attacked me", "mood": -4.0, "hours": 0.0, "stack": 1},
 	## Care between residents (TreatActivity).
 	"patched_up":        {"label": "%s patched me up",                 "mood": 4.0,  "hours": 12.0, "stack": 2},

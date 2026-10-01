@@ -73,15 +73,25 @@ NOT scaled by work ethic.
 
 ### Daily rhythm & sleep
 - Each resident has a `chronotype` (±1.5 h): bedtime `22:00+c`, wake
-  `06:30+0.7c`. `NPC.get_sleep_drive()` — at night sleep is attractive when
-  energy < 92 (not in the last 1.5 h before wake-up); in the day only real
-  exhaustion (< 28) prompts a nap.
+  `06:30+0.7c`. `NPC.get_sleep_drive()` — at night sleep is attractive
+  whatever the energy (0.6 + 0.4 × tiredness; not in the last 1.5 h before
+  wake-up). Before the Sep 2026 human-likeness pass it was zero at
+  energy ≥ 92, so rested residents wandered all night. In the day only
+  real exhaustion (< 28) prompts a nap.
 - `LieActivity` = going to bed: own bed (`npc.home_bed`, persisted) → an
   unclaimed bed → any free bed → doze in a chair → sleep on the floor. Beds
   use the player's animated sit → lie-down → sleep sequence (`npc.sleeping_bed`
-  drives the shared `AdventurerModelController`). Wake when full, when
-  rested (≥ 70) after the night, or on a critical need.
-- `SitActivity` = short daytime rest (energy < 40, until 60).
+  drives the shared `AdventurerModelController`). Wake on a critical need
+  or a forced order first; at night nobody wakes just because energy is
+  full; after the night, wake when full or rested (≥ 70). A chair doze
+  that never manages to sit down falls back to the floor; floor sleep
+  walks to a wall spot first (`LeanActivity.find_spot`, 15 s limit), not
+  the middle of the room.
+- `SitActivity` = short daytime rest (energy < 40, until 60). Chairs are
+  approached at their stand position (`chair.get_stand_position()`, not
+  the seat centre, which the navmesh never reaches), claimed on the way
+  (one resident per chair), skipped if unreachable, and sat in once within
+  1.6 m; a chair not reached in 12 s is given up.
 - Furniture stand points are floor-level: always stand up via
   `npc.request_stand_at()` / `place_standing_at()` (navmesh-snapped, proper
   standing height). Assigning them to `global_position` directly sank NPCs
@@ -93,7 +103,9 @@ below 75) + sum of thoughts (`NPCThoughts.DEFS`): hot meal +6, fresh food
 +2.5, cold can −1.5, bed +4, chair −2, floor −5, collapsed −8, good chat +3,
 argument −3, gift +5, helped a friend +2, snatched from −6, relaxed +2,
 break interrupted −3, productive +1.5; conditions: cluttered bunker (≥ 12
-items) −3, in pain −4, lonely (no chat in 30 h) −3. Optimists feel positive
+items) −3, in pain −4, lonely (no chat in 30 h) −3, right next to a body
+(within 3.5 m, `near_body`) −6. "Good riddance" (`relieved`, +2) when
+someone they hated dies. Optimists feel positive
 thoughts more, neurotic residents negative ones. Shown on the resident panel
 ("Feeling") and used by dialogue.
 
@@ -116,8 +128,9 @@ thoughts more, neurotic residents negative ones. Shown on the resident panel
 
 ### Wandering
 Weighted destinations (near friends, near used furniture, random), pauses
-that look at nearby people (the player first), and a stroll ends after 2–4
-legs so relaxing/chatting/chores get a natural look-in.
+that look at nearby people (the player first), and a stroll ends after 1–2
+legs. Since the human-likeness pass wandering is the FALLBACK (score 3),
+not the default: see "Free time" below.
 
 ### Overhead presentation
 `NPCSpeechBubble` (child "SpeechBubble") is the shipping look: speech
@@ -165,7 +178,11 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   back down + stare down, talk down + talked down, held back by the
   cooldown, peacemaker running in and separating, pulled off, beat down /
   beaten, done fighting, step aside, witness shouting, rescued); shunning
-  ("I'm not working next to X"); crash-out start and calm-down. Combat
+  ("I'm not working next to X"); crash-out start and calm-down; a death in
+  front of them (`horrified`, `horrified_killing` when someone did it,
+  `death_enemy` when they hated the dead: no grief); keeping away from a
+  feared player (`keep_away`); hiding (one line running, at most one while
+  down, none on re-entering the same scare). Combat
   thoughts feed the panel and greetings: was attacked, saw a fight,
   grieving, saved my life, broke up a fight, backed down, talked down.
   With F7 combat logging on, every spoken line prints as "X says: ...".
@@ -270,11 +287,15 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   as soon as they're in reach (no waiting), and only strike when within
   ~35° of facing and inside 0.95 × reach. Fists throw a jab, usually
   followed by a cross, then take a 0.9–1.5 s breather. A brawl ends when the
-  target is beaten down, when time runs out, or once the target has been
+  target is beaten down, when they're beaten down themselves (both stop at
+  45 health; the loser used to keep swinging, and someone already beaten
+  down doesn't fight back again, `NPCCombat.BEATEN_HEALTH`; a lethal
+  attacker gives up at 20, `ATTACKER_GIVE_UP_HEALTH`, unless fighting for
+  their life), when time runs out, or once the target has been
   out of reach for 2.5 s; if the target answers with a real weapon, the
   brawl escalates to the weapon attack (`NPCCombat.escalate`). Ending
-  either kind is a GLARE beat: guard down, stare for 0.9–1.5 s, then pace
-  off. Knockback scales with damage (a jab rocks, a bat staggers).
+  either kind is a GLARE beat: guard down, stare for 0.9–1.5 s (cut short
+  if the target is already more than 4 m away), then pace off. Knockback scales with damage (a jab rocks, a bat staggers).
   Bystanders (`_bystanders_clear_out`): within 1.8 m of a brawl they step
   clear for 1.6 s (`FleeActivity`, its only remaining use). A weapon fight
   sends everyone not in it into hiding instead (`HideActivity`, below).
@@ -309,17 +330,31 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   0.6 × hatred depth (0 at −40 → 1 at −100) × mood factor (0.5 content →
   2.0 at rock bottom); −100 and miserable ≈ 70 % per game hour in sight.
   4 game-hour cooldown (also after any fight). It starts a normal hostile
-  crash-out, so the usual tiers apply (rant / fists / weapon). Mood-driven
+  crash-out, so the usual tiers apply (rant / fists / weapon). Staggered
+  (human-likeness pass): the rate is ×0.15 while someone else is already
+  hostile toward the same target, so a crowd of haters doesn't all go off
+  at once; a resident who fears the player (`NPC.fears_player`: fear ≥ 35)
+  with nerve < 0.45 won't start on the player; and allies join a rant only
+  25% of the time, never ones who fear the player.
+- **Rants follow** (`CrashOutActivity` RANT): a target who walks away is
+  followed at a walk beyond 3 m (they used to stand and stare after them).
+  If the resident had already decided to fight, the fight starts at once.
+  Beyond 10 m or out of sight for 5 s they give up ("Gave up shouting
+  after X walked off", a seething line) and go on to sabotage or pacing. Mood-driven
   crash-outs are steeper near rock bottom too (mood 0 ≈ 11 %/game hour)
   and the crash-out cooldown is 16 game hours (was 36). A game hour is a
   real minute. F7 "Drain NPC Mood" now drains the mood engine as well, so
   it sticks.
 - **Hiding from weapon fights** (`HideActivity`, `NPCCombat.raise_alarm`):
-  a weapon hit or an armed resident attacking raises the alarm; everyone
-  not in the fight drops what they carry, runs to the reachable spot
-  farthest from it, shuts any door between them and the fight once
-  they're clear of it (if nobody's in the doorway), and presses against a
-  wall until it's been quiet 8–14 s. Fist fights don't trigger it.
+  a weapon hit, a gunshot or an armed resident attacking raises the alarm;
+  everyone not in the fight drops what they carry and runs to a reachable
+  spot far from it (24 samples). A door between them and the fight is
+  worth 6 m (`DOOR_BONUS`), and each hider claims their spot so others keep
+  2.5 m away (`SPOT_SPACING`; they used to pile into one corner and jam
+  its doorway). Once clear they shut any door between them and the fight
+  (if nobody's in the doorway), then press against a wall until it's been
+  quiet 45–120 s (`LINGER`; `NPCCombat.should_hide` uses the 45 s
+  minimum). Fist fights don't trigger it.
 - **Residents look after each other** (`TreatActivity`, Sep 2026): a
   hurt resident patches themselves up, and residents treat anyone they
   like (relationship ≥ 30, within 25 m), with Bandages (bleeding), Splints
@@ -336,6 +371,33 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   as a feeling with words on the panel and in greetings: "There's a body
   in here", "There was a fight with weapons in here", "Living with someone
   who attacked me".
+- **A death lasts** (human-likeness pass, Sep 2026). Residents used to
+  shrug off a killing in about 30 s, down to a "good talk" next to the
+  killer. Now, in `NPCCombat.die()`, each witness's reaction depends on
+  how they felt about the dead:
+  - liked them ≥ 50: grieving ×1.5, mourning 1.0 for 36 game hours, and a
+    60% chance of a grief breakdown 0.3–2 game hours later
+    (`NPCCrashOut.schedule_grief_breakdown`, headline "Broke down over X");
+  - ≥ 20: ×1.0, mourning 0.6 for 18 h, 20% breakdown chance;
+  - above −20: ×0.5, mourning 0.3 for 6 h;
+  - ≤ −40: "Good riddance" (`relieved`) instead.
+
+  Mourning (`NPC.begin_mourning` / `mourning_strength`, saved; it fades
+  over the second half of its span) lowers the will to work (×(1 − 0.35 ×
+  strength)) and to chat (×(1 − 0.85 × strength)), and a strong mourner
+  sits or leans away from others. Kept low-key on purpose (Brannon): no
+  long frozen stares or shock poses, which look like a broken NPC with the
+  animations we have. Grief shows in what they choose to do, in words, and
+  in mood.
+- **One reaction per incident.** Witness penalties used to stack per blow.
+  `NPCCombat` now lets each witness react once per incident (20 s gap,
+  `INCIDENT_GAP_S`), scaled by distance (full up close, 40% at the edge of
+  range) for relationship, shock and fear alike.
+- **Afraid of the player** (`NPC.fears_player`: fear ≥ 35 and not hostile
+  toward them; `KeepAwayActivity`, score 30): when the player comes within
+  2.8 m, the resident walks (not runs) to a reachable spot about 6.5 m
+  away, sometimes saying so (`keep_away` lines); panel "Keeping away from
+  you". Their seats and wall spots keep away from the player too.
 - **Standing their ground** (Sep 2026, Brannon: no running away). A
   resident who's attacked fights back at once (`NPCCombat._react` →
   `NPCCrashOut.begin_defense`): punched → a fist fight; hit with any
@@ -353,7 +415,9 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   (`NPCCombat.FIGHT_COOLDOWN_H`, colony-wide, not saved), when the target
   backs down (0.3 × (1 − neuroticism), +0.2 if afraid), or when a friend
   within 8 m (they like the angry one ≥ 40, and are liked back ≥ 30) talks
-  them out of it (50%). Being punched first overrides all of this. During a
+  them out of it (50%). Being punched first overrides all of this, but
+  only a fresh punch (the last 15 real s, `NPCCombat.hit_recently_by`): a
+  revenge attack hours later goes through the normal brakes. During a
   brawl, a brave onlooker (nerve ≥ 0.45) who cares about either fighter
   (≥ 25), within 10 m, may walk over and pull the brawler off
   (`BreakUpFightActivity` via `combat.break_up_id` → `combat.separated`):
@@ -398,14 +462,38 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
 - Harness: `--scenario=morale` (a fast-forward week, bad/average/good
   bunkers), `--verbs=<t>`, `--force=hostile|breakdown|overdrive`.
 
-### Free time: wander, lean, relax
-- `WanderActivity`: 1–3 legs with 3–8 s pauses. While paused the HEAD
-  glances at passers-by (re-picked every 3–5 s); the body turns only
-  toward the player.
+### Free time: settle, then wander (human-likeness pass, Sep 2026)
+Watching the real game showed residents wandering about half of their free
+time in 15 s bursts, switching activity 3–4 times a real minute. Free time
+now settles into a pose and stays there, like people do. **Every visible
+duration is in REAL seconds**: a game hour is a real minute, so "30 game
+minutes" is 30 s on screen and reads as fidgeting.
+- `LeisureSitActivity` (new, extends `RelaxSitActivity`, score 7): take a
+  free, reachable chair and sit 2–5 real minutes, 20–60 s cooldown. Not at
+  night, not with full hands, not during a crash-out, not when lonely
+  enough to want company (social drive ≥ 0.4).
 - `LeanActivity`: leans on a flat structural wall (knee and shoulder
-  raycasts agree, never furniture, with clear floor and elbow room),
-  20–50 game minutes, 0.4–1.2 h cooldown. Uses
-  `CharacterModel.begin_lean/end_lean` (docs/systems/player-model/ANIMATIONS.md).
+  raycasts agree, never furniture, with clear floor and elbow room) for
+  1.5–4 real minutes, 20–60 s cooldown, 15 s retry when no spot was found.
+  Searches 10 m (14 samples × 6 directions) and remembers good spots
+  (`static var _known`, up to 40, re-validated before use): it used to fail
+  20 times in 32. Uses `CharacterModel.begin_lean/end_lean`
+  (docs/systems/player-model/ANIMATIONS.md).
+- `RelaxActivity` (work break): 60–150 real s; the game-hour budget still
+  tracks the daily allowance.
+- `TalkActivity`: 20–45 s sessions; partners stand 1.1–1.3 m apart and
+  shuffle into place for up to 1.5 s before facing each other (they used
+  to talk nose to nose).
+- `WanderActivity`: score 3, 1–2 legs with 3–8 s pauses. While paused the
+  HEAD glances at passers-by (re-picked every 3–5 s); the body turns only
+  toward the player.
+- Per-resident taste: `NPC.leisure_bias(kind)` (a random lean towards
+  sitting or leaning, kept in meta; elders sit more).
+- Where to settle: `NPC.leisure_spot_penalty(pos)` keeps chairs, wall spots
+  and wander points away from a body (4 m), from the player for someone
+  who fears them (6 m), and from other people while mourning (2.5 m). In
+  a small bunker there may be no other choice, and then working or
+  sitting next to the body costs mood (`near_body`, −6).
 - Head look-at is NPC-only and subtle: weight 0.4, slow easing, and each
   target is held at least 2.5 s.
 
@@ -1324,7 +1412,9 @@ reads from:
   never actually enters the cache — the mechanism self-activates the
   instant a receptacle exists, with zero code changes then.
 - **Organizable items:** anything loose that has sat untouched/unclaimed
-  for **90s** (`CLEANING_IDLE_MIN_SEC`, tunable). The idle clock restarts
+  for **5 s** (`CLEANING_IDLE_MIN_SEC`, tunable; Brannon, Sep 2026: 90 s
+  looked sluggish. The old debug-only override is gone: debug logging no
+  longer changes behaviour). The idle clock restarts
   if the item moves more than 0.3 m (`CLEANING_IDLE_MOVE_TOLERANCE`)
   while being tracked — so an NPC won't sweep away something the player
   just set down. Trash skips the idle gate entirely (it's unambiguous).
@@ -1340,6 +1430,22 @@ item — bypassing both eligibility checks entirely by design (it caused
 the stall, so it's fair game regardless of what it technically is).
 The `is_trash_item()` classification is only for which log line fires
 ("Threw away" vs "Put away"), not a gate.
+
+**Time limits and taking turns (human-likeness pass, Sep 2026).** Watching
+the real game showed residents carrying a jerry can or seed bag for
+minutes and five of them jamming one shelf in a corner nook.
+- Reaching an item: 20 s in total (`FETCH_GIVE_UP_SECONDS`, kept on the
+  item per resident, so a stuck-recovery restart doesn't reset it), then
+  the item is remembered as out of reach (`job_state.mark_unreachable`).
+- Carrying: 40 s per item (`NPCItemUser.CARRY_LIMIT_S`, kept on the item
+  via `add_carry_time` / `clear_carry_time`, shared by `CleaningActivity`
+  and `PutAwayHeldItemActivity`). Over the limit the destination is marked
+  unreachable, the item blacklisted for cleaning, and it's set down.
+- Storage is reached with `SHELF_RANGE` (2.0 m), not the snatch range.
+- One resident per shelf: the carrier claims the storage on the way and
+  releases it after each delivery; others wait their turn 2.6 m back
+  (`NPCItemUser.wait_turn_at`), and `_nearest_cleaning_destination`
+  counts a claimed shelf as 8 m further away, so they pick another.
 
 **Future hook:** the eventual trash receptacle scene just needs to
 occupy the `"trash_receptacle"` group and implement
@@ -1664,6 +1770,19 @@ multi-line snapshot per NPC on demand: position, activity, held item,
 movement-lock state, stuck-recovery count, all needs + health, speed
 multiplier, pass-out state, forgetfulness chance, full status label text,
 skills, personality words, seed, mood, and irritability + label.
+The 5 s mood line reads `mood: engine=… feelings=… change=… -> …` (the
+mood engine's target, the feelings on top, the step). Logging never
+changes behaviour: the debug-only tidying gate was removed in Sep 2026.
+
+**Watching the real game (Sep 2026).** Staged harness rooms didn't match
+the game (teleports, leaked state), so the human-likeness pass was tuned
+on the real game: a SceneTree `--script` that sets
+`WorldManager.pending_load_slot`, changes scene to `LoadingScreen.tscn`,
+adds residents with `MainWorld._dev_spawn_npc()` and records every
+resident twice a second. Run it on copies of real saves in an isolated
+`XDG_DATA_HOME` / `XDG_CONFIG_HOME`, with `--headless --fixed-fps 60`.
+Load game scripts inside it with `load()` at runtime: naming a game class
+at parse time compiles it before the autoloads exist and breaks them.
 
 ---
 

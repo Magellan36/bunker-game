@@ -61,6 +61,16 @@ var confronted: bool = false
 var sabotaged: int = 0
 var _cooldown_until: float = -1.0
 var _grudge_cooldown_until: float = -1.0
+## Grief (Sep 2026): losing a close friend may bring on a breakdown a little
+## later — the visible slump-and-sob, not a frozen stare.
+var _grief_breakdown_at: float = -1.0
+var _grief_for: String = ""
+
+func schedule_grief_breakdown(victim_name: String, chance: float) -> void:
+	if randf() >= chance:
+		return
+	_grief_breakdown_at = NPCClock.now() + randf_range(0.3, 2.0)
+	_grief_for = victim_name
 var _warned_at: float = -100.0
 
 var _npc: NPC = null
@@ -99,6 +109,13 @@ func tick(h: float) -> void:
 		if now >= ends_at:
 			finish()
 		return
+	## A scheduled grief breakdown (a close friend died a little while ago).
+	if _grief_breakdown_at >= 0.0 and now >= _grief_breakdown_at:
+		_grief_breakdown_at = -1.0
+		if not (_npc.brain != null and (_npc.brain.is_sleeping() or _npc.is_passed_out())):
+			begin(Mode.BREAKDOWN)
+			_grief_for = ""
+			return
 	## Warning signs before it happens: a strained resident says so now and then.
 	if _npc.mood < 32.0 and now - _warned_at > 6.0 and randf() < 0.25 * h:
 		_warned_at = now
@@ -123,6 +140,18 @@ func _roll_grudge(h: float) -> void:
 	var depth: float = clampf((HOSTILE_AT - float(worst["score"])) / 60.0, 0.0, 1.0)
 	var mood_f: float = lerpf(0.5, 2.0, clampf((50.0 - _npc.mood) / 50.0, 0.0, 1.0))
 	var rate: float = GRUDGE_RATE * depth * mood_f
+	## Not everyone reacts the same (Sep 2026): someone frightened of the
+	## player with little nerve keeps away (KeepAwayActivity) instead of
+	## confronting them; and once someone's already going after this
+	## person, the rest mostly hold back rather than all snapping at once.
+	if String(worst["id"]) == "player" and _npc.fears_player() \
+			and _npc._trait("resilience") - _npc.social.fear / 200.0 < 0.45:
+		return
+	for o: Node in _npc.get_tree().get_nodes_in_group("npc"):
+		if o != _npc and o is NPC and (o as NPC).crash.active() and (o as NPC).crash.mode == Mode.HOSTILE \
+				and (o as NPC).crash.target_id == String(worst["id"]):
+			rate *= 0.15
+			break
 	if randf() < 1.0 - exp(-rate * h):
 		NPCCombatDebug.trace(_npc, "grudge boils over at %s (hatred %.0f, mood %.0f, rate %.2f/h)" % [worst["id"], float(worst["score"]), _npc.mood, rate])
 		_grudge_cooldown_until = NPCClock.now() + GRUDGE_COOLDOWN_HOURS
@@ -203,7 +232,7 @@ func begin(m: Mode, ally_of: NPC = null) -> void:
 			headline = "Crashed out — went into overdrive to hold the bunker together"
 			_npc.bark_event("crash_overdrive")
 		Mode.BREAKDOWN:
-			headline = "Crashed out — broke down, can't take it anymore"
+			headline = "Broke down over %s" % _grief_for if _grief_for != "" else "Crashed out — broke down, can't take it anymore"
 			_npc.bark_event("crash_breakdown")
 	var cause: Array[Dictionary] = _npc.morale_sys.get_reasons()
 	var why: String = (" Mostly: %s." % String(cause[0]["text"]).to_lower()) if not cause.is_empty() else ""
@@ -232,7 +261,7 @@ func _rally_allies() -> void:
 			continue
 		if other.get_relationship(_npc.npc_id) < 20.0 or other.global_position.distance_to(_npc.global_position) > 15.0:
 			continue
-		if randf() < 0.5:
+		if randf() < 0.25 and not (other as NPC).fears_player():
 			other.crash.target_id = target_id
 			other.crash.begin(Mode.HOSTILE, _npc)
 

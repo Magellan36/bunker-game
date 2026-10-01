@@ -1,17 +1,20 @@
 extends NPCActivity
 class_name RelaxActivity
 ## RelaxActivity.gd — a proper break: sit in a chair, else lie on a bed,
-## else take a slow stroll. Budgeted per day (NPC.get_relax_daily_budget(),
+## else lean on a wall, else take a slow stroll. Budgeted per day (NPC.get_relax_daily_budget(),
 ## Lazy residents get more) with randomized gaps between sessions so breaks
 ## spread through the day instead of chaining.
 
 const BASE_SCORE: float = 9.0
-const SESSION_MIN: float = 0.33   ## game-hours (~20 min)
-const SESSION_MAX: float = 0.67   ## game-hours (~40 min)
+## Sep 2026: REAL seconds (was 0.33–0.67 game hours = 20–40 s on screen).
+## The daily break allowance is still counted in game hours.
+const SESSION_MIN: float = 60.0
+const SESSION_MAX: float = 150.0
 
 var _inner: NPCActivity = null
 var _session_length: float = 0.0
 var _session_elapsed: float = 0.0
+var _game_hours: float = 0.0
 
 func label() -> String:
 	if _inner is WanderActivity:
@@ -39,7 +42,15 @@ func enter(npc: NPC) -> void:
 	npc.reset_relax_job_requests()
 	_session_length = randf_range(SESSION_MIN, SESSION_MAX)
 	_session_elapsed = 0.0
-	for option: NPCActivity in [RelaxSitActivity.new(), RelaxLieActivity.new()]:
+	_game_hours = 0.0
+	## Sep 2026: leaning before strolling. With no chair or bed (a new
+	## bunker) every break was a stroll that ended after a leg or two,
+	## then 1–2 minutes standing in the open.
+	var options: Array[NPCActivity] = [RelaxSitActivity.new(), RelaxLieActivity.new()]
+	var model: Node = npc.get_node_or_null("CharacterModel")
+	if model != null and model.has_method("begin_lean"):
+		options.append(LeanActivity.new())
+	for option: NPCActivity in options:
 		option.enter(npc)
 		if not option.done(npc):
 			_inner = option
@@ -52,7 +63,8 @@ func enter(npc: NPC) -> void:
 
 func tick(npc: NPC, delta: float) -> void:
 	var h: float = npc.game_hours(delta)
-	_session_elapsed += h
+	_session_elapsed += delta
+	_game_hours += h
 	npc.spend_relax_time(h)
 	if _inner != null:
 		_inner.tick(npc, delta)
@@ -63,11 +75,11 @@ func done(npc: NPC) -> bool:
 	return _inner != null and not (_inner is WanderActivity) and _inner.done(npc)
 
 func exit(npc: NPC) -> void:
-	if _session_elapsed > 0.1:
-		npc.log_action("Relaxed for %d min" % int(round(_session_elapsed * 60.0)))
+	if _game_hours > 0.1:
+		npc.log_action("Relaxed for %d min" % int(round(_game_hours * 60.0)))
 		if _session_elapsed >= _session_length * 0.8:
 			npc.add_thought("relaxed")
-	if _session_elapsed > 0.01:
+	if _session_elapsed > 1.0:
 		npc.start_relax_cooldown()
 	if _inner != null:
 		_inner.exit(npc)

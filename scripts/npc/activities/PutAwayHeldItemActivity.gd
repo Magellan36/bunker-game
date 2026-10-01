@@ -17,6 +17,8 @@ var _item: RigidBody3D = null
 var _destination: Node = null
 var _settled: bool = false
 var _stall: float = 0.0
+var _elapsed: float = 0.0
+const GIVE_UP_SECONDS: float = 30.0
 
 func label() -> String:
 	return "Putting away %s" % NPCSessionActivity.display_name(_item) if _item != null else "Tidying up"
@@ -38,6 +40,7 @@ func backoff_on_futile() -> bool:
 
 func enter(npc: NPC) -> void:
 	_settled = false
+	_elapsed = 0.0
 	_item = npc.held_item
 	if _item == null or not is_instance_valid(_item):
 		_settled = true
@@ -64,20 +67,36 @@ func tick(npc: NPC, delta: float) -> void:
 		NPCItemUser.drop_held(npc)
 		_settled = true
 		return
+	## Sep 2026: never carry something round for minutes (a jerry can was
+	## carried for 3 real minutes toward a shelf it couldn't reach). The
+	## time is kept on the item, so restarts don't reset it.
+	_elapsed += delta
+	if NPCItemUser.add_carry_time(_item, delta) > NPCItemUser.CARRY_LIMIT_S:
+		npc.job_state.mark_unreachable(_destination)
+		npc.job_state.blacklist_cleaning_item(npc, _item, "couldn't reach its storage")
+		NPCItemUser.clear_carry_time(_item)
+		NPCItemUser.drop_held(npc)
+		_settled = true
+		return
+	## Someone's using that storage: wait your turn a little way back.
+	if NPCItemUser.wait_turn_at(npc, _destination, delta):
+		return
 	npc.nav_steer(delta)
 	## Can't get there (a pocket the navmesh can't route out of, storage
 	## walled in): set it down rather than stand holding it forever.
-	if npc.nav_finished() and not NPCItemUser.in_reach(npc, (_destination as Node3D).global_position, NPCItemUser.SNATCH_RANGE):
+	if npc.nav_finished() and not NPCItemUser.in_reach(npc, (_destination as Node3D).global_position, NPCItemUser.SHELF_RANGE):
 		_stall += delta
 		if _stall > 2.0:
 			NPCItemUser.drop_held(npc)
 			_settled = true
 		return
 	_stall = 0.0
-	if NPCItemUser.in_reach(npc, (_destination as Node3D).global_position, NPCItemUser.SNATCH_RANGE):
+	if NPCItemUser.in_reach(npc, (_destination as Node3D).global_position, NPCItemUser.SHELF_RANGE):
 		npc.lock_movement()
+		var stored_item: Node = _item
 		if not NPCItemUser.store_held(npc, _destination):
 			NPCItemUser.drop_held(npc)   ## filled up since we set out — set it down rather than loop
+		NPCItemUser.clear_carry_time(stored_item)
 		_settled = true
 
 func done(_npc: NPC) -> bool:

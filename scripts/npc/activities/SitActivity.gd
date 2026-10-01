@@ -18,6 +18,8 @@ enum SState { SEEK, SEATED, STANDING }
 
 var _chair: Node = null
 var _state: SState = SState.SEEK
+var _seek_time: float = 0.0
+const SEEK_GIVE_UP_SECONDS: float = 12.0
 
 func label() -> String:
 	match _state:
@@ -46,8 +48,16 @@ func can_yield_to_need(_npc: NPC) -> bool:
 func enter(npc: NPC) -> void:
 	_chair = _find_free_chair(npc)
 	_state = SState.SEEK
+	_seek_time = 0.0
 	if _chair != null:
-		npc.set_nav_target((_chair as Node3D).global_position)
+		NPCItemUser.claim_item(_chair, npc)   ## reserved on the way (the brain releases it on exit)
+		npc.set_nav_target(_approach_point(_chair))
+
+## Where to walk to: in front of the seat (the chair's own stand spot), not
+## the chair's centre — that's inside its collision, so the path ended
+## against it and stuck recovery gave up ("Finding a seat" abandoned).
+static func _approach_point(chair: Node) -> Vector3:
+	return chair.get_stand_position() if chair.has_method("get_stand_position") else (chair as Node3D).global_position
 
 func tick(npc: NPC, delta: float) -> void:
 	if _chair == null or not is_instance_valid(_chair):
@@ -60,7 +70,14 @@ func tick(npc: NPC, delta: float) -> void:
 	match _state:
 		SState.SEEK:
 			npc.nav_steer(delta)
-			var close: bool = NPCItemUser.flat_distance(npc.global_position, (_chair as Node3D).global_position) < 0.9
+			_seek_time += delta
+			if _seek_time > SEEK_GIVE_UP_SECONDS:
+				_chair = null   ## can't get to it (neighbours sitting in the way...) — done(); the caller falls back
+				return
+			## Within 1.6 m the sit sequence walks the last bit itself; waiting
+			## for "arrived" left people shuffling beside a chair between two
+			## seated neighbours until stuck recovery gave up on them.
+			var close: bool = NPCItemUser.flat_distance(npc.global_position, (_chair as Node3D).global_position) < 1.6
 			if npc.nav_finished() or close:
 				if close or NPCItemUser.flat_distance(npc.global_position, (_chair as Node3D).global_position) < 1.6:
 					if _chair.npc_try_sit(npc):
@@ -117,6 +134,10 @@ func _release_chair(npc: NPC) -> void:
 		_chair.npc_stand(npc)
 	_chair = null
 
+## Free and not already claimed by someone walking over to it (Sep 2026:
+## several residents used to head for the same chair; the losers walked
+## over for nothing).
 static func _find_free_chair(npc: NPC) -> Node:
 	return NPCSessionActivity.nearest_in_group(npc, "chair",
-		func(c: Node) -> bool: return not c.has_method("is_seat_free") or c.is_seat_free())
+		func(c: Node) -> bool: return (not c.has_method("is_seat_free") or c.is_seat_free()) and not NPCItemUser.is_claimed_by_other(c, npc) \
+			and NPCItemUser.is_reachable(npc, _approach_point(c), 0.8))

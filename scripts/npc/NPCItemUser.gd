@@ -75,6 +75,33 @@ static func claim_item(item: Node, npc: Node) -> bool:
 	_claims[iid] = npc.get_instance_id()
 	return true
 
+## Seconds this item has been carried toward storage without getting there,
+## kept on the item so restarting the activity (stuck recovery, a need)
+## doesn't reset it. Past CARRY_LIMIT_S the carrier gives up on that storage.
+const CARRY_LIMIT_S: float = 40.0
+static func add_carry_time(item: Node, seconds: float) -> float:
+	if item == null or not is_instance_valid(item):
+		return 0.0
+	var t: float = float(item.get_meta("_carry_s", 0.0)) + seconds
+	item.set_meta("_carry_s", t)
+	return t
+
+static func clear_carry_time(item: Node) -> void:
+	if item != null and is_instance_valid(item) and item.has_meta("_carry_s"):
+		item.remove_meta("_carry_s")
+
+## Storage someone else is using right now: wait a couple of metres back
+## (true = waiting this frame) instead of squeezing in beside them.
+static func wait_turn_at(npc: NPC, destination: Node, delta: float) -> bool:
+	if not is_claimed_by_other(destination, npc):
+		claim_item(destination, npc)
+		return false
+	if flat_distance(npc.global_position, (destination as Node3D).global_position) < 2.6:
+		npc.halt_movement(delta)
+	else:
+		npc.nav_steer(delta)
+	return true
+
 static func release_item(item: Node) -> void:
 	if item == null:
 		return

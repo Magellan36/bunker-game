@@ -21,8 +21,8 @@ class_name TalkActivity
 ## own state (NPCDialogue barks/greetings); a chat still shapes their
 ## relationship.
 
-const SESSION_MIN: float = 8.0    ## real seconds — a quick social beat
-const SESSION_MAX: float = 20.0
+const SESSION_MIN: float = 20.0   ## real seconds (Sep 2026: was 8–20 — barely a hello)
+const SESSION_MAX: float = 45.0
 const TURN_MIN: float = 1.4
 const TURN_MAX: float = 3.2
 
@@ -36,9 +36,13 @@ var _speaking: bool = false
 var _ended_naturally: bool = false
 var _turns: int = 0
 var _approaching: bool = false          ## initiator walking over to a friend
+var _spacing: bool = false
+var _spacing_time: float = 0.0
 var _approach_time: float = 0.0
 const APPROACH_GIVE_UP: float = 12.0
 const CHAT_DISTANCE: float = 1.8
+const CHAT_MIN_DISTANCE: float = 1.1     ## closer than this, the initiator eases back first
+const CHAT_SPACING: float = 1.3
 
 func _init(partner: Node = null, is_initiator: bool = true) -> void:
 	_partner = partner
@@ -72,7 +76,8 @@ func score(npc: NPC) -> float:
 	var partner: Node = npc.find_talk_partner()
 	if partner == null:
 		return 0.0
-	return npc.get_social_score(partner)
+	## Grieving people don't go looking for a chat.
+	return npc.get_social_score(partner) * (1.0 - 0.85 * npc.mourning_strength())
 
 func interruptible() -> bool:
 	if _partner == null or _approaching:
@@ -106,6 +111,9 @@ func _begin_session(npc: NPC) -> void:
 	if not _partner.start_talk_session(npc):
 		_partner = null
 		return
+	## People don't talk nose to nose: ease to a natural distance first.
+	_spacing = NPCItemUser.flat_distance(npc.global_position, (_partner as Node3D).global_position) < CHAT_MIN_DISTANCE
+	_spacing_time = 0.0
 	_duration = randf_range(SESSION_MIN, SESSION_MAX) * npc.get_talk_length_mult(_partner)
 	_elapsed = 0.0
 	_speaking = true   ## the initiator opens
@@ -135,6 +143,14 @@ func tick(npc: NPC, delta: float) -> void:
 	## our side too instead of talking to thin air.
 	if not _partner.brain.is_talking() or _partner.brain.get_talk_partner_id() != npc.npc_id:
 		_partner = null
+		return
+	if _spacing:
+		_spacing_time += delta
+		npc.steer_direct((_partner as Node3D).global_position, CHAT_SPACING, delta)
+		npc.face_toward((_partner as Node3D).global_position, delta * 6.0)
+		if _spacing_time > 1.5 or NPCItemUser.flat_distance(npc.global_position, (_partner as Node3D).global_position) >= CHAT_SPACING - 0.1:
+			_spacing = false
+			_face_partner(npc)
 		return
 	npc.halt_movement(delta)
 	npc.face_toward((_partner as Node3D).global_position, delta * 6.0)

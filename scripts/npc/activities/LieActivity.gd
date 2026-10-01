@@ -41,6 +41,10 @@ var _floor_rot: Vector3 = Vector3.ZERO
 var _slept_hours: float = 0.0
 var _finished: bool = false
 var _approach: Vector3 = Vector3.ZERO
+var _chair_seated: bool = false
+var _floor_seek: bool = false
+var _floor_seek_time: float = 0.0
+var _floor_spot: Vector3 = Vector3.ZERO
 
 func label() -> String:
 	if relax_mode:
@@ -97,10 +101,11 @@ func enter(npc: NPC) -> void:
 	var chair: Node = SitActivity._find_free_chair(npc)
 	if chair != null:
 		_mode = Mode.CHAIR
+		_chair_seated = false
 		_chair_sleep = _ChairDoze.new()
 		_chair_sleep.enter(npc)
 		return
-	_begin_floor(npc)
+	_seek_floor_spot(npc)
 
 func tick(npc: NPC, delta: float) -> void:
 	var h: float = npc.game_hours(delta)
@@ -110,13 +115,29 @@ func tick(npc: NPC, delta: float) -> void:
 		Mode.CHAIR:
 			_chair_sleep.tick(npc, delta)
 			if _chair_sleep._state == SitActivity.SState.SEATED:
+				_chair_seated = true
 				_slept_hours += h
 				npc.energy = minf(npc.energy_cap, npc.energy + CHAIR_REGEN_PER_GAME_HOUR * h)
 				if _should_wake(npc):
 					_chair_sleep._stand(npc)
 			if _chair_sleep.done(npc):
-				_finished = true
+				if not _chair_seated and not relax_mode:
+					## Never got the chair (taken / unreachable): sleep on the
+					## floor instead of giving up and wandering the night.
+					_chair_sleep.exit(npc)
+					_chair_sleep = null
+					_seek_floor_spot(npc)
+				else:
+					_finished = true
 		Mode.FLOOR:
+			if _floor_seek:
+				_floor_seek_time += delta
+				npc.nav_steer(delta)
+				if npc.nav_finished() or _floor_seek_time > 15.0 \
+						or NPCItemUser.flat_distance(npc.global_position, _floor_spot) < 0.5:
+					_floor_seek = false
+					_begin_floor(npc)
+				return
 			npc.halt_movement(delta)
 			_slept_hours += h
 			npc.energy = minf(npc.energy_cap, npc.energy + FLOOR_REGEN_PER_GAME_HOUR * h)
@@ -183,12 +204,14 @@ func exit(npc: NPC) -> void:
 func _should_wake(npc: NPC) -> bool:
 	if npc.hunger < NPC.NEED_CRITICAL or npc.thirst < NPC.NEED_CRITICAL:
 		return true
-	if npc.energy >= npc.energy_cap - 0.5:
-		return true
 	if forced:
 		return npc.energy >= 90.0
+	## A night's sleep lasts until morning (Sep 2026: topping up to full
+	## energy used to wake them mid-night, and up they got to wander).
 	if npc.is_night_for_me():
 		return false
+	if npc.energy >= npc.energy_cap - 0.5:
+		return true
 	## Daytime: a nap ends once reasonably rested; a night's sleep ends at
 	## (or after) this resident's wake-up time once well rested.
 	return npc.energy >= 70.0
@@ -247,6 +270,19 @@ func _release_bed(npc: NPC) -> void:
 		_bed.npc_stand(npc)
 
 # ─── Floor fallback ───────────────────────────────────────────────────────
+## Somewhere out of the way to lie down — against a wall, not in the middle
+## of the room or a doorway — then down they go.
+func _seek_floor_spot(npc: NPC) -> void:
+	_mode = Mode.FLOOR
+	var spot: Dictionary = LeanActivity.find_spot(npc)
+	_floor_spot = spot["stand"] if not spot.is_empty() else npc.global_position
+	_floor_seek = not spot.is_empty()
+	_floor_seek_time = 0.0
+	if _floor_seek:
+		npc.set_nav_target(_floor_spot)
+	else:
+		_begin_floor(npc)
+
 func _begin_floor(npc: NPC) -> void:
 	_mode = Mode.FLOOR
 	_floor_rot = npc.rotation

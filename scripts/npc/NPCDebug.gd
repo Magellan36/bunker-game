@@ -130,12 +130,14 @@ static func log_job(event: String, job: Dictionary, npc: Node = null) -> void:
 ## when enabled. Every contributing source is shown SEPARATELY (needs-pull,
 ## global social contagion, random drift) so a mood change is never
 ## ambiguous about why — this was an explicit requirement, not a nice-to-have.
-static func log_mood(npc: Node, needs_delta: float, contagion_delta: float,
-		drift_delta: float, mood_after: float) -> void:
+## Sep 2026: mood = the mood engine (sustained conditions) + a capped share
+## of feelings (thoughts); see NPC "Mood is the one state".
+static func log_mood(npc: Node, engine: float, feelings: float,
+		change: float, mood_after: float) -> void:
 	if not enabled:
 		return
-	print("%s mood: needs=%+.2f contagion=%+.2f drift=%+.2f -> %.1f" % [
-		_fmt(npc), needs_delta, contagion_delta, drift_delta, mood_after])
+	print("%s mood: engine=%.1f feelings=%+.1f change=%+.2f -> %.1f" % [
+		_fmt(npc), engine, feelings, change, mood_after])
 
 ## Irritability tick breakdown (Part 20) — same cadence/reasoning as log_mood.
 static func log_irritability(npc: Node, need_contrib: float, mood_contrib: float,
