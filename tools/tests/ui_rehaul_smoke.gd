@@ -104,8 +104,10 @@ func _run() -> void:
 	quit(failures)
 
 func _test_build_tool_highlight_contracts() -> void:
-	var controller := BuildModeController.new()
-	controller._materials = BuildMaterials.new(controller)
+	## Loaded at runtime: naming the class would compile BuildModeController
+	## (which uses autoload identifiers) before autoloads exist under --script.
+	var controller: Node = (load("res://scripts/world/build/BuildModeController.gd") as GDScript).new()
+	controller._materials = (load("res://scripts/world/build/BuildMaterials.gd") as GDScript).new(controller)
 	controller._build_ghost_materials()
 
 	## Root meshes and ShaderMaterial overrides both occur in imported object
@@ -147,7 +149,7 @@ func _test_build_tool_highlight_contracts() -> void:
 	source.add_child(hidden_state_mesh)
 	source.visible = false
 	controller._move_source_body = source
-	var move_tool := MoveDuplicateTool.new(controller)
+	var move_tool: RefCounted = (load("res://scripts/world/build/MoveDuplicateTool.gd") as GDScript).new(controller)
 	move_tool._cancel_move_confirm()
 	_check(source.visible and not hidden_state_mesh.visible,
 		"move cancellation preserves intentional child visibility")
@@ -266,7 +268,7 @@ func _test_runtime_ui() -> void:
 	_check(workspace.shop.visible and not workspace.catalog.visible, "shop opens its own overlay")
 	_check(workspace.shop.position.y + workspace.shop.size.y <= viewport_size.y,
 		"shop remains inside the viewport after minimum-size calculation")
-	var shop_cart: ShopCart = workspace.shop.cart
+	var shop_cart: RefCounted = workspace.shop.cart
 	shop_cart.change(2, 1)
 	await process_frame
 	var cart_targets: Dictionary = workspace.shop.get("_cart_focus_targets") as Dictionary
@@ -474,7 +476,7 @@ func _test_cart() -> void:
 	_check(cart.total({2: {"price": 25}}) == 75, "cart computes total")
 	cart.change(2, -3)
 	_check(cart.lines.is_empty(), "zero quantity removes line")
-	for _i in ShopCart.MAX_ITEMS:
+	for _i in int(script.get_script_constant_map()["MAX_ITEMS"]):
 		cart.change(1, 1)
 	_check(not cart.change(1, 1) and cart.quantity(1) == ShopCart.MAX_ITEMS,
 		"cart enforces bounded order size")
