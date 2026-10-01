@@ -63,7 +63,8 @@ Polish pass (2026-09-28):
   `Empty`. The reticle has no text; it turns amber when the revolver is dry.
 - Mouse aim steers a direction, like the stick: raw mouse motion moves a point on a
   ring around the player (13% of screen height), and the reticle sits at the same
-  tight ring position for mouse and pad. You can't aim across the screen.
+  tight ring position for mouse and pad (2.5 m from the weapon, or melee reach if
+  shorter, kept on screen). You can't aim across the screen.
 - Mouse aim follows the physical RMB: a brief block (UI blip, item swap) only pauses
   aiming, and it resumes while the button is still held.
 - Only the player's own shots give full recoil shake; others' shots nearby give a

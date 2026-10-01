@@ -27,6 +27,9 @@ var _buffer_left: float = 0.0
 ## i.e. on the player. Mouse aim therefore uses its own virtual point: it
 ## starts ahead of the player on RMB and moves with raw mouse motion.
 const MOUSE_AIM_START: float = 2.5
+## Reticle distance from the weapon, metres (melee uses its shorter reach).
+## Same for mouse and pad; it shows direction, not the shot's full range.
+const RETICLE_RANGE: float = 2.5
 ## The virtual point lives on a ring around the player's screen position, so
 ## the mouse steers a direction like the right stick does (reversing is one
 ## small flick, never a long drag back across the screen).
@@ -158,7 +161,8 @@ func _physics_process(delta: float) -> void:
 		var camera: Camera3D = get_viewport().get_camera_3d()
 		if camera != null:
 			## Mouse and pad share one placement: a tight ring in the aim direction.
-			_reticle.aim_position = camera.unproject_position(_weapon.global_position + _direction * minf(_weapon.reach, 7.0))
+			var rect: Rect2 = get_viewport().get_visible_rect().grow(-24.0)
+			_reticle.aim_position = camera.unproject_position(_weapon.global_position + _direction * minf(_weapon.reach, RETICLE_RANGE)).clamp(rect.position, rect.end)
 		_reticle.empty = _weapon.is_firearm() and _weapon.ammo == 0
 
 func _player_screen() -> Vector2:
