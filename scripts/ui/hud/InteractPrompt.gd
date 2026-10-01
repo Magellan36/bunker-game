@@ -188,7 +188,15 @@ func _process(delta: float) -> void:
 		var entry: Dictionary  = display_list[i]
 		var p: PanelContainer  = _pool[i] as PanelContainer
 		var world_offset: Vector3 = entry.get("world_offset", WORLD_OFFSET)
-		var world_pos: Vector3 = entry["world_pos"] + world_offset
+		## InteractionSystem rebuilds the prompt list at 20 Hz (FPS pass).
+		## Entries for things that move carry their "anchor" node; follow it
+		## every frame so prompts glide with NPCs, items and the player
+		## instead of stepping between snapshots.
+		var anchor: Variant = entry.get("anchor")
+		var base: Vector3 = entry["world_pos"]
+		if anchor is Node3D and is_instance_valid(anchor) and (anchor as Node3D).is_inside_tree():
+			base = (anchor as Node3D).global_position + (entry.get("anchor_offset", Vector3.ZERO) as Vector3)
+		var world_pos: Vector3 = base + world_offset
 
 		if camera.is_position_behind(world_pos):
 			p.visible = false

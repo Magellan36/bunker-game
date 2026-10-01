@@ -4,6 +4,9 @@ class_name MainWorld
 ## Root script for the main game world scene.
 
 signal startup_ready
+## True once startup (including the interface prewarm) has finished; lets
+## tests and late listeners check instead of racing the signal.
+var startup_complete: bool = false
 
 # ─── Dev Tools ────────────────────────────────────────────────────────────────
 ## F12 — toggle x10 time warp (speeds up clock + all stat drain)
@@ -1504,6 +1507,7 @@ func _setup_build_mode() -> void:  ## coroutine — called via process_frame one
 
 	## LoadingScreen waits for this before revealing the bunker. Emit last so
 	## every synchronous setup step and the expensive preview pool are complete.
+	startup_complete = true
 	startup_ready.emit()
 
 

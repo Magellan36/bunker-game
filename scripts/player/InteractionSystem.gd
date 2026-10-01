@@ -1097,6 +1097,7 @@ func _render_job_prompt() -> void:
 	prompt.set_prompts([{
 		"text":      String(_active_job.get("label", "")),
 		"world_pos": pos,
+		"anchor":    target if target != null and is_instance_valid(target) else player,
 		"dist":      0.0,
 		"progress":  frac,
 	}])
@@ -1180,6 +1181,8 @@ func _update_prompt() -> void:
 			entries.append({
 				"text":      "\n".join(item_lines),
 				"world_pos": item_prompt_pos,
+				"anchor":    hold_point,
+				"anchor_offset": item_prompt_pos - hold_point.global_position,
 				"dist":      0.0,
 				"icons":     held_icons,
 			})
@@ -1255,6 +1258,7 @@ func _update_prompt() -> void:
 				entries.append({
 					"text":      "[E] Add to Basket",
 					"world_pos": body.global_position,
+					"anchor":    body,
 					"dist":      bd
 				})
 
@@ -1280,6 +1284,7 @@ func _update_prompt() -> void:
 				entries.append({
 					"text":      "[E] Add to Pot",
 					"world_pos": body.global_position,
+					"anchor":    body,
 					"dist":      bd
 				})
 			var nearby_stove: Node = _find_nearest_stove()
@@ -1302,7 +1307,8 @@ func _update_prompt() -> void:
 					continue
 				var tp: String = npc.treatment_prompt(held_item)
 				if tp != "":
-					entries.append({"text": tp, "world_pos": (npc as Node3D).global_position + Vector3(0.0, 1.8, 0.0), "dist": td})
+					entries.append({"text": tp, "world_pos": (npc as Node3D).global_position + Vector3(0.0, 1.8, 0.0), "dist": td,
+						"anchor": npc, "anchor_offset": Vector3(0.0, 1.8, 0.0)})
 
 		# Give to NPC — holding a giveable item (dish, produce, can, or
 		# bottle) → "[E] Give <item> to <name>" over each nearby NPC.
@@ -1317,6 +1323,8 @@ func _update_prompt() -> void:
 				entries.append({
 					"text":      "[E] Give %s to %s" % [held_item.get_display_name(), String(npc.npc_name)],
 					"world_pos": (npc as Node3D).global_position + Vector3(0.0, 1.8, 0.0),
+					"anchor":    npc,
+					"anchor_offset": Vector3(0.0, 1.8, 0.0),
 					"dist":      nd
 				})
 
@@ -1526,6 +1534,10 @@ func _update_prompt() -> void:
 		entries.append({
 			"text":      "\n".join(lines),
 			"world_pos": prompt_pos,
+			## Live anchor: the prompt list refreshes at 20 Hz, so InteractPrompt
+			## follows the body itself every frame (NPCs and items move).
+			"anchor":    body,
+			"anchor_offset": prompt_pos - body.global_position,
 			"dist":      cand["dist"],
 			"icons":     icons,
 			"anchor_bottom": anchor_bottom,

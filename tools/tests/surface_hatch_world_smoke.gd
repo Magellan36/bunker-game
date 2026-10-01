@@ -29,6 +29,12 @@ func _run() -> void:
 	for i: int in 30:
 		await physics_frame
 	var world: Node = get_first_node_in_group("main_world")
+	## Startup prewarms interfaces (it briefly enters build mode, which closes
+	## open UIs); wait for it so the inspector check isn't racing it.
+	for i: int in 1200:
+		if world == null or bool(world.get("startup_complete")):
+			break
+		await process_frame
 	var rs: Node = get_first_node_in_group("rock_surround")
 	var hp: Vector3 = (hatch as Node3D).global_position
 	print("hatch at ", hp, " yaw ", (hatch as Node3D).rotation.y)
