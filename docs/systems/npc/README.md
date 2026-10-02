@@ -582,6 +582,44 @@ Full rules: `docs/systems/hatch/README.md`.
 ### Time
 All cooldowns are in game hours via `NPCClock.now()` (pause-, fast-forward-
 and save-safe). Short physical actions still use frame delta.
+`NPCClock.game_hours()` is 0 while `PlayerStats.clock_running` is false
+(preparation, below). That holds needs, mood/morale, neglect, relax
+budgets, relationship upkeep and crash-out/grudge rolls: the whole
+mood/social tick skips when no game time passed.
+
+### Before the seal: preparation (Oct 2026, Brannon)
+New Game starts in `BunkerPhase` preparation (docs/systems/phase/README.md):
+the player buys and stores supplies, the clock stands still at 06:00, and
+nothing may be used until Day 1. Chosen survivors are in the bunker to help.
+`NPC.is_preparing()` (cached per frame) is the NPC-side check; LEGACY worlds
+(old saves, MainWorld run directly, the harnesses) never prepare.
+- **Only what uses nothing** (`NPCBrain.PREP_ALLOWED`, a whitelist by
+  script name): tidying and putting things away, settling (sit, lean,
+  wander, breaks), chats, keeping away, hiding, stepping aside, and
+  self-defence (CrashOutActivity only while fighting back). Everything else
+  waits for Day 1: eating, drinking, food gifts, refuelling, gardening,
+  cooking, treatment, job-board jobs (harvests, filter swaps), going to bed,
+  and any activity added later. Scoring, commands (`force_command`) and
+  hand-offs all go through it. A player order for those is refused with a
+  line (`prep_refuse`), and `can_receive_item()` refuses gifts.
+- **Tidying first**: `CleaningActivity.PREP_TIDY_SCORE` (40, ±15% by work
+  ethic; the Lazy pitch in too) whenever there's something they can put
+  away, above every idle activity. Purchases are picked up once they've lain
+  still 5 s. With nowhere to put things (no shelves yet, or full) the
+  availability check says no and they idle normally, without retrying.
+- **No night**: `is_night_for_me()` is false while preparing (06:00 is
+  "before wake-up" for most chronotypes, and nobody should sleep through
+  setup).
+- **No crash-outs**: the frozen tick never rolls one, and any non-defence
+  crash-out still running when preparation starts (F7) is ended.
+- At the seal everything resumes as before; needs and mood carry on from
+  where they were.
+- Verified in the real game (slot 2 switched into preparation, shelves
+  emptied, a 17-item delivery dropped by the player, 4 real minutes): all 17
+  put away; two hungry, thirsty residents ate and drank nothing; needs,
+  mood, relationships and clock unchanged; after the seal they went straight
+  to food and water. With full shelves they idled instead of looping. The
+  phase session's `tools/tests/survivor_select_smoke.gd` passes.
 
 ### Testing: headless simulation harness
 `tools/tests/run_npc_sim.sh --scenario=basic|farm|cook|power|stress|scarcity|door|session|all

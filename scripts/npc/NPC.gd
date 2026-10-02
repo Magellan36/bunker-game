@@ -163,7 +163,22 @@ func get_wake_time() -> float:
 	return WAKE_HOUR + chronotype * 0.7
 
 func is_night_for_me() -> bool:
+	if is_preparing():
+		return false   ## time stands still before the seal (frozen at 06:00, "before wake-up" for most)
 	return NPCClock.hour_in(NPCClock.hour_of_day(), get_bedtime(), get_wake_time())
+
+## BunkerPhase preparation (Oct 2026): before the seal nothing may be used
+## and the clock is stopped (NPCBrain.PREP_ALLOWED, NPCClock.game_hours).
+## Cached per physics frame: the brain asks for every candidate.
+var _prep_frame: int = -1
+var _prep: bool = false
+
+func is_preparing() -> bool:
+	var f: int = Engine.get_physics_frames()
+	if f != _prep_frame:
+		_prep_frame = f
+		_prep = BunkerPhase.preparing(get_tree())
+	return _prep
 
 ## How strongly this resident wants to sleep right now, 0..1. Night makes
 ## sleep attractive even when not exhausted; in the day only real
@@ -657,6 +672,10 @@ func on_player_command(activity: NPCActivity) -> bool:
 		social.last_refusal = "%s won't listen right now — they're crashing out." % npc_name
 		bark(NPCDialogue.bark_line("seething" if crash.mode == NPCCrashOut.Mode.HOSTILE else "sob"), true)
 		return false
+	if is_preparing() and not NPCBrain.prep_allows(activity, self):
+		social.last_refusal = "%s: the supplies stay untouched until we're sealed in." % npc_name
+		bark(NPCDialogue.bark_line("prep_refuse"), true)
+		return false
 	if not social.on_player_command(activity):
 		bark(social.last_refusal, true)
 		return false
@@ -1069,6 +1088,8 @@ func can_receive_item(item: Node, giver_id: String = "player") -> bool:
 		return false
 	if brain != null and brain.is_sleeping():
 		return false
+	if is_preparing():
+		return false   ## gifts are food and water: not used before the seal
 	return NPCItemUser.is_giveable(item)
 
 ## Called AFTER the item is already in held_item (the giver's side did the

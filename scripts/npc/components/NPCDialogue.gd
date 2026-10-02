@@ -247,6 +247,8 @@ const BARKS: Dictionary = {
 	"done_fighting": ["Stay away from me.", "We're done here.", "Don't ever — ever — do that again."],
 	"treat_self":    ["*hisses* Come on...", "Ow — okay, okay.", "This is going to sting.", "Hold it together..."],
 	"treat_other":   ["Hold still.", "Let me see that.", "This'll sting.", "Easy. I've got you."],
+	## Before the seal (BunkerPhase preparation): an order to use supplies.
+	"prep_refuse":   ["Not yet. That's for after we seal up.", "We're saving that for Day 1.", "Let's not touch the supplies yet."],
 	## Neglect (NPCSocial._tick_neglect): days of it, said to the player's face.
 	"neglect_light": ["How long are you going to leave us in the dark?", "Days in the dark. Days.", "Are you ever fixing the lights?"],
 	"neglect_water": ["We can't keep drinking this.", "When's there going to be clean water?", "I'm sick of being thirsty."],

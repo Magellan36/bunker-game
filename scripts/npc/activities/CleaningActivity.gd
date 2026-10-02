@@ -20,6 +20,10 @@ class_name CleaningActivity
 ## reserved by the cleaner forever; scoring moved to the shared scale.
 
 const SESSION_MIN_SEC: float = 20.0
+## Setting up the bunker (BunkerPhase preparation, Oct 2026, Brannon): the
+## player buys 30-40 things; putting them away is THE job then, lazy or not.
+## Above every idle activity and a break's 35 floor.
+const PREP_TIDY_SCORE: float = 40.0
 const SESSION_MAX_SEC: float = 40.0
 const RELOCATE_DISTANCE: float = 2.5
 const CLUTTER_CALM: int = 3      ## at/below this, cleaning barely registers
@@ -60,6 +64,8 @@ func label() -> String:
 func score(npc: NPC) -> float:
 	if _is_forced_session or not NPCJobQueries.has_cleaning_target_available(npc):
 		return 0.0
+	if npc.is_preparing():
+		return PREP_TIDY_SCORE * lerpf(0.85, 1.15, npc._trait("work_ethic"))
 	var clutter: float = float(JobBoard.get_total_clutter_count())
 	var t: float = clampf((clutter - CLUTTER_CALM) / float(CLUTTER_URGENT - CLUTTER_CALM), 0.0, 1.0)
 	return npc.work_score("CLEANING", 1.0, 4.0 + 26.0 * t * t * (3.0 - 2.0 * t))

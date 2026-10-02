@@ -31,6 +31,29 @@ class_name NPCBrain
 ## on any score scale.
 
 const THINK_INTERVAL: float = 1.0
+
+## Before the seal (BunkerPhase preparation, Oct 2026, Brannon): nothing in
+## the bunker may be used yet and time stands still, so residents only do
+## what uses nothing: tidying and putting purchases away (strongly favoured,
+## CleaningActivity), settling, chatting, keeping safe, self-defence.
+## Anything not listed (eating, drinking, food gifts, refuelling, gardening,
+## cooking, treatment, job-board jobs, going to bed, anything added later)
+## waits for Day 1. By script file name; commands go through the same gate.
+const PREP_ALLOWED: Array[String] = [
+	"CleaningActivity", "PutAwayHeldItemActivity", "CommandCleaningActivity",
+	"WanderActivity", "ForgetfulWanderActivity", "LeisureSitActivity", "LeanActivity",
+	"SitActivity", "RelaxActivity", "RelaxSitActivity", "RelaxLieActivity", "CommandRestActivity",
+	"TalkActivity", "KeepAwayActivity", "HideActivity", "FleeActivity", "BreakUpFightActivity",
+	"PassedOutActivity",
+]
+
+static func prep_allows(act: NPCActivity, npc: NPC) -> bool:
+	if act == null or act.get_script() == null:
+		return true
+	var name: String = (act.get_script() as Script).resource_path.get_file().get_basename()
+	if name == "CrashOutActivity":
+		return npc.crash.defense   ## fighting back, yes; crashing out, no
+	return name in PREP_ALLOWED
 const SWITCH_MARGIN_ABS: float = 4.0
 const SWITCH_MARGIN_REL: float = 0.20
 const COMMIT_TIME: float = 6.0           ## seconds after starting during which the incumbent defends harder
@@ -125,6 +148,9 @@ func end_talk_if_talking() -> void:
 ## Player-issued command (Part 19) — force-starts the given activity
 ## immediately. Bypasses scoring entirely; only pass-out can preempt it.
 func force_command(activity: NPCActivity) -> void:
+	if _npc.is_preparing() and not prep_allows(activity, _npc):
+		NPCDebug.log_cleaning(_npc, "command refused", "not before the seal: %s" % activity.label())
+		return
 	_switch_to(activity, "command")
 	_think_timer = THINK_INTERVAL   ## don't immediately re-think and override the command
 
@@ -168,6 +194,8 @@ func tick(delta: float) -> void:
 		## Part 30 — explicit hand-off to a specific successor (Snatch →
 		## GivenEat etc.), taken out here rather than re-entrantly.
 		var handoff: NPCActivity = _current.take_handoff() if _current != null else null
+		if handoff != null and _npc.is_preparing() and not prep_allows(handoff, _npc):
+			handoff = null   ## not before the seal; the current one just finishes
 		if handoff != null:
 			_switch_to(handoff, "handoff")
 			_current.begin_with_item(_npc, _npc.held_item)
@@ -185,6 +213,8 @@ func tick(delta: float) -> void:
 
 ## Score of a candidate with futility backoff applied.
 func _score(cand: NPCActivity) -> float:
+	if _npc.is_preparing() and not prep_allows(cand, _npc):
+		return 0.0
 	var key: String = _key(cand)
 	if _backoff.has(key) and _clock < float(_backoff[key]["until"]):
 		return 0.0
@@ -194,9 +224,18 @@ func _think() -> void:
 	var best: NPCActivity = null
 	var best_score: float = 0.0
 
-	## Job candidates (Part 4): one throwaway JobActivity per open job.
+	## Preparation (see PREP_ALLOWED): a crash-out or anything else not
+	## allowed that was running when it began (F7) stops here.
+	var preparing: bool = _npc.is_preparing()
+	if preparing:
+		if _npc.crash.active() and not _npc.crash.defense:
+			_npc.crash.finish()
+		if _current != null and not prep_allows(_current, _npc):
+			stop_current()
+	## Job candidates (Part 4): one throwaway JobActivity per open job
+	## (harvests and filter swaps: none before the seal).
 	var scan: Array[NPCActivity] = _candidates.duplicate()
-	for job: Dictionary in JobBoard.get_open_jobs():
+	for job: Dictionary in ([] if preparing else JobBoard.get_open_jobs()):
 		scan.append(JobActivity.new(job))
 
 	for cand: NPCActivity in scan:

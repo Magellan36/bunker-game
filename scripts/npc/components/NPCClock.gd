@@ -30,9 +30,13 @@ static func seconds_per_game_hour() -> float:
 
 ## Scaled frame delta → game hours. Includes PlayerStats.time_multiplier
 ## (the F12 dev tool) so NPC needs advance at the same rate as the clock.
+## A stopped clock (BunkerPhase preparation, Oct 2026: time stands still
+## before the seal) is zero: needs, mood, budgets and rolls all hold.
 static func game_hours(delta: float) -> float:
 	var s: Node = _get_stats()
 	if s == null or float(s._seconds_per_game_hour) <= 0.0:
+		return 0.0
+	if not bool(s.get("clock_running") if "clock_running" in s else true):
 		return 0.0
 	return delta * float(s.time_multiplier) / float(s._seconds_per_game_hour)
 
