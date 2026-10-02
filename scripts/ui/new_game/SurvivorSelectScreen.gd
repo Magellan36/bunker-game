@@ -9,7 +9,10 @@ extends CanvasLayer
 ## and the rest as blank greyed chips — the food/water estimate beneath, and
 ## Confirm as the one primary action. At three picks the other cards grey out.
 ##
-## Confirm: the chosen survivors are spawned beside the player, the column
+## Confirm: the chosen survivors are handed to BunkerPhase, which keeps them
+## outside until the player leaves through the Surface Hatch and the bunker
+## seals (Oct 2026); outside a New Game (no preparation phase) they spawn
+## beside the player as before. The column
 ## fades, "Survivors will join when the apocalypse begins." fades in quickly
 ## and out a little slower, then the black lifts to reveal the bunker. The
 ## world is paused for the whole screen so day one starts on reveal.
@@ -415,10 +418,19 @@ func _on_confirm() -> void:
 		queue_free())
 
 
-## Spawns the chosen survivors on the navmesh a couple of metres in front of
-## the player, side by side, facing them. Public for the smoke test.
+## During preparation the picks wait with BunkerPhase and nobody spawns yet
+## (they come in at the seal). Otherwise spawns the chosen survivors on the
+## navmesh a couple of metres in front of the player, side by side, facing
+## them. Public for the smoke test.
 func spawn_selected() -> Array[Node]:
 	var spawned: Array[Node] = []
+	var phase: BunkerPhase = BunkerPhase.of(get_tree())
+	if phase != null and phase.is_preparing():
+		var picks: Array = []
+		for i: int in _picked:
+			picks.append(_candidates[i])
+		phase.queue_survivors(picks)
+		return spawned
 	var scene := load(NPC_SCENE) as PackedScene
 	var player := get_tree().get_first_node_in_group("player") as Node3D
 	if scene == null or player == null or world == null or not is_instance_valid(world):

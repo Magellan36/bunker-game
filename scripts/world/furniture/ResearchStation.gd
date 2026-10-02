@@ -71,6 +71,27 @@ func add_material(material: String, amount: int) -> int:
 	stored_materials[material] = clampi(before + amount, 0, STORAGE_CAP)
 	return stored_materials[material] - before
 
+## ── Spending the reserve (Oct 2026, sealed bunker) ─────────────────────
+## After the seal, wire and pipe are paid for in Metal from this reserve
+## (BuildEconomy). Running research has first claim on what it still needs,
+## so building can never starve a research that's already under way.
+func reserved_material(material: String) -> int:
+	if active_upgrade == null or not active_upgrade.material_costs.has(material):
+		return 0
+	return maxi(0, int(active_upgrade.material_costs[material]) - int(_consumed.get(material, 0)))
+
+func available_material(material: String) -> int:
+	return maxi(0, int(stored_materials.get(material, 0)) - reserved_material(material))
+
+## Takes `amount` from the reserve. False (nothing taken) if not enough.
+func spend_material(material: String, amount: int) -> bool:
+	if amount <= 0:
+		return true
+	if available_material(material) < amount:
+		return false
+	stored_materials[material] = int(stored_materials[material]) - amount
+	return true
+
 ## ── Chute feed (Aug 2026) ───────────────────────────────────────────────
 ## F, from the chute proxy only (ResearchStationChute.gd) — feeds the
 ## player's held item/bag into stored_materials via add_material() above.
@@ -94,6 +115,8 @@ func get_chute_f_prompt() -> String:
 		return ""
 	if "is_trash_bag" in held:
 		return "Feed Trash Bag into chute"
+	if held.has_method("get_salvage_units"):
+		return "Feed %s into chute" % held.call("get_display_name")
 	if held.is_in_group("inventory_item") and (held.has_method("get_trash_material") or held.has_method("get_research_yield")):
 		return "Feed item into chute"
 	return ""
@@ -109,6 +132,10 @@ func on_chute_f_interact() -> bool:
 
 	if "is_trash_bag" in held:
 		_feed_bag(held, _interaction_system)
+		return true
+
+	if held.has_method("get_salvage_units"):
+		_feed_salvage(held, _interaction_system)
 		return true
 
 	## Aug 2026, Medical items — get_research_yield() checked FIRST and
@@ -127,6 +154,35 @@ func on_chute_f_interact() -> bool:
 		return true
 
 	return false
+
+## Salvage sphere (Oct 2026): carries several units of one material. Takes
+## what fits; a partial feed leaves the sphere in hand with the remainder.
+func _feed_salvage(item: RigidBody3D, isys: Node) -> void:
+	var material: String = String(item.call("get_trash_material"))
+	if not stored_materials.has(material):
+		return
+	var units: int = int(item.call("get_salvage_units"))
+	var room: int = STORAGE_CAP - int(stored_materials[material])
+	if room <= 0:
+		NotificationManager.feedback(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, "%s storage is full" % material.capitalize())
+		return
+	var fed: int = mini(units, room)
+	add_material(material, fed)
+	if fed < units:
+		item.call("set_salvage_units", units - fed)
+		NotificationManager.feedback(UIKit.Domain.NEUTRAL, NotificationManager.Severity.INFO,
+			"+%d %s" % [fed, material.capitalize()], -1.0,
+			"%d left over. %s storage is full." % [units - fed, material.capitalize()])
+		return
+	isys._is_holding_e = false
+	if item.has_signal("knocked_out") and item.knocked_out.is_connected(isys._on_item_knocked_out):
+		item.knocked_out.disconnect(isys._on_item_knocked_out)
+	if isys._held_from_slot != -1 and isys.inventory != null:
+		isys.inventory.retrieve_item(isys._held_from_slot)
+	isys.held_item       = null
+	isys._held_from_slot = -1
+	item.queue_free()
+	NotificationManager.feedback(UIKit.Domain.NEUTRAL, NotificationManager.Severity.INFO, "+%d %s" % [fed, material.capitalize()])
 
 func _feed_single_item(item: RigidBody3D, isys: Node) -> void:
 	var material: String = item.get_trash_material()
@@ -223,8 +279,16 @@ func _feed_bag(bag: RigidBody3D, isys: Node) -> void:
 		if running[material] >= STORAGE_CAP:
 			leftover.append(record)   ## this material's full — kept, per confirmed partial-drain behavior
 			continue
-		running[material] += 1
-		fed_counts[material] = fed_counts.get(material, 0) + 1
+		## A bagged salvage sphere carries several units (Oct 2026); a
+		## partial fit keeps the remainder as a smaller record.
+		var units: int = maxi(1, int(record.get("data", {}).get("salvage_units", 1)))
+		var fits: int = mini(units, STORAGE_CAP - int(running[material]))
+		running[material] += fits
+		fed_counts[material] = fed_counts.get(material, 0) + fits
+		if fits < units:
+			var rest: Dictionary = record.duplicate(true)
+			rest["data"]["salvage_units"] = units - fits
+			leftover.append(rest)
 
 	for material: String in fed_counts.keys():
 		add_material(material, fed_counts[material])

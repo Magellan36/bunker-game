@@ -262,6 +262,8 @@ func register_previews() -> void:
 		PreviewStudio.request(preview_key(shop_id, true), _make_shop_model.bind(shop_id))
 
 func choose_build_item(tile_id: int) -> void:
+	if construction_locked():
+		return
 	var selected_name := "Build item"
 	var selected_price := get_item_price(tile_id)
 	for item: Dictionary in CONSTRUCT_ITEMS:
@@ -278,6 +280,9 @@ func choose_build_item(tile_id: int) -> void:
 		_workspace.placement_started(tile_id, selected_name, selected_price)
 
 func open_shop_menu() -> void:
+	if construction_locked():
+		_explain_locked(TOOL_FARMING)
+		return
 	cancel_requested.emit()
 	active_tool = TOOL_FARMING
 	tool_selected.emit(TOOL_FARMING)
@@ -700,16 +705,19 @@ func show_hud() -> void:
 	## Every Build Mode entry starts from one deterministic workspace state.
 	## This deliberately does not rebuild previews or clear the Shop cart; it
 	## only prevents a previously hidden Shop/dock state from leaking across
-	## sessions.
-	active_tool = TOOL_CONSTRUCT
-	_sel_tool = TOOL_CONSTRUCT
+	## sessions. A sealed bunker opens on Move (nothing new can be built).
+	active_tool = default_tool()
+	_sel_tool = active_tool
 	_submenu_level = "root"
 	_active_category = ""
 	_submenu_cursor = 0
 	_submenu_source = "construct"
 	_placement_menu.clear()
 	visible = true
-	_open_submenu("construct")
+	if _workspace != null:
+		_workspace.apply_phase(construction_locked())
+	if not construction_locked():
+		_open_submenu("construct")
 	## Standing convention (July 2026) — see UIFade.gd.
 	UIFade.fade_in(_canvas)
 	if InputMode.is_controller():
@@ -739,6 +747,38 @@ func hide_hud() -> void:
 func set_active_tool(tool_id: int) -> void:
 	active_tool = tool_id
 	_canvas.queue_redraw()
+
+# ─── Sealed bunker (Oct 2026, BunkerPhase) ───────────────────────────────────
+## After the seal nothing new can be placed (Build, Duplicate) and the Shop
+## is permanently closed. Move, Demolish, Undo, Wire and Pipe keep working;
+## wire and pipe then cost Metal (BuildEconomy).
+func construction_locked() -> bool:
+	return is_inside_tree() and BunkerPhase.sealed(get_tree())
+
+func tool_available(tool_id: int) -> bool:
+	if not construction_locked():
+		return true
+	return tool_id != TOOL_CONSTRUCT and tool_id != TOOL_DUPLICATE and tool_id != TOOL_FARMING
+
+func default_tool() -> int:
+	return TOOL_MOVE if construction_locked() else TOOL_CONSTRUCT
+
+## MainWorld calls this when the act changes. If build mode is open on a tool
+## that just locked, it moves to Move.
+func refresh_phase() -> void:
+	if _workspace != null:
+		_workspace.apply_phase(construction_locked())
+	if visible and not tool_available(active_tool):
+		_close_submenu()
+		cancel_requested.emit()
+		active_tool = TOOL_MOVE
+		_sel_tool = TOOL_MOVE
+		tool_selected.emit(TOOL_MOVE)
+
+func _explain_locked(tool_id: int) -> void:
+	var text: String = BuildWorkspace.SHOP_CLOSED_TIP if tool_id == TOOL_FARMING \
+		else BuildWorkspace.BUILD_LOCKED_TIP
+	NotificationManager.feedback(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, text)
 
 ## Called by BuildModeController when the placement grid size changes (and on
 ## build-mode entry) — shows the matching grid-size icon top-right.
@@ -1023,6 +1063,9 @@ func _unhandled_input(event: InputEvent) -> void:
 
 # ─── Toolbar click handler ────────────────────────────────────────────────────
 func _on_toolbar_click(slot: int) -> void:
+	if not tool_available(slot):
+		_explain_locked(slot)
+		return
 	if slot == TOOL_CONSTRUCT:
 		if _submenu_open:
 			_close_submenu()
@@ -1117,6 +1160,11 @@ func _menu_source_for(tool: int) -> String:
 func _change_selected_tool(dir: int) -> void:
 	var was_open: bool = _submenu_open
 	_sel_tool = (_sel_tool + dir + TOOL_LABELS.size()) % TOOL_LABELS.size()
+	## Skip tools locked by the seal.
+	for _i: int in TOOL_LABELS.size():
+		if tool_available(_sel_tool):
+			break
+		_sel_tool = (_sel_tool + dir + TOOL_LABELS.size()) % TOOL_LABELS.size()
 
 	if _sel_tool == active_tool:
 		_canvas.queue_redraw()
@@ -1155,6 +1203,8 @@ func _current_categories() -> Dictionary:
 		return CATEGORIES
 
 func _open_submenu(source: String = "construct") -> void:
+	if construction_locked():
+		return   ## catalog and shop are both closed after the seal
 	_activate_preview_pool()
 	_submenu_source = source
 	if source == "construct":

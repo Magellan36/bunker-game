@@ -686,9 +686,15 @@ func delete_and_refund_edge(edge_id: String) -> bool:
 	var seg: WaterPipeSegment = find_pipe_visual(edge_id)
 	var refund: int = 0
 	var refund_pos: Vector3 = Vector3.ZERO
+	## Sealed bunker (Oct 2026): no cash — the leg drops the Metal it cost.
+	var salvage: Dictionary = {}
 	if seg != null:
 		refund = seg.placement_cost
 		refund_pos = (seg.point_a + seg.point_b) * 0.5
+		if BuildEconomy.salvage_rules(get_tree()):
+			salvage = BuildEconomy.salvage_for_segment(seg, seg.point_a.distance_to(seg.point_b),
+				BuildEconomy.PIPE_METRES_PER_METAL)
+			refund = 0
 		seg.queue_free()
 	unregister_edge(edge_id)
 	## Use the wrapper (not _graph directly) so a successful prune also frees
@@ -707,6 +713,8 @@ func delete_and_refund_edge(edge_id: String) -> bool:
 	## duplicating that refund math here.
 	_check_purifier_degree_zero(key_a)
 	_check_purifier_degree_zero(key_b)
+	if not salvage.is_empty():
+		BuildEconomy.drop_salvage(get_tree(), refund_pos, salvage)
 	if refund > 0:
 		var world_node: Node = get_tree().get_first_node_in_group("main_world")
 		if world_node != null and world_node.has_method("add_cash"):

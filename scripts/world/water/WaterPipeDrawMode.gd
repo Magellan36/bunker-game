@@ -858,7 +858,7 @@ func _update_ghost_preview() -> void:
 	var total_length: float = 0.0
 	for i in range(waypoints.size() - 1):
 		total_length += waypoints[i].distance_to(waypoints[i + 1])
-	var cost: int = int(ceil(total_length * COST_PER_M))
+	var cost: int = _run_cost(total_length)
 	var midpoint: Vector3 = (waypoints[0] + waypoints[waypoints.size() - 1]) * 0.5
 	_update_cost_label(midpoint, cost)
 
@@ -889,7 +889,7 @@ func _update_ghost_preview_single_leg(cursor_pos: Vector3) -> void:
 	var total_length: float = 0.0
 	for i in range(path.size() - 1):
 		total_length += path[i].distance_to(path[i + 1])
-	var cost: int = int(ceil(total_length * COST_PER_M))
+	var cost: int = _run_cost(total_length)
 	var midpoint: Vector3 = (path[0] + path[path.size() - 1]) * 0.5
 	_update_cost_label(midpoint, cost)
 
@@ -963,10 +963,15 @@ func _try_confirm_segment() -> void:
 	var total_length: float = 0.0
 	for i in range(path.size() - 1):
 		total_length += path[i].distance_to(path[i + 1])
-	var cost: int = int(ceil(total_length * COST_PER_M))
+	var cost: int = _run_cost(total_length)
 	_pdbg("[PipeDebug] total_length=%.3f  cost=%d" % [total_length, cost])
 
-	if world_node != null:
+	## Sealed bunker (Oct 2026): paid in Metal from the Research Station.
+	if BuildEconomy.salvage_rules(get_tree()):
+		if not BuildEconomy.spend_metal(get_tree(), cost):
+			_show_warning("Not enough Metal in the Research Station for this pipe run")
+			return
+	elif world_node != null:
 		if not world_node.spend_cash(cost):
 			_pdbg("[PipeDebug] ABORT: not enough cash")
 			_show_warning("Not enough cash for this pipe run")
@@ -1033,7 +1038,7 @@ func _try_confirm_segment() -> void:
 	## Floating "-$X" label at the moment of spend — mirrors the "+$X" refund
 	## label BuildUndoStack's "pipe" case already shows on undo (July 2026
 	## playtest pass; see docs/systems/water/README.md).
-	_spawn_float_label(undo_midpoint, cost, false)
+	_charge_feedback(seg_nodes, undo_midpoint, cost)
 	pipe_placed.emit(seg_nodes, edge_ids, cost, elbow_nodes, undo_midpoint)
 
 	## Chain the next segment from this destination — matches the "click
@@ -1101,10 +1106,15 @@ func _try_confirm_full_path() -> void:
 	var total_length: float = 0.0
 	for i in range(waypoints.size() - 1):
 		total_length += waypoints[i].distance_to(waypoints[i + 1])
-	var cost: int = int(ceil(total_length * COST_PER_M))
+	var cost: int = _run_cost(total_length)
 	_pdbg("[PipeDebug] total_length=%.3f  cost=%d" % [total_length, cost])
 
-	if world_node != null:
+	## Sealed bunker (Oct 2026): paid in Metal from the Research Station.
+	if BuildEconomy.salvage_rules(get_tree()):
+		if not BuildEconomy.spend_metal(get_tree(), cost):
+			_show_warning("Not enough Metal in the Research Station for this pipe run")
+			return
+	elif world_node != null:
 		if not world_node.spend_cash(cost):
 			_pdbg("[PipeDebug] ABORT: not enough cash")
 			_show_warning("Not enough cash for this pipe run")
@@ -1217,7 +1227,7 @@ func _try_confirm_full_path() -> void:
 		running_source_key = keys[keys.size() - 1]
 
 	var undo_midpoint: Vector3 = (waypoints[0] + waypoints[waypoints.size() - 1]) * 0.5
-	_spawn_float_label(undo_midpoint, cost, false)
+	_charge_feedback(all_seg_nodes, undo_midpoint, cost)
 	pipe_placed.emit(all_seg_nodes, all_edge_ids, cost, all_elbow_nodes, undo_midpoint)
 
 	_source_key = running_source_key
@@ -1854,6 +1864,28 @@ func _clear_ghost() -> void:
 ## WireDrawMode._update_cost_label() (see that function's own comment).
 ## font_size=56 is 2x WireDrawMode's own (also bumped to 56 in this pass) —
 ## per Brannon's "a bit small" feedback, July 2026.
+## What a run of `length` metres costs now: cash before the seal, Metal after
+## (BuildEconomy, Oct 2026).
+func _run_cost(length: float) -> int:
+	if BuildEconomy.salvage_rules(get_tree()):
+		return BuildEconomy.pipe_metal(length)
+	return int(ceil(length * COST_PER_M))
+
+## After a run is placed: the spend float, and — when paid in Metal — each
+## leg's share so demolishing or undoing part of it returns exactly that.
+func _charge_feedback(segs: Array, midpoint: Vector3, cost: int) -> void:
+	if not BuildEconomy.salvage_rules(get_tree()):
+		_spawn_float_label(midpoint, cost, false)
+		return
+	var lengths: Array[float] = []
+	for seg: Variant in segs:
+		lengths.append((seg as WaterPipeSegment).point_a.distance_to((seg as WaterPipeSegment).point_b))
+	var shares: Array[int] = BuildEconomy.split(cost, lengths)
+	for i: int in segs.size():
+		(segs[i] as Node).set_meta("metal_paid", shares[i])
+		(segs[i] as WaterPipeSegment).placement_cost = 0
+	BuildEconomy.float_text(get_tree(), midpoint, "-%s" % BuildEconomy.metal_text(cost), false)
+
 func _update_cost_label(midpoint: Vector3, cost: int) -> void:
 	if _cost_label == null:
 		var lbl: Label3D = Label3D.new()
@@ -1871,7 +1903,13 @@ func _update_cost_label(midpoint: Vector3, cost: int) -> void:
 		parent.add_child(lbl)
 		_cost_label = lbl
 
-	_cost_label.text            = UIFormat.money(cost)
+	## Sealed: "3 Metal"; red when the Research Station can't cover it (and,
+	## before the seal, red when cash can't).
+	var sealed: bool = BuildEconomy.salvage_rules(get_tree())
+	var affordable: bool = BuildEconomy.metal_available(get_tree()) >= cost if sealed \
+		else (world_node == null or not world_node.has_method("get_cash") or int(world_node.get_cash()) >= cost)
+	_cost_label.text            = BuildEconomy.metal_text(cost) if sealed else UIFormat.money(cost)
+	_cost_label.modulate        = Color(1.0, 0.88, 0.15, 1.0) if affordable else BunkerDesign.RED
 	## Raise above midpoint so it clears the pipe/ceiling and any floor
 	## geometry — pipes sit higher than wires (WATER_CEILING_Y vs WIRE_Y),
 	## so this offset is smaller than WireDrawMode's 0.70m equivalent.

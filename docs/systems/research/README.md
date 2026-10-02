@@ -81,6 +81,13 @@ player's hand. See `ResearchStation.gd`'s `_feed_single_item()` /
 `_feed_bag()` for the exact logic. The F7 debug button is unaffected —
 still there for quick testing.
 
+**Sealed-bunker reserve (Oct 2026):** after the seal, wire and pipe are paid
+in Metal straight from `stored_materials` — `available_material()` (stored
+minus what the running research still needs), `spend_material()`. Salvage
+spheres (`SalvageItem`, `get_salvage_units()`) feed through the chute
+partially: what fits is taken, the rest stays in the sphere; bagged spheres
+count their units. See `docs/systems/phase/README.md`.
+
 ## Modern UI status (Sep 2026)
 
 `ResearchStationModernUI` is the active player-facing workspace. It keeps

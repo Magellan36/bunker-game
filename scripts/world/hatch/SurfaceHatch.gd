@@ -18,6 +18,8 @@ class_name SurfaceHatch
 const T := preload("res://scripts/world/hatch/ExpeditionTables.gd")
 const R := preload("res://scripts/world/hatch/ExpeditionResolver.gd")
 const UI_PATH: String = "res://scripts/ui/hatch/HatchInspectUI.gd"
+## Before the apocalypse the hatch offers only Leave (Oct 2026, BunkerPhase).
+const LEAVE_UI_PATH: String = "res://scripts/ui/hatch/HatchLeaveUI.gd"
 const NPC_SCENE_PATH: String = "res://scenes/npc/NPC.tscn"
 const TICK_INTERVAL: float = 1.0
 
@@ -40,6 +42,7 @@ var discovered: Array = []
 var depletion: Dictionary = {}
 
 var _ui: CanvasLayer = null
+var _leave_ui: CanvasLayer = null
 var _tick: float = 0.0
 var _lamp_mat: StandardMaterial3D = null
 
@@ -61,7 +64,18 @@ func get_interact_prompt() -> String:
 		return "[E] Surface Hatch"
 	return "[E] Surface Hatch (%d topside)" % active.size()
 
+## By act (BunkerPhase): preparing → the Leave panel; sealed and still
+## inside the first HATCH_LOCK_DAYS → a toast saying how long until it's safe;
+## otherwise (sealed and open, or LEGACY worlds) → expedition planning.
 func on_interact() -> void:
+	var phase: BunkerPhase = BunkerPhase.of(get_tree())
+	if phase != null and phase.is_preparing():
+		_open_leave_ui()
+		return
+	if phase != null and not phase.hatch_open():
+		NotificationManager.feedback(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING,
+			phase.hatch_wait_text())
+		return
 	if _ui == null or not is_instance_valid(_ui):
 		_ui = SharedUI.acquire(UI_PATH, self, &"_ui", {"closed": _on_ui_closed})
 		if _ui == null:
@@ -70,12 +84,21 @@ func on_interact() -> void:
 		_ui.open(self)
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 
+func _open_leave_ui() -> void:
+	if _leave_ui == null or not is_instance_valid(_leave_ui):
+		_leave_ui = SharedUI.acquire(LEAVE_UI_PATH, self, &"_leave_ui", {"closed": _on_ui_closed})
+		if _leave_ui == null:
+			return
+	_leave_ui.call("open", self)
+	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+
 ## SharedUI clears _ui itself when the panel closes (same as WaterDispenser).
 func _on_ui_closed() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 
 func _exit_tree() -> void:
 	SharedUI.release(_ui, self)
+	SharedUI.release(_leave_ui, self)
 
 func get_prompt_world_pos() -> Vector3:
 	return global_position + Vector3(0.0, 1.5, 0.0)

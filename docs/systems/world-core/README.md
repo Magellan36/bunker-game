@@ -114,7 +114,11 @@ reconnect to them):
   `restore_pipe_network()`) — pipe-owned graph nodes (`corner`/`pipe_joint`/
   **`purifier`**) and edges only; `hookup`/`endpoint` nodes belong to devices
   restored in phase 1.
-- Phase 4 (last) — `player_position`, `cash`, `game_elapsed`, `npcs`,
+- `register_field(key, get, set, phase, on_missing)` — with `on_missing`
+  true, a save that lacks the key calls the setter with `null` so the owner
+  resets to its old-save default (used by `bunker_phase`, Oct 2026).
+- Phase 4 (last) — `player_position`, `cash`, `game_elapsed`, `bunker_phase`
+  (run act, see `docs/systems/phase/README.md`), `npcs`,
   **`player_survival`** (food/water/sleep/health + needs caps),
   **`medical_conditions`**, **`player_inventory`** (the 4 slots),
   **`research`** (tier progress + stored materials + in-progress research),

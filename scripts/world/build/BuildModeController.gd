@@ -127,6 +127,8 @@ const TILE_SINK:         int = 46   ## Sink — decorative kitchen sink (Kitchen
 ## TOOL_WIRE/TOOL_WATER_PIPE) — kept here purely for readability/parity with
 ## BuildModeHUD's own constant.
 const TOOL_FARMING: int = 7
+## Move tool (mirrors BuildModeHUD.TOOL_MOVE) — where a sealed bunker opens.
+const TOOL_MOVE: int = 3
 
 ## Bunker wall height (world units) — walls are 3.0m tall (see tile_set.tscn,
 ## same figure WaterPipeDrawMode.WATER_CEILING_Y's own comment cites). Kept as
@@ -562,8 +564,9 @@ func enter_build_mode() -> void:
 	is_active = true
 	_ghost_active = false
 	## Build sessions intentionally reopen on the Construct workspace instead
-	## of inheriting Shop or another tool from the previous session.
-	_active_tool = 0
+	## of inheriting Shop or another tool from the previous session. A sealed
+	## bunker can't construct, so it opens on Move.
+	_active_tool = TOOL_MOVE if _construction_locked() else 0
 
 	if build_hud != null and gridmap != null:
 		build_hud.gridmap = gridmap
@@ -729,7 +732,14 @@ func _on_tool_selected(tool_id: int) -> void:
 	if tool_id == TOOL_WATER_PIPE and _water_pipe_draw_mode != null:
 		_water_pipe_draw_mode.activate()
 
+## Oct 2026 — true once the hatch is sealed (BunkerPhase): nothing new can
+## be placed, duplicated, bought or dug. Move/Demolish/Undo/Wire/Pipe remain.
+func _construction_locked() -> bool:
+	return BunkerPhase.sealed(get_tree())
+
 func _on_construct_item_chosen(tile_id: int) -> void:
+	if _construction_locked():
+		return
 	## Exit wire draw mode if it was active when the player picks a construct item
 	if _active_tool == TOOL_WIRE and _wire_draw_mode != null:
 		_wire_draw_mode.deactivate()
@@ -800,6 +810,9 @@ func _on_construct_item_chosen(tile_id: int) -> void:
 func _on_farming_item_chosen(item_id: int) -> void:
 	if _farming_shop == null:
 		return
+	if _construction_locked():
+		_show_hud_warning("Shop is permanently closed")
+		return
 	if not _farming_shop.spawn_purchased_item(item_id):
 		_show_hud_warning("Not enough cash")
 
@@ -836,6 +849,9 @@ func _on_undo_requested() -> void:
 func _on_dig_confirmed() -> void:
 	## Player confirmed the rock dig — spend cash and dig
 	if _pending_dig_chunk == Vector2i(-9999, -9999):
+		return
+	if _construction_locked():
+		_pending_dig_chunk = Vector2i(-9999, -9999)
 		return
 	var chunk_id: Vector2i = _pending_dig_chunk
 	_pending_dig_chunk = Vector2i(-9999, -9999)
@@ -1126,7 +1142,9 @@ func _process(_delta: float) -> void:
 					build_hud.hovered_rock_chunk_world_pos    = Vector3(-9999.0, -9999.0, -9999.0)
 					_hovered_rock_chunk = Vector2i(-9999, -9999)
 				else:
-					_hovered_rock_chunk = _get_hovered_rock_chunk()
+					## A sealed bunker can't be dug out, so rock never lights up.
+					_hovered_rock_chunk = Vector2i(-9999, -9999) if _construction_locked() \
+						else _get_hovered_rock_chunk()
 					if _hovered_rock_chunk != Vector2i(-9999, -9999) and rock_surround != null:
 						build_hud.hovered_rock_chunk_world_pos = rock_surround.get_chunk_center(_hovered_rock_chunk)
 					else:
@@ -1540,6 +1558,9 @@ func _is_inside_bunker(pos: Vector3, half_extent: Vector2 = Vector2.ZERO) -> boo
 
 # ─── Construct ────────────────────────────────────────────────────────────────
 func _try_construct() -> void:
+	if _construction_locked():
+		_cancel_ghost()
+		return
 	if not _ghost_valid or gridmap == null:
 		if _selected_tile == TILE_BUNKER_DOOR and not _ghost_door_candidate.is_empty():
 			_show_hud_warning(String(_ghost_door_candidate.get("reason", "Door requires a player-built wall")))
@@ -2793,7 +2814,15 @@ func _try_deconstruct() -> void:
 	if deconstructed_tile == TILE_BREAKER or deconstructed_tile == TILE_BREAKER_SMART:
 		body.tree_exited.connect(_recolor_wire_zones, CONNECT_ONE_SHOT)
 
-	if refund > 0 and world_node != null:
+	if _construction_locked():
+		## Sealed: no cash. It breaks down into salvage for the chute, and the
+		## undo entry remembers the spheres so Undo can take them back.
+		var salvage: Array[Node] = BuildEconomy.drop_salvage(get_tree(), placed_pos,
+			BuildEconomy.salvage_for_tile(deconstructed_tile, refund))
+		if not _undo_stack.is_empty() and _undo_stack[-1].get("type", "") == "remove":
+			_undo_stack[-1]["currency"] = BuildEconomy.CURRENCY_SALVAGE
+			_undo_stack[-1]["salvage_nodes"] = salvage
+	elif refund > 0 and world_node != null:
 		world_node.add_cash(refund)
 
 	# If a wall or pillar was destroyed, remove any lights that were mounted on it.
@@ -2801,11 +2830,12 @@ func _try_deconstruct() -> void:
 	if BunkerStructure.is_wall_or_pillar(entry["tile_id"]):
 		_remove_unsupported_lights_near(placed_pos)
 
-	_spawn_float_label_at_pos(placed_pos, refund, true)
+	if not _construction_locked():
+		_spawn_float_label_at_pos(placed_pos, refund, true)
 
 # ─── Rock dig ─────────────────────────────────────────────────────────────────
 func _try_dig_rock() -> void:
-	if rock_surround == null:
+	if rock_surround == null or _construction_locked():
 		return
 	var chunk_id: Vector2i = _hovered_rock_chunk
 	if chunk_id == Vector2i(-9999, -9999):
@@ -2879,6 +2909,12 @@ func _try_deconstruct_wire(ws: Node3D) -> void:
 	var pt_b: Vector3   = ws.get("point_b") if ws.get("point_b") != null else Vector3.ZERO
 	var length: float   = pt_a.distance_to(pt_b)
 	var refund: int     = int(length * WIRE_COST_PER_M)
+	var sealed: bool    = _construction_locked()
+	## Sealed: the segment drops the Metal it cost (BuildEconomy) instead.
+	var salvage: Dictionary = BuildEconomy.salvage_for_segment(ws, length,
+		BuildEconomy.WIRE_METRES_PER_METAL) if sealed else {}
+	if sealed:
+		refund = int(salvage.get(BuildEconomy.METAL, 0))
 
 	# Deconstruction already returns this portion of the paid run. Undo must
 	# only refund the remainder, including when the run was split for a tap.
@@ -2895,7 +2931,9 @@ func _try_deconstruct_wire(ws: Node3D) -> void:
 		pm.unregister_wire_edge(edge_id)
 
 	## Refund and float label
-	if refund > 0 and world_node != null:
+	if sealed:
+		BuildEconomy.drop_salvage(get_tree(), (pt_a + pt_b) * 0.5, salvage)
+	elif refund > 0 and world_node != null:
 		world_node.add_cash(refund)
 		_spawn_float_label_at_pos(ws.global_position, refund, true)
 
@@ -3088,10 +3126,14 @@ func _get_hovered_rock_chunk() -> Vector2i:
 ## _destroy_move_ghost are only called within MoveDuplicateTool itself, so
 ## need no wrapper. See MoveDuplicateTool.gd for the full cluster.
 func _try_duplicate() -> void:
+	if _construction_locked():
+		return
 	_move_tool._try_duplicate()
 
 
 func _pick_dupe_source() -> void:
+	if _construction_locked():
+		return
 	_move_tool._pick_dupe_source()
 
 
@@ -3426,7 +3468,10 @@ func deconstruct_purifier_by_node_key(node_key: String) -> void:
 		if wm != null:
 			wm.prune_orphan_waypoint(node_key)
 
-		if refund > 0 and world_node != null:
+		if _construction_locked():
+			BuildEconomy.drop_salvage(get_tree(), pos,
+				BuildEconomy.salvage_for_tile(TILE_WATER_PURIFIER, refund))
+		elif refund > 0 and world_node != null:
 			world_node.add_cash(refund)
 			_spawn_float_label_at_pos(pos, refund, true)
 		return
@@ -3460,7 +3505,10 @@ func _remove_unsupported_lights_near(wall_pos: Vector3) -> void:
 			if pm != null:
 				pm.unregister_consumer(str(node.get_instance_id()))
 			node.queue_free()
-		if refund > 0 and world_node != null:
+		if _construction_locked():
+			BuildEconomy.drop_salvage(get_tree(), entry["world_pos"],
+				BuildEconomy.salvage_for_tile(TILE_LIGHT, refund))
+		elif refund > 0 and world_node != null:
 			world_node.add_cash(refund)
 			_spawn_float_label_at_pos(entry["world_pos"], refund, true)
 	if not to_remove.is_empty():

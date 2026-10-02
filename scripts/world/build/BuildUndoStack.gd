@@ -121,9 +121,25 @@ func _undo() -> void:
 		var angle_deg: float   = entry["angle_deg"]
 		var extra: Dictionary  = entry.get("extra", {})
 
+		## Sealed bunker (Oct 2026): the object became salvage spheres. Undo
+		## takes the same spheres back, so it works only while all of them
+		## are still lying in the world untouched by the chute.
+		var salvage: Array = entry.get("salvage_nodes", [])
+		if String(entry.get("currency", "")) == BuildEconomy.CURRENCY_SALVAGE:
+			var problem: String = _salvage_reclaim_problem(salvage)
+			if problem != "":
+				if problem != "used":
+					_owner._undo_stack.append(entry)   ## try again once it's put down
+				_owner._show_hud_warning(
+					"Put the salvage back down to undo this" if problem == "held"
+					else "The salvage was used, so this can't be undone")
+				return
+
 		## Undoing a refund is a real purchase reversal. Keep the entry available
 		## when the player can no longer afford it instead of spawning for free.
-		if price > 0 and _owner.world_node != null \
+		var pay_cash: bool = salvage.is_empty() \
+			and String(entry.get("currency", "")) != BuildEconomy.CURRENCY_SALVAGE
+		if pay_cash and price > 0 and _owner.world_node != null \
 				and _owner.world_node.has_method("get_cash") \
 				and int(_owner.world_node.get_cash()) < price:
 			_owner._undo_stack.append(entry)
@@ -135,7 +151,10 @@ func _undo() -> void:
 			_owner._undo_stack.append(entry)
 			_owner._show_hud_warning("Object cannot be restored here")
 			return
-		if price > 0 and _owner.world_node != null \
+		for n: Variant in salvage:
+			if n != null and is_instance_valid(n):
+				(n as Node).queue_free()
+		if pay_cash and price > 0 and _owner.world_node != null \
 				and not _owner.world_node.spend_cash(price):
 			body.queue_free()
 			_owner._undo_stack.append(entry)
@@ -157,7 +176,8 @@ func _undo() -> void:
 		_owner.notify_navigation_topology_changed()
 		if not extra.is_empty():
 			_owner.call_deferred("_apply_device_extra_deferred", body, tile_id, extra)
-		_owner._spawn_float_label_at_pos(pos, price, false)
+		if pay_cash:
+			_owner._spawn_float_label_at_pos(pos, price, false)
 		_owner._refresh_connectable_dots()
 
 	elif type == "dig_rock":
@@ -203,11 +223,13 @@ func _undo() -> void:
 	elif type == "wire_run":
 		var pm_run: PowerManager = _owner.get_tree().get_first_node_in_group("power_manager") as PowerManager
 		var run: String = entry["run_id"]
+		var metal_back: int = 0
 		if pm_run != null:
 			pm_run.begin_bulk()
 		for raw: Node in _owner.get_tree().get_nodes_in_group("wire_segment"):
 			var seg := raw as WireSegment
 			if seg != null and seg.run_id == run and not seg.is_queued_for_deletion():
+				metal_back += int(seg.get_meta("metal_paid", 0))
 				if _owner.world_node != null and _owner.world_node.has_method("forget_player_wire"):
 					_owner.world_node.forget_player_wire(seg)
 				if pm_run != null:
@@ -217,9 +239,12 @@ func _undo() -> void:
 			pm_run.restore_zone_colors(entry.get("zone_color_snap", {}))
 			pm_run.end_bulk()
 		var refund: int = entry.get("cost", 0)
-		if _owner.world_node != null:
-			_owner.world_node.add_cash(refund)
-		_owner._spawn_float_label_at_pos(entry.get("world_pos", Vector3.ZERO), refund, true)
+		if _is_metal(entry):
+			BuildEconomy.return_metal(_owner.get_tree(), metal_back, entry.get("world_pos", Vector3.ZERO))
+		else:
+			if _owner.world_node != null:
+				_owner.world_node.add_cash(refund)
+			_owner._spawn_float_label_at_pos(entry.get("world_pos", Vector3.ZERO), refund, true)
 		_owner._recolor_wire_zones()
 
 	elif type == "wire":
@@ -238,15 +263,19 @@ func _undo() -> void:
 				edge_id = live_eid as String
 		if edge_id == "":
 			edge_id = entry.get("edge_id", "")   ## fallback to stored id
+		var wire_metal: int = int(seg_node.get_meta("metal_paid", 0)) if seg_node != null else 0
 		if seg_node != null:
 			seg_node.queue_free()
 		var pm: PowerManager = _owner.get_tree().get_first_node_in_group("power_manager") as PowerManager
 		if edge_id != "" and pm != null:
 			pm.unregister_wire_edge(edge_id)
 		var wire_cost: int = entry.get("cost", 0)
-		if wire_cost > 0 and _owner.world_node != null:
-			_owner.world_node.add_cash(wire_cost)
-		_owner._spawn_float_label_at_pos(entry.get("world_pos", Vector3.ZERO), wire_cost, true)
+		if _is_metal(entry):
+			BuildEconomy.return_metal(_owner.get_tree(), wire_metal, entry.get("world_pos", Vector3.ZERO))
+		else:
+			if wire_cost > 0 and _owner.world_node != null:
+				_owner.world_node.add_cash(wire_cost)
+			_owner._spawn_float_label_at_pos(entry.get("world_pos", Vector3.ZERO), wire_cost, true)
 		## Restore zone color registry to the snapshot taken just before this wire
 		## was placed.  This undoes any zone absorption that happened when the wire
 		## bridged two previously-separate grids, restoring both grids' original colors.
@@ -264,8 +293,12 @@ func _undo() -> void:
 		## machinery here since the water system has no zones/breakers (see
 		## docs/systems/water/README.md Non-responsibilities).
 		var seg_nodes: Array = entry.get("seg_nodes", [])
+		## Sealed: only legs still standing give their Metal back (a leg
+		## demolished since already dropped its share as salvage).
+		var pipe_metal_back: int = 0
 		for n: Variant in seg_nodes:
 			if n != null and is_instance_valid(n):
+				pipe_metal_back += int((n as Node).get_meta("metal_paid", 0))
 				(n as Node3D).queue_free()
 		var elbow_nodes: Array = entry.get("elbow_nodes", [])
 		for n: Variant in elbow_nodes:
@@ -294,9 +327,12 @@ func _undo() -> void:
 			for key: String in touched_keys:
 				wm.prune_orphan_waypoint(key)
 		var pipe_cost: int = entry.get("cost", 0)
-		if pipe_cost > 0 and _owner.world_node != null:
-			_owner.world_node.add_cash(pipe_cost)
-		_owner._spawn_float_label_at_pos(entry.get("world_pos", Vector3.ZERO), pipe_cost, true)
+		if _is_metal(entry):
+			BuildEconomy.return_metal(_owner.get_tree(), pipe_metal_back, entry.get("world_pos", Vector3.ZERO))
+		else:
+			if pipe_cost > 0 and _owner.world_node != null:
+				_owner.world_node.add_cash(pipe_cost)
+			_owner._spawn_float_label_at_pos(entry.get("world_pos", Vector3.ZERO), pipe_cost, true)
 		## Flow-direction arrows (Jul 2026) — recompute after undoing a pipe run.
 		if wm != null:
 			wm.recompute_flow_directions()
@@ -323,6 +359,22 @@ func _undo() -> void:
 		if not positions.is_empty():
 			var mid_idx: int = int(positions.size() / 2)
 			_owner._spawn_float_label_at_pos(positions[mid_idx], total_refund, true)
+
+## Oct 2026 — wire/pipe entries made after the seal were paid in Metal.
+func _is_metal(entry: Dictionary) -> bool:
+	return String(entry.get("currency", BuildEconomy.CURRENCY_CASH)) == BuildEconomy.CURRENCY_METAL
+
+## "" when every sphere from a demolition can be taken back; "held" while
+## the player carries one; "used" once any was fed, merged or freed.
+func _salvage_reclaim_problem(salvage: Array) -> String:
+	for n: Variant in salvage:
+		if n == null or not is_instance_valid(n) or (n as Node).is_queued_for_deletion():
+			return "used"
+	for n: Variant in salvage:
+		if not (n as Node).is_inside_tree() or bool((n as Node).get("is_held")) \
+				or bool((n as Node).get("from_inventory")):
+			return "held"
+	return ""
 
 func _push_undo_place(body: Node3D, tile_id: int, price: int, pos: Vector3,
 		zone_color_snap: Dictionary = {}) -> void:
@@ -383,6 +435,7 @@ func _push_undo_wire(seg_node: Node3D, edge_id: String, cost: int, midpoint: Vec
 		"type": "wire" if run.is_empty() else "wire_run", "run_id": run,
 		"node": seg_node, "edge_id": edge_id, "cost": cost,
 		"world_pos": midpoint, "zone_color_snap": snap,
+		"currency": BuildEconomy.currency(_owner.get_tree()),
 	})
 	if _owner._undo_stack.size() > _owner.MAX_UNDO:
 		_owner._undo_stack.pop_front()
@@ -395,6 +448,7 @@ func _push_undo_pipe(seg_nodes: Array, edge_ids: Array, cost: int, elbow_nodes: 
 		"elbow_nodes": elbow_nodes,
 		"cost":        cost,
 		"world_pos":   midpoint,
+		"currency":    BuildEconomy.currency(_owner.get_tree()),
 	})
 	if _owner._undo_stack.size() > _owner.MAX_UNDO:
 		_owner._undo_stack.pop_front()

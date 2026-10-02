@@ -40,6 +40,7 @@ const SCREENS: Array[Dictionary] = [
 	{"name": "Battery inspector", "kind": "canvas_script", "path": "res://scripts/ui/power/BatteryInspectUI.gd",
 		"open_args": [null, "Battery S", {"charge_wh": 40.0, "capacity_wh": 100.0}]},
 	{"name": "Trash bag card", "kind": "canvas_script", "path": "res://scripts/ui/common/TrashBagInfoPanel.gd"},
+	{"name": "Hatch leave panel", "kind": "canvas_script", "path": "res://scripts/ui/hatch/HatchLeaveUI.gd"},
 	## Pass 4 — workspaces that can open without a live owner. NPC profile and
 	## research need their owners; they are reviewed from live captures.
 	{"name": "Power terminal", "kind": "canvas_script", "path": "res://scripts/ui/power/PowerTerminalModernUI.gd", "open": true},

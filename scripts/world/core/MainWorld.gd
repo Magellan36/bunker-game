@@ -183,6 +183,10 @@ var _pause_menu: CanvasLayer = null
 # ─── Economy ──────────────────────────────────────────────────────────────────
 var _cash: int = 50000   ## Starting cash; shown in HUD, spent during Build Mode
 
+# ─── Run structure (Oct 2026) ─────────────────────────────────────────────────
+## Pre-/post-apocalypse acts — see BunkerPhase.gd / docs/systems/phase/README.md.
+var bunker_phase: BunkerPhase = null
+
 ## ─── Abyss Safety ────────────────────────────────────────────────────────────
 ## If any physics item falls below this world-Y it has glitched through the floor.
 ## We teleport it back to a safe Y above the bunker floor at the same XZ coords.
@@ -247,6 +251,7 @@ func _ready() -> void:
 	_setup_ambient_dust()
 	_setup_bunker_ceiling()   ## Aug 2026 — NPC/physics failsafe, see that function's own comment
 	_connect_hud()
+	_setup_bunker_phase()
 	_connect_bed()
 	_connect_chair()
 	_ensure_inventory_manager()
@@ -356,6 +361,14 @@ func _register_save_fields() -> void:
 		func() -> float: return player_stats.get_elapsed(),
 		func(v: float) -> void: player_stats.set_elapsed(v),
 		4)
+
+	## Which act the run is in (Oct 2026). A save from before this field
+	## existed restores as LEGACY (on_missing), never as the current session's.
+	SaveManager.register_field(
+		"bunker_phase",
+		func() -> Dictionary: return bunker_phase.get_save_data(),
+		func(v: Variant) -> void: bunker_phase.apply_save_data(v),
+		4, true)
 
 	## Phase 4 — NPCs (NPC Pass 2, Part 6). Applied after the world exists so
 	## respawned NPCs land on real floor with a valid navmesh incoming.
@@ -989,6 +1002,7 @@ const SHARED_PANELS: Array[String] = [
 	"res://scripts/ui/water/WaterInfoUI.gd",
 	"res://scripts/ui/farming/FarmingTrayUI.gd",
 	"res://scripts/ui/hatch/HatchInspectUI.gd",
+	"res://scripts/ui/hatch/HatchLeaveUI.gd",
 ]
 
 func _prewarm_interfaces() -> void:
@@ -1249,6 +1263,27 @@ func _connect_hud() -> void:
 
 	player_stats.day_changed.connect(func(day: int) -> void: hud.set_day(day))
 	hud.set_day(1)   # Initialise to Day 1 before first signal fires
+
+## Oct 2026 — the run's two acts. A New Game (the survivor-selection route)
+## starts in preparation; everything else stays LEGACY until a save or F7
+## says otherwise. See BunkerPhase.gd.
+func _setup_bunker_phase() -> void:
+	bunker_phase = BunkerPhase.new()
+	bunker_phase.name = "BunkerPhase"
+	bunker_phase.player_stats = player_stats
+	bunker_phase.world = self
+	add_child(bunker_phase)
+	bunker_phase.phase_changed.connect(_on_bunker_phase_changed)
+	if bool(WorldManager.get("pending_new_game")):
+		bunker_phase.begin_preparation()
+	else:
+		_on_bunker_phase_changed(bunker_phase.phase)
+
+func _on_bunker_phase_changed(phase: int) -> void:
+	if hud.has_method("set_phase"):
+		hud.set_phase(phase)
+	if _build_hud != null and _build_hud.has_method("refresh_phase"):
+		_build_hud.refresh_phase()
 
 func _connect_bed() -> void:
 	# Wire SleepOverlay to PlayerStats

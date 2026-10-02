@@ -57,8 +57,14 @@ var _fields: Dictionary = {}
 ##   Phase 3 — water pipes
 ##   Phase 4 — player_position/cash/game_elapsed (must come after the world
 ##             above exists, e.g. player shouldn't land inside undug rock)
-func register_field(key: String, getter: Callable, setter: Callable, phase: int = 0) -> void:
-	_fields[key] = {"get": getter, "set": setter, "phase": phase}
+##
+## `on_missing` (Oct 2026) — when true, load_game() calls the setter with
+## `null` for a save that has no value for this key (a save written before
+## the field existed), so the owner can reset to its old-save default instead
+## of keeping whatever the current session held.
+func register_field(key: String, getter: Callable, setter: Callable, phase: int = 0,
+		on_missing: bool = false) -> void:
+	_fields[key] = {"get": getter, "set": setter, "phase": phase, "on_missing": on_missing}
 
 ## Remove a field registration (e.g. if its owning node is being freed).
 func unregister_field(key: String) -> void:
@@ -155,6 +161,9 @@ func load_game(slot: int) -> bool:
 	for key: String in data:
 		if key != "_meta":
 			keys.append(key)
+	for key: String in _fields:
+		if not data.has(key) and bool(_fields[key].get("on_missing", false)):
+			keys.append(key)
 	keys.sort_custom(func(a: String, b: String) -> bool:
 		var pa: int = int(_fields.get(a, {}).get("phase", 0))
 		var pb: int = int(_fields.get(b, {}).get("phase", 0))
@@ -165,7 +174,7 @@ func load_game(slot: int) -> bool:
 			continue   ## field not registered (removed feature, or older/newer version) — skip
 		var cb: Callable = _fields[key]["set"]
 		if cb.is_valid():
-			cb.call(_from_json_value(data[key]))
+			cb.call(_from_json_value(data[key]) if data.has(key) else null)
 	return true
 
 ## Public helpers — JSON can't natively carry Vector3, and custom fields

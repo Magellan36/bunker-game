@@ -174,6 +174,12 @@ func _ready() -> void:
 		{ "name": "ECONOMY", "rows": [
 			["+ %s Cash" % UIFormat.money(ADMIN_CASH_STEP), _on_add_cash_pressed],
 		]},
+		## Run structure (Oct 2026, BunkerPhase) — dev shortcuts into each act.
+		{ "name": "PHASE", "rows": [
+			["Start Preparation (Pre-Apocalypse)", _on_phase_prepare_pressed],
+			["Seal Bunker Now (Day 1)", _on_phase_seal_pressed],
+			["Open Hatch Now (Skip 10-Day Wait)", _on_phase_open_hatch_pressed],
+		]},
 		{ "name": "RESEARCH", "rows": [
 			["+10 Each Material Type", _on_add_research_materials_pressed],
 		]},
@@ -1186,6 +1192,24 @@ func _on_hookup_output_double_pressed() -> void:
 		push_warning("[AdminMenu] hookup already at max tier (%d) — output unchanged" % max_tier)
 		return
 	hookup.tier += 1
+
+## PHASE rows (Oct 2026). Preparation holds the clock and reopens the shop;
+## sealing runs the real BunkerPhase.seal() (survivors, Day 1, build lock)
+## without the transition screen.
+func _on_phase_prepare_pressed() -> void:
+	var phase: BunkerPhase = BunkerPhase.of(get_tree())
+	if phase != null:
+		phase.dev_set_phase(BunkerPhase.Phase.PRE_APOCALYPSE)
+
+func _on_phase_seal_pressed() -> void:
+	var phase: BunkerPhase = BunkerPhase.of(get_tree())
+	if phase != null:
+		phase.dev_set_phase(BunkerPhase.Phase.POST_APOCALYPSE)
+
+func _on_phase_open_hatch_pressed() -> void:
+	var phase: BunkerPhase = BunkerPhase.of(get_tree())
+	if phase != null:
+		phase.dev_open_hatch()
 
 ## Debug-only — clamped at the same STORAGE_CAP everything else respects.
 ## Per direction, exceptions/bypasses to the cap may be added later; this

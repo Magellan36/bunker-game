@@ -11,6 +11,11 @@ build toolbar/construct menu) is `BuildModeHUD.gd` — see
 `docs/systems/power/README.md`; this doc only covers the generic
 placement/construction machinery, not what a placed device does once live.
 
+> **Sealed bunker (Oct 2026):** after the player leaves through the Surface
+> Hatch, Build/Duplicate/Shop/rock digging are locked, demolishing drops
+> salvage instead of cash, and wire/pipe cost Metal from the Research
+> Station. Undo is currency-aware. All rules: `docs/systems/phase/README.md`.
+
 ## Purpose
 Everything about placing, moving, duplicating, and removing structures/
 devices in the bunker: grid-snapped ghost preview, tile footprint/occupancy

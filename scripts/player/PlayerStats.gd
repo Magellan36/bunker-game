@@ -102,6 +102,11 @@ var _last_day:    int = -1
 ## Current in-game day (starts at 1)
 var current_day: int = 1
 
+## False while the bunker is still being prepared (BunkerPhase
+## PRE_APOCALYPSE): the clock holds at its starting time and needs don't
+## drain, because the run hasn't begun yet. Day 1 starts when the hatch seals.
+var clock_running: bool = true
+
 func _ready() -> void:
 	add_to_group("player_stats")  # Allows any node to find us via get_first_node_in_group()
 	_seconds_per_game_hour = day_duration_seconds / 24.0
@@ -109,6 +114,8 @@ func _ready() -> void:
 	_elapsed = (start_hour * 60 + start_minute) * (day_duration_seconds / 1440.0)
 
 func _process(delta: float) -> void:
+	if not clock_running:
+		return
 	var scaled: float = delta * time_multiplier
 	_elapsed += scaled
 	_tick_needs(scaled)
@@ -217,6 +224,10 @@ func get_time_display() -> String:
 ## minute are recomputed automatically next frame.
 func get_elapsed() -> float:
 	return _elapsed
+
+## Elapsed value of the clock's starting moment (Day 1, start_hour:start_minute).
+func get_start_elapsed() -> float:
+	return (start_hour * 60 + start_minute) * (day_duration_seconds / 1440.0)
 
 ## Advances time by `hours` game-hours, drains food/water for that duration,
 ## and fully restores sleep. NOT currently used by SleepOverlay (it calls

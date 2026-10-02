@@ -55,9 +55,14 @@ into this file.
 
 ## 1. Game vision & direction
 
-Bunker survival/design game, two phases:
+Bunker survival/design game, two phases (implemented Oct 2026 — see
+`docs/systems/phase/README.md`):
 - **Pre-Apocalypse** — spend cash, build/buy rooms, wire power, stock supplies.
-- **Post-Apocalypse** — survive on what you built (food/water/sleep, power grid upkeep).
+  Clock held before Day 1; chosen survivors wait outside.
+- **Post-Apocalypse** — started by **Leave** at the Surface Hatch. Shop closed
+  for good, nothing new built; survive on what you built (food/water/sleep,
+  power grid upkeep). Demolish → salvage; wire/pipe cost Metal; hatch opens
+  after 10 days.
 
 Tone: grim but not horror, brutalist/concrete aesthetic, military UI —
 dark/gloomy/eerie, not bright. Bunker dimensions: width=24, depth=18
@@ -123,6 +128,7 @@ before starting any of these):**
 | NPC (wandering, talk UI, admin spawn) | `docs/systems/npc/README.md` | migrated |
 | Main Menu + surface backdrop (boot scene, storm/wind scene, asset slots, AI-content release gate) | `docs/systems/main-menu/README.md` | migrated |
 | Surface Hatch & Expeditions (hatch fixture, scavenging runs, loot/hazard tables, hatch inspector) | `docs/systems/hatch/README.md` | migrated |
+| Run phases (pre-/post-apocalypse, seal, salvage economy, Metal costs) | `docs/systems/phase/README.md` | migrated |
 
 **All 11 systems now migrated (Aug 2026, NPC added).** 
 

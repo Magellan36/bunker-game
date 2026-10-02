@@ -345,9 +345,9 @@ func refresh(active_tool: int, submenu_open: bool, submenu_source: String,
 			or (TOOL_ORDER[i] == 0 and submenu_open and submenu_source == "construct")
 		_tool_buttons[i].set_pressed_no_signal(active)
 		var lit: bool = active or _tool_buttons[i].has_focus() or _tool_buttons[i].is_hovered()
-		_tool_icons[i].add_theme_color_override("font_color", Q.TEXT if lit else Q.MUTED)
-		(_tool_buttons[i].get_meta(&"caption_label") as Label).add_theme_color_override(
-			"font_color", Q.TEXT if lit else Q.MUTED)
+		var tone: Color = Q.FAINT if _tool_buttons[i].disabled else (Q.TEXT if lit else Q.MUTED)
+		_tool_icons[i].add_theme_color_override("font_color", tone)
+		(_tool_buttons[i].get_meta(&"caption_label") as Label).add_theme_color_override("font_color", tone)
 	shop_button.set_pressed_no_signal(submenu_open and submenu_source == "farming")
 	var controller_now := InputMode.is_controller()
 	if controller_now != _controller_hints:
@@ -355,12 +355,41 @@ func refresh(active_tool: int, submenu_open: bool, submenu_source: String,
 		_rebuild_helper_hints()
 	_grid_label.text = "GRID  %.2f M" % grid_size
 	_helper_panel.visible = placement_active
-	_banner_subtitle.text = "Object placement" if placement_active else "Construction"
+	_banner_subtitle.text = _subtitle(placement_active)
 	if _placement_was_active and not placement_active and catalog != null:
 		catalog.clear_placement_state()
 	_placement_was_active = placement_active
 	if catalog != null and catalog.visible:
 		catalog.refresh_live()
+
+
+## Oct 2026 — after the seal (BunkerPhase) the Build and Duplicate tools are
+## greyed out (nothing new can be placed) and the Shop is permanently closed.
+## Hover explains why; Move/Demolish/Undo/Wire/Pipe stay live.
+const SHOP_CLOSED_TIP: String = "Shop is permanently closed"
+const BUILD_LOCKED_TIP: String = "Nothing new can be built after the hatch is sealed"
+const LOCKED_TOOLS: Array[int] = [0, 2]   ## Build, Duplicate (HUD tool ids)
+var _construction_locked: bool = false
+
+func apply_phase(locked: bool) -> void:
+	_construction_locked = locked
+	for i: int in range(_tool_buttons.size()):
+		var lock_this: bool = locked and LOCKED_TOOLS.has(TOOL_ORDER[i])
+		_tool_buttons[i].disabled = lock_this
+		_tool_buttons[i].focus_mode = Control.FOCUS_NONE if lock_this else Control.FOCUS_ALL
+		_tool_buttons[i].mouse_default_cursor_shape = Control.CURSOR_ARROW if lock_this \
+			else Control.CURSOR_POINTING_HAND
+		_tool_buttons[i].tooltip_text = BUILD_LOCKED_TIP if lock_this else ""
+	shop_button.disabled = locked
+	shop_button.focus_mode = Control.FOCUS_NONE if locked else Control.FOCUS_ALL
+	shop_button.mouse_default_cursor_shape = Control.CURSOR_ARROW if locked else Control.CURSOR_POINTING_HAND
+	shop_button.tooltip_text = SHOP_CLOSED_TIP if locked else ""
+	_banner_subtitle.text = _subtitle(false)
+
+func _subtitle(placement_active: bool) -> String:
+	if placement_active:
+		return "Object placement"
+	return "Sealed bunker" if _construction_locked else "Construction"
 
 
 func menu_open() -> bool:
@@ -416,5 +445,6 @@ func _controller_tabs() -> Array:
 		return shop._category_buttons.values()
 	if catalog.visible:
 		return catalog._category_buttons.values()
-	# Undo is an action, not a persistent tool mode.
-	return _tool_buttons.filter(func(button: Button) -> bool: return button != _tool_buttons[4])
+	# Undo is an action, not a persistent tool mode; locked tools are skipped.
+	return _tool_buttons.filter(func(button: Button) -> bool:
+		return button != _tool_buttons[4] and not button.disabled)

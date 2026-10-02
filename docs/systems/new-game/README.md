@@ -6,8 +6,11 @@ The only way (besides dev tools) to start with residents. After **New Game →
 Your survivor → Begin** and the loading screen, the bunker stays hidden
 behind black while the player picks **up to three of six** randomized
 survivors. Confirm → "Survivors will join when the apocalypse begins." →
-the black lifts on Day 1 with the chosen residents standing in front of the
-player. Picking nobody is allowed.
+the black lifts on the bunker in **preparation**. The chosen residents wait
+outside (`BunkerPhase.pending_survivors`) and come in when the player leaves
+through the Surface Hatch (`docs/systems/phase/README.md`). Picking nobody is
+allowed. Outside a New Game (no preparation act) `spawn_selected()` still
+spawns them in front of the player.
 
 ## Flow
 

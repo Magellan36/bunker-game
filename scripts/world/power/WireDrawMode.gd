@@ -161,8 +161,7 @@ func _process(delta: float) -> void:
 	# Live cost label at wire midpoint
 	var midpoint: Vector3 = (_source_pos + dest_pos) * 0.5
 	var dist: float = WireRoute.length(WireRoute.points(_source_pos, dest_pos))
-	var cost: int   = int(ceil(dist * COST_PER_M))
-	_update_cost_label(midpoint, cost)
+	_update_cost_label(midpoint, _run_cost(dist))
 
 # ─── Input (called by BuildModeController._unhandled_input) ──────────────────
 func handle_input(event: InputEvent) -> bool:
@@ -240,10 +239,24 @@ func _try_pick_dest() -> bool:
 			if WireRoute.overlaps(path[i - 1], path[i], pm.get_wire_node_pos(edge["node_a"]), pm.get_wire_node_pos(edge["node_b"])):
 				_show_warning("A wire already occupies part of this route")
 				return true
-	var cost: int = ceili(WireRoute.length(path) * COST_PER_M)
-	if world_node == null or not world_node.spend_cash(cost):
+	## Sealed bunker (Oct 2026): paid in Metal from the Research Station.
+	var sealed: bool = BuildEconomy.salvage_rules(get_tree())
+	var cost: int = _run_cost(WireRoute.length(path))
+	if sealed:
+		if not BuildEconomy.spend_metal(get_tree(), cost):
+			_show_warning("Not enough Metal in the Research Station for this wire")
+			return true
+	elif world_node == null or not world_node.spend_cash(cost):
 		_show_warning("Not enough cash for this wire")
 		return true
+	## Each segment remembers its share of the Metal so demolishing or undoing
+	## part of the run returns exactly what that part cost.
+	var leg_lengths: Array[float] = []
+	for i: int in range(1, path.size()):
+		leg_lengths.append(path[i - 1].distance_to(path[i]))
+	var metal_shares: Array[int] = []
+	if sealed:
+		metal_shares = BuildEconomy.split(cost, leg_lengths)
 	var color_snapshot: Dictionary = pm.snapshot_zone_colors()
 	var run: String = "wire_%d" % Time.get_ticks_usec()
 	pm.begin_bulk()
@@ -255,6 +268,8 @@ func _try_pick_dest() -> bool:
 		var seg := _spawn_wire_segment(path[i - 1], path[i], id) as WireSegment
 		seg.player_placed = true
 		seg.run_id = run
+		if sealed:
+			seg.set_meta("metal_paid", metal_shares[i - 1])
 		seg.set_meta("zone_color_snap", color_snapshot)
 		pm.register_wire_edge(keys[i - 1], keys[i], seg)
 		seg.play_placement()
@@ -262,7 +277,11 @@ func _try_pick_dest() -> bool:
 		wire_placed.emit(seg, id, cost if i == 1 else 0, midpoint)
 		wire_nodes_connected.emit(keys[i - 1], path[i - 1], keys[i], path[i])
 	pm.end_bulk()
-	_spawn_float_label((_source_pos + destination) * 0.5, cost, false)
+	if sealed:
+		BuildEconomy.float_text(get_tree(), (_source_pos + destination) * 0.5,
+			"-%s" % BuildEconomy.metal_text(cost), false)
+	else:
+		_spawn_float_label((_source_pos + destination) * 0.5, cost, false)
 	## Chain the next wire from this destination — mirrors WaterPipeDrawMode's
 	## auto-continue: keep phase 1 and anchor the new source at the just-placed
 	## endpoint, so the next LMB click extends the run from where this one ended
@@ -408,6 +427,12 @@ func _role_fallback(role: String) -> String:
 # ─── Live cost label ──────────────────────────────────────────────────────────
 ## Shows a floating "$X" label at the wire midpoint during phase 1 drag.
 ## Updated every frame to reflect the current drag distance.
+## What a run of `length` metres costs now: cash before the seal, Metal after.
+func _run_cost(length: float) -> int:
+	if BuildEconomy.salvage_rules(get_tree()):
+		return BuildEconomy.wire_metal(length)
+	return ceili(length * COST_PER_M)
+
 func _update_cost_label(midpoint: Vector3, cost: int) -> void:
 	if _cost_label == null:
 		var lbl: Label3D = Label3D.new()
@@ -427,7 +452,13 @@ func _update_cost_label(midpoint: Vector3, cost: int) -> void:
 		parent.add_child(lbl)
 		_cost_label = lbl
 
-	_cost_label.text            = UIFormat.money(cost)
+	## Sealed: "3 Metal"; red (like an unaffordable price) when the Research
+	## Station can't cover it. Same red rule for cash before the seal.
+	var sealed: bool = BuildEconomy.salvage_rules(get_tree())
+	var affordable: bool = BuildEconomy.metal_available(get_tree()) >= cost if sealed \
+		else (world_node == null or not world_node.has_method("get_cash") or int(world_node.get_cash()) >= cost)
+	_cost_label.text            = BuildEconomy.metal_text(cost) if sealed else UIFormat.money(cost)
+	_cost_label.modulate        = Color(1.0, 0.88, 0.15, 1.0) if affordable else BunkerDesign.RED
 	## Raise 0.7 m above midpoint so it clears the wire and any floor geometry.
 	_cost_label.global_position = midpoint + Vector3(0.0, 0.70, 0.0)
 	_cost_label.visible         = true

@@ -73,6 +73,8 @@ func spawn_purchased_item(item_id: int) -> bool:
 		push_warning("FarmingShopHelper: unknown item_id %d" % item_id)
 		return false
 
+	if BunkerPhase.sealed(_owner.get_tree()):
+		return false   ## shop is permanently closed after the seal
 	var price: int = int(info.get("price", 0))
 	if _owner.world_node != null:
 		if not _owner.world_node.spend_cash(price):
@@ -118,6 +120,8 @@ func _gate_spawned(node: Node3D) -> void:
 ## delivery area cannot be reserved, or any item cannot be prepared, nothing
 ## is charged and the cart remains intact.
 func checkout_order(lines: Dictionary) -> Dictionary:
+	if _owner != null and BunkerPhase.sealed(_owner.get_tree()):
+		return {"ok": false, "message": "Shop is permanently closed."}
 	if lines.is_empty() or _owner == null or _owner.world_node == null:
 		return {"ok": false, "message": "Your cart is empty."}
 	var total := 0

@@ -16,6 +16,13 @@ Design pillars served: Decisions over actions (1), Interconnected systems (2),
 Readable cause and effect (3: forecast before, plain-language report after),
 Lasting consequences (7: depletion, lost residents, grudges), Emergence (8).
 
+## Run phases (Oct 2026)
+The hatch is also the switch between the run's two acts
+(`docs/systems/phase/README.md`). Before the apocalypse, E opens
+`HatchLeaveUI` (readiness check + **Leave**) instead of this planner. For the
+first 10 days after the seal, E only shows the toast "N days until it is safe
+to travel". LEGACY worlds (old saves, dev scenes) behave as before.
+
 ## Files
 | File | Role |
 |---|---|

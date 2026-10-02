@@ -93,6 +93,13 @@ func _shadow(label: Label) -> void:
 
 
 func _process(delta: float) -> void:
+	## Sealed build mode: keep the Metal readout current (4 Hz).
+	if _in_build_mode and _sealed():
+		_metal_poll -= delta
+		if _metal_poll <= 0.0:
+			_metal_poll = 0.25
+			_refresh_resource_readout()
+
 	# ── Fade in on load ──
 	if _fading_in:
 		_fade_t += delta / FADE_IN_DURATION
@@ -151,18 +158,62 @@ func set_sleep_cap(value: float) -> void:
 	needs_gauge.set_sleep_cap(value / 100.0)
 
 func set_cash(amount: int) -> void:
-	cash_label.text = UIFormat.money(amount)
+	_cash_amount = amount
+	if not _sealed():
+		cash_label.text = UIFormat.money(amount)
 
 func set_clock(display: String) -> void:
 	clock_label.text = display
 
 func set_day(day: int) -> void:
+	_day = day
+	if _preparing():
+		return   ## the clock hasn't started; the eyebrow reads PREPARATION
 	var next_text: String = "DAY %d" % day
 	var changed: bool = day_label.text != next_text
 	day_label.text = next_text
 	if changed and _day_initialized:
 		_pulse_day_accent()
 	_day_initialized = true
+
+
+# ─── Run phase (Oct 2026, BunkerPhase) ────────────────────────────────────────
+## Preparation: the clock hasn't started, so the eyebrow reads PREPARATION and
+## the time is hidden; cash is shown. Sealed: cash is meaningless and hidden
+## (its slot stays laid out so toasts keep their anchor); in build mode the
+## same slot shows the Metal the Research Station can spend on wire and pipe.
+var _phase: int = 0
+var _day: int = 1
+var _cash_amount: int = 0
+var _metal_poll: float = 0.0
+
+func set_phase(phase: int) -> void:
+	var was_preparing: bool = _preparing()
+	_phase = phase
+	clock_label.visible = not _preparing()
+	if _preparing():
+		day_label.text = "PREPARATION"
+	elif was_preparing:
+		day_label.text = ""
+		set_day(_day)
+	_refresh_resource_readout()
+
+func _preparing() -> bool:
+	return _phase == BunkerPhase.Phase.PRE_APOCALYPSE
+
+func _sealed() -> bool:
+	return _phase == BunkerPhase.Phase.POST_APOCALYPSE
+
+func _refresh_resource_readout() -> void:
+	if not _sealed():
+		cash_label.modulate.a = 1.0
+		cash_label.text = UIFormat.money(_cash_amount)
+		return
+	cash_label.modulate.a = 1.0 if _in_build_mode else 0.0
+	if _in_build_mode:
+		var s: Node = BuildEconomy.station(get_tree())
+		var cap: int = int(s.get("STORAGE_CAP")) if s != null else 0
+		cash_label.text = "%d / %d Metal" % [BuildEconomy.metal_available(get_tree()), cap]
 
 
 ## Rare, state-driven feedback only: the day eyebrow brightens once when the
@@ -195,6 +246,7 @@ func set_build_mode(enabled: bool) -> void:
 		_yield_tween.tween_property(part, "modulate:a", 0.0 if enabled else 1.0, UIMotion.duration(0.18))
 	if not enabled and inventory_hud.has_method("refresh_previews"):
 		inventory_hud.refresh_previews()
+	_refresh_resource_readout()
 
 
 # ─── Critical check ───────────────────────────────────────────────────────────
@@ -212,9 +264,18 @@ func _update_critical() -> void:
 func spawn_float_label(screen_pos: Vector2, amount: int, positive: bool) -> void:
 	if amount == 0:
 		return
+	spawn_float_text(screen_pos, ("+" if positive else "-") + UIFormat.money(absi(amount)), positive)
+	# Also show the delta indicator under the cash label
+	show_cash_delta(amount, positive)
+
+## Same float as spawn_float_label() with any text — "+2 Metal", "-3 Metal"
+## (Oct 2026, sealed-bunker salvage and Metal costs).
+func spawn_float_text(screen_pos: Vector2, text: String, positive: bool) -> void:
+	if text == "":
+		return
 
 	var lbl: Label = Label.new()
-	lbl.text = ("+" if positive else "-") + UIFormat.money(absi(amount))
+	lbl.text = text
 	lbl.add_theme_font_size_override("font_size", UIKit.theme_font_size("HUD", "float_label", 18))
 	lbl.add_theme_color_override("font_color", BunkerDesign.GREEN if positive else BunkerDesign.RED)
 	_shadow(lbl)
@@ -222,7 +283,7 @@ func spawn_float_label(screen_pos: Vector2, amount: int, positive: bool) -> void
 	_root.add_child(lbl)
 
 	# Center the label on the tile position
-	lbl.set_position(screen_pos - Vector2(30.0, 12.0))
+	lbl.set_position(screen_pos - Vector2(maxf(30.0, lbl.get_minimum_size().x * 0.5), 12.0))
 
 	# Animate: float upward with a gentle sine-wave X drift, fade out
 	var tween: Tween = create_tween()
@@ -249,9 +310,6 @@ func spawn_float_label(screen_pos: Vector2, amount: int, positive: bool) -> void
 	tween.tween_interval(0.55)
 	tween.tween_property(lbl, "modulate:a", 0.0, 0.55) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-
-	# Also show the delta indicator under the cash label
-	show_cash_delta(amount, positive)
 
 	# Free label when animation ends
 	tween.tween_callback(lbl.queue_free).set_delay(1.1)
