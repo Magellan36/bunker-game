@@ -1544,6 +1544,23 @@ preloaded) gives every item type a size and a family, and storage a sense:
   The player's F-place stays first-free (Brannon). Moving items between
   slots from the shelf UI is with the UI session
   (`plans/HANDOFF_PLAN_shelf_ui_move_slot.md`).
+- **One home per type, dedicated shelves** (Oct 2026, playtest: "enough
+  water cases to fill a shelf, but they don't regroup"; seeds split between
+  two garden shelves). `StorageProfile._plan()` runs at most once a second,
+  biggest stocks first:
+  - each type gets one home storage: the one that suits it best, counting
+    where most of it already is (fewer moves, `CONSOLIDATE_WEIGHT`), and
+    keeping last time's choice unless another is clearly better;
+  - its items are drawn there (−5), so a type split between two shelves
+    gathers on one;
+  - a type with enough stock to fill 60% of its home shelf (counting loose
+    ones still to put away) gets that shelf to itself, and anything else on
+    it costs +5, so it moves off when there's room elsewhere.
+  Home areas pull continuously by distance (1 at the anchor, 0 at 8 m), so
+  the nearer of two garden shelves always wins. For things used at a
+  station (garden, kitchen) the drawer preference is halved, so seeds stay
+  by the garden rather than going to a drawer across the bunker (a drawer
+  near the garden still wins).
 - **Saying why:** when they walk past nearer storage that had room (4 m+),
   the label says where and why ("Putting away Onion Seed (by the garden)"),
   the action log does too, and they remark on it at most every 2 minutes
@@ -1559,8 +1576,17 @@ best first. One shared list, refreshed every 3 s, so residents agree.
   `player_placed_h`, stamped on F-place to shelf or drawer and by the shelf
   UI's move; saved with the item by `ItemSaveData`, so it survives save and
   load), never something a resident has claimed.
-- **No churn:** never the same item twice in 20 minutes, at most two moves
-  at a time bunker-wide.
+- **Within a shelf:** a stack that's staying (its type lives on this shelf)
+  slides next to its own kind or onto a matching part-stack, heavy things
+  down. It uses the shelf UI's own `Shelving.move_slot(from, to, viewer,
+  by_player = false)` (whole stack, out, across and in; no player pin).
+  Worth at least 2.5 slot-score points; for large items, height counts
+  double. A stray stack moves to its home shelf first.
+- **No churn:** never the same item twice in 3 minutes of game running, at
+  most two moves at a time bunker-wide. Gaps and cooldowns use
+  `StorageProfile.sim_seconds()` (physics ticks), which follows the
+  game-speed setting and keeps running before the seal. The wall clock made
+  them 5× too long at 5× speed.
 - **Priority:**
   - normal play: 6 (just above wandering, only when fed and rested,
     1-2.5 min apart per resident);
@@ -1570,8 +1596,9 @@ best first. One shared list, refreshed every 3 s, so residents agree.
 - **Plumbing:** takes from shelves (`npc_retrieve`) and drawers
   (`LightStorage.npc_take`, new). If the destination filled up or can't be
   reached, it hands over to put-away.
-- In-shelf re-arranging into neat rows of what's already stored (pass 3)
-  is on hold (Brannon).
+- Still no swaps: a stack can't move into a slot something else holds, so
+  a stray case may end up two tiers above its row when a crate sits in
+  between.
 
 Measured in the real game (slot 2 in preparation, emptied shelves, a
 dresser and an end table added, a 31-item mixed delivery, a second dresser
@@ -1583,6 +1610,10 @@ by the garden after 200 s):
 - **Garden dresser:** seeds and fertilizer moved into it once it appeared.
 - **Re-organizing:** 12 moves in preparation, none repeated; in normal play,
   about 3% of residents' time.
+- **Regrouping a jumbled bunker** (12 water and 8 can cases interleaved on
+  two large shelves, seeds split; preparation): within about 3 minutes the
+  garden-side shelf became a water shelf, four full rows of water cases.
+  Can cases filled the other shelf's bottom row.
 
 **Time limits and taking turns (human-likeness pass, Sep 2026).** Watching
 the real game showed residents carrying a jerry can or seed bag for

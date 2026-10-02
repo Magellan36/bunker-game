@@ -1000,7 +1000,9 @@ func can_move_slot(from_idx: int, to_idx: int) -> bool:
 ## nearer `viewer`, so nothing clips the posts or its neighbours), across to
 ## the new slot while still clear, then back in. `slots` updates at once, so
 ## saves and NPC queries see the new layout immediately.
-func move_slot(from_idx: int, to_idx: int, viewer: Node3D = null) -> bool:
+## `by_player` (Oct 2026, NPC session): false when a resident tidies the
+## shelf, so it doesn't count as the player's arrangement (no pin).
+func move_slot(from_idx: int, to_idx: int, viewer: Node3D = null, by_player: bool = true) -> bool:
 	if not can_move_slot(from_idx, to_idx):
 		return false
 	var moving: Array = slots[from_idx].duplicate()
@@ -1014,7 +1016,8 @@ func move_slot(from_idx: int, to_idx: int, viewer: Node3D = null) -> bool:
 		var stack_idx: int = slots[to_idx].size()
 		slots[to_idx].append(item)
 		## Residents leave what the player arranged alone for a game day.
-		item.set_meta("player_placed_h", NPCClock.now())
+		if by_player:
+			item.set_meta("player_placed_h", NPCClock.now())
 		_animate_move(item, to_idx, stack_idx, face_z, k * MOVE_STAGGER)
 		item_moved.emit(from_idx, to_idx, item)
 	return true

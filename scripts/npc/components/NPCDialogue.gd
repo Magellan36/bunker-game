@@ -256,6 +256,8 @@ const BARKS: Dictionary = {
 	"organize_generator": ["Fuel lives by the generator.", "Fuel goes by the generator."],
 	"organize_purifier":  ["Filters go by the purifier.", "Keeping the filters by the water."],
 	"organize_same":      ["Keeping like with like.", "These go with the others."],
+	"organize_own_shelf": ["This shelf's for these now.", "Giving these a shelf of their own.", "One shelf for these. Much better."],
+	"organize_together":  ["Lining these up together.", "These should sit side by side.", "There. Neater."],
 	## Before the seal (BunkerPhase preparation): an order to use supplies.
 	"prep_refuse":   ["Not yet. That's for after we seal up.", "We're saving that for Day 1.", "Let's not touch the supplies yet."],
 	## Neglect (NPCSocial._tick_neglect): days of it, said to the player's face.

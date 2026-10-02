@@ -7,7 +7,7 @@ extends NPCActivity
 ##   - a lone water case sits with the medicine.
 ## Moves come from StorageProfile.moves(): single moves into free space that
 ## make storage strictly tidier. Never swaps or chains, never what the player
-## put away in the last game day, never the same item twice in 20 minutes,
+## put away in the last game day, never the same item twice in 3 minutes,
 ## at most MAX_ACTIVE at once across the bunker.
 ## Low priority in normal play (just above wandering). During preparation,
 ## when there's little else to do, it comes next after putting purchases
@@ -18,8 +18,10 @@ const STORAGE_PROFILE: GDScript = preload("res://scripts/npc/queries/StorageProf
 const SCORE: float = 6.0
 const PREP_SCORE: float = 25.0
 const MAX_ACTIVE: int = 2
-const COOLDOWN_MS: Vector2 = Vector2(60000.0, 150000.0)    ## normal play, per resident
-const PREP_COOLDOWN_MS: Vector2 = Vector2(2000.0, 5000.0)
+## Per resident, in game-running seconds (StorageProfile.sim_seconds: these
+## follow the game-speed setting, unlike the wall clock).
+const COOLDOWN_S: Vector2 = Vector2(60.0, 150.0)    ## normal play
+const PREP_COOLDOWN_S: Vector2 = Vector2(2.0, 5.0)
 const GIVE_UP_SECONDS: float = 30.0
 
 ## item instance id -> npc instance id: moves in progress, bunker-wide.
@@ -37,6 +39,8 @@ func label() -> String:
 	if _move.is_empty() or not is_instance_valid(_move["item"]):
 		return "Organizing"
 	var where: String = String(STORAGE_PROFILE.PHRASES.get(_why, ""))
+	if _is_slot_move():
+		return "Tidying the %s (%s %s)" % [_storage_name(_move["to"]), NPCSessionActivity.display_name(_move["item"]), where]
 	return "Moving %s to the %s%s" % [NPCSessionActivity.display_name(_move["item"]), _storage_name(_move["to"]),
 		" (%s)" % where if where != "" else ""]
 
@@ -50,7 +54,7 @@ func score(npc: NPC) -> float:
 	var preparing: bool = npc.is_preparing()
 	if not preparing and (npc.hunger < 35.0 or npc.thirst < 35.0 or npc.energy < 30.0):
 		return 0.0   ## (needs are on hold before the seal)
-	if Time.get_ticks_msec() < int(npc.get_meta("_reorg_cooldown_ms", 0)):
+	if STORAGE_PROFILE.sim_seconds() < float(npc.get_meta("_reorg_cooldown_s", 0.0)):
 		return 0.0
 	if _busy_count(npc) >= MAX_ACTIVE or _pick(npc).is_empty():
 		return 0.0
@@ -96,6 +100,9 @@ func can_yield_to_need(_npc: NPC) -> bool:
 func accepts_held_item(_npc: NPC, item_in_hand: Node) -> bool:
 	return not _move.is_empty() and item_in_hand == _move["item"]
 
+func _is_slot_move() -> bool:
+	return String(_move.get("kind", "")) == "slot"
+
 func enter(npc: NPC) -> void:
 	_timer = 0.0
 	_handoff = null
@@ -104,7 +111,8 @@ func enter(npc: NPC) -> void:
 		_phase = Phase.DONE
 		return
 	_active[(_move["item"] as Node).get_instance_id()] = npc.get_instance_id()
-	NPCItemUser.claim_item(_move["item"], npc)
+	if not _is_slot_move():
+		NPCItemUser.claim_item(_move["item"], npc)   ## (a shelf slide refuses claimed stacks; the shelf is held instead)
 	_why = String(_move["reason"])
 	_phase = Phase.FETCH
 	npc.set_nav_target((_move["from"] as Node3D).global_position)
@@ -128,7 +136,9 @@ func _tick_fetch(npc: NPC, delta: float) -> void:
 		return
 	var src: Node = _move["from"]
 	var item: Node = _move["item"]
-	if not _still_there(src, int(_move["slot"]), item):
+	var gone: bool = not (src.slots[int(_move["slot"])] as Array).has(item) if _is_slot_move() and "slots" in src \
+		else not _still_there(src, int(_move["slot"]), item)
+	if gone:
 		_phase = Phase.DONE   ## someone took it, or it moved: nothing to do
 		return
 	if _timer > GIVE_UP_SECONDS:
@@ -141,6 +151,9 @@ func _tick_fetch(npc: NPC, delta: float) -> void:
 	if not NPCItemUser.in_reach(npc, (src as Node3D).global_position, NPCItemUser.SHELF_RANGE):
 		return
 	npc.lock_movement()
+	if _is_slot_move():
+		_slide_on_shelf(npc, src)
+		return
 	var took: bool = false
 	if "slots" in src:
 		took = NPCItemUser.grab_from_shelf(npc, src, int(_move["slot"]))
@@ -157,6 +170,21 @@ func _tick_fetch(npc: NPC, delta: float) -> void:
 	_phase = Phase.CARRY
 	_timer = 0.0
 	npc.set_nav_target((_move["to"] as Node3D).global_position)
+
+## Within one shelf: slide the whole stack over (Shelving.move_slot animates
+## it out, across and back in). Hands stay empty.
+func _slide_on_shelf(npc: NPC, shelf: Node) -> void:
+	var to_slot: int = int(_move["to_slot"])
+	var moved: bool = shelf.has_method("move_slot") and shelf.move_slot(int(_move["slot"]), to_slot, npc, false)
+	NPCItemUser.release_item(shelf)
+	if moved:
+		var now: float = STORAGE_PROFILE.sim_seconds()
+		for it: Variant in shelf.slots[to_slot]:
+			if is_instance_valid(it):
+				(it as Node).set_meta("_reorg_s", now)
+		npc.log_action("Moved the %s next to its own kind on the %s" % [NPCSessionActivity.display_name(_move["item"]).to_lower(), _storage_name(shelf)])
+	STORAGE_PROFILE.invalidate()
+	_phase = Phase.DONE
 
 static func _still_there(src: Node, slot: int, item: Node) -> bool:
 	if "slots" in src:
@@ -187,7 +215,7 @@ func _tick_carry(npc: NPC, delta: float) -> void:
 	npc.lock_movement()
 	var name: String = NPCSessionActivity.display_name(item)
 	if NPCItemUser.store_held(npc, dst):
-		item.set_meta("_reorg_ms", Time.get_ticks_msec())
+		item.set_meta("_reorg_s", STORAGE_PROFILE.sim_seconds())
 		var where: String = String(STORAGE_PROFILE.PHRASES.get(_why, ""))
 		npc.log_action("Moved %s to the %s%s" % [name, _storage_name(dst), " (%s)" % where if where != "" else ""])
 		NPCItemUser.release_item(dst)
@@ -210,8 +238,8 @@ func done(_npc: NPC) -> bool:
 func exit(npc: NPC) -> void:
 	if not _move.is_empty() and is_instance_valid(_move["item"]):
 		_active.erase((_move["item"] as Node).get_instance_id())
-	var gap: Vector2 = PREP_COOLDOWN_MS if npc.is_preparing() else COOLDOWN_MS
-	npc.set_meta("_reorg_cooldown_ms", Time.get_ticks_msec() + int(randf_range(gap.x, gap.y)))
+	var gap: Vector2 = PREP_COOLDOWN_S if npc.is_preparing() else COOLDOWN_S
+	npc.set_meta("_reorg_cooldown_s", STORAGE_PROFILE.sim_seconds() + randf_range(gap.x, gap.y))
 	STORAGE_PROFILE.invalidate()
 
 func attention_target(_npc: NPC) -> Node3D:
