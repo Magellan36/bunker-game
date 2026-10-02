@@ -4,6 +4,13 @@ class_name NPCPortraitViewport
 ## world: this viewport instantiates the same AdventurerModel scene using the
 ## gender already resolved on the NPC, then lets its existing idle animation
 ## run inside a small isolated 3D world.
+##
+## Oct 2026: the look matches the New Game survivor cards
+## (scripts/ui/new_game/SurvivorPortrait.gd, rest state): transparent
+## background over the card, warm key + cool rim + soft ambient, filmic,
+## a narrow 22° lens framed head-and-shoulders on the Head bone, and a 3/4
+## turn. That camera sits on +Z; this one on -Z, so the light yaws here are
+## the survivor portrait's +180°.
 
 const MODEL_SCENE: PackedScene = preload("res://scenes/player/AdventurerModel.tscn")
 const VIEWPORT_SIZE: Vector2i = Vector2i(448, 512)
@@ -11,9 +18,13 @@ const MODEL_SCALE: Vector3 = Vector3(1.25, 1.25, 1.25)
 ## Portrait framing is resolved from the animated Head bone rather than from
 ## the model root. This keeps male/female bodies and future appearance variants
 ## centered consistently even when their proportions differ slightly.
-const PORTRAIT_DISTANCE: float = 1.4
-const PORTRAIT_FACE_TO_CHEST_OFFSET: float = 0.20
-const FALLBACK_PORTRAIT_TARGET: Vector3 = Vector3(0.0, 1.42, 0.0)
+const PORTRAIT_DISTANCE: float = 2.6
+const PORTRAIT_FACE_TO_CHEST_OFFSET: float = 0.14
+const PORTRAIT_CAMERA_RISE: float = 0.04
+const PORTRAIT_FOV: float = 22.0
+## 3/4 view: the resident turns 18° off the camera axis.
+const PORTRAIT_YAW_DEG: float = -18.0
+const FALLBACK_PORTRAIT_TARGET: Vector3 = Vector3(0.0, 1.91, 0.0)
 
 ## Callers that reuse this renderer in denser surfaces may lower the backing
 ## resolution before the node enters the tree. The talk workspace keeps the
@@ -53,6 +64,7 @@ func show_npc(npc: Node) -> void:
 	## additional +1 m offset raised the feet above the stage and pushed the
 	## resident's face completely beyond the top of the portrait.
 	_resident_root.position = Vector3.ZERO
+	_resident_root.rotation_degrees.y = PORTRAIT_YAW_DEG
 	_resident_root.set_meta("_adventurer_random_gender", resolved_gender)
 	_stage.add_child(_resident_root)
 
@@ -103,9 +115,9 @@ func _build_viewport() -> void:
 	_viewport.name = "ResidentSubViewport"
 	_viewport.size = viewport_size
 	_viewport.own_world_3d = true
-	_viewport.transparent_bg = false
+	_viewport.transparent_bg = true   ## the host card shows through
 	_viewport.handle_input_locally = false
-	_viewport.msaa_3d = Viewport.MSAA_DISABLED
+	_viewport.msaa_3d = Viewport.MSAA_2X
 	_viewport.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
 	var graphics_settings: Node = get_node_or_null("/root/GraphicsSettings")
 	if graphics_settings != null:
@@ -116,39 +128,37 @@ func _build_viewport() -> void:
 
 	var environment_node: WorldEnvironment = WorldEnvironment.new()
 	var environment: Environment = Environment.new()
-	environment.background_mode = Environment.BG_COLOR
-	environment.background_color = Color("0d2025")
+	environment.background_mode = Environment.BG_CLEAR_COLOR
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	environment.ambient_light_color = Color("b8cbd0")
-	environment.ambient_light_energy = 0.58
-	environment.tonemap_mode = Environment.TONE_MAPPER_LINEAR
+	environment.ambient_light_color = Color("c9d3dc")
+	environment.ambient_light_energy = 0.45
+	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	environment_node.environment = environment
 	_viewport.add_child(environment_node)
 
 	var warm_key: DirectionalLight3D = DirectionalLight3D.new()
 	warm_key.name = "WarmKey"
-	warm_key.rotation_degrees = Vector3(-35.0, -145.0, 0.0)
-	warm_key.light_color = Color("ffe3ba")
-	warm_key.light_energy = 1.05
+	warm_key.rotation_degrees = Vector3(-30.0, 142.0, 0.0)
+	warm_key.light_color = Color("f4e2c0")
+	warm_key.light_energy = 0.85
 	warm_key.shadow_enabled = false
 	_viewport.add_child(warm_key)
 
 	var cool_fill: DirectionalLight3D = DirectionalLight3D.new()
 	cool_fill.name = "CoolRim"
-	cool_fill.rotation_degrees = Vector3(-15.0, 40.0, 0.0)
-	cool_fill.light_color = Color("8ec9f2")
-	cool_fill.light_energy = 0.48
+	cool_fill.rotation_degrees = Vector3(-14.0, -30.0, 0.0)
+	cool_fill.light_color = Color("9cc3e0")
+	cool_fill.light_energy = 0.7
 	cool_fill.shadow_enabled = false
 	_viewport.add_child(cool_fill)
 
 	_stage = Node3D.new()
 	_stage.name = "PortraitStage"
 	_viewport.add_child(_stage)
-	_build_floor()
 
 	_camera = Camera3D.new()
 	_camera.name = "PortraitCamera"
-	_camera.fov = 32.0
+	_camera.fov = PORTRAIT_FOV
 	_camera.near = 0.05
 	_viewport.add_child(_camera)
 	_camera.current = true
@@ -180,7 +190,7 @@ func _frame_resident_portrait() -> void:
 func _apply_portrait_frame(target: Vector3) -> void:
 	if _camera == null:
 		return
-	_camera.position = target + Vector3(0.0, 0.02, -PORTRAIT_DISTANCE)
+	_camera.position = target + Vector3(0.0, PORTRAIT_CAMERA_RISE, -PORTRAIT_DISTANCE)
 	_camera.look_at(target, Vector3.UP)
 
 
@@ -192,23 +202,6 @@ func _find_skeleton(root: Node) -> Skeleton3D:
 		if found != null:
 			return found
 	return null
-
-
-func _build_floor() -> void:
-	var floor_mesh: MeshInstance3D = MeshInstance3D.new()
-	var cylinder: CylinderMesh = CylinderMesh.new()
-	cylinder.top_radius = 0.82
-	cylinder.bottom_radius = 0.9
-	cylinder.height = 0.025
-	cylinder.radial_segments = 48
-	var material: StandardMaterial3D = StandardMaterial3D.new()
-	material.albedo_color = Color("18343a")
-	material.metallic = 0.15
-	material.roughness = 0.82
-	cylinder.material = material
-	floor_mesh.mesh = cylinder
-	floor_mesh.position.y = -0.02
-	_stage.add_child(floor_mesh)
 
 
 func _clear_resident() -> void:
