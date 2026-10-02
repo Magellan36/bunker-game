@@ -210,8 +210,8 @@ func _draw_slot(index: int, item: Node) -> void:
 	if is_instance_valid(item) and index < _vp_textures.size() and _vp_textures[index] != null:
 		var preview_rect: Rect2 = Rect2(rect.position + Vector2(6.0, 6.0), Vector2(60.0, 60.0))
 		draw_texture_rect(_vp_textures[index], preview_rect, false)   ## mipmapped studio render
-	else:
-		_draw_empty_slot(rect)
+	elif not is_instance_valid(item):
+		_draw_empty_slot(rect)   ## the dashed ring marks an EMPTY slot only
 
 	_draw_slot_number(rect, index + 1, selected)
 	if is_instance_valid(item):

@@ -440,6 +440,10 @@ func _store_snapshot(key: String, model: Node3D) -> void:
 
 ## Copies visible MeshInstance3D / MultiMeshInstance3D geometry of a live,
 ## in-tree item into a detached wrapper (no scripts, bodies or collision).
+## Visibility is judged INSIDE the item: a stored item's root is hidden
+## (InventoryManager), which must not hide every mesh under it — that left
+## stored items with no preview at all. Only parts the item itself hides
+## (an emptied case's missing cans, a closed lid variant) are skipped.
 func _copy_visuals(item: Node3D) -> Node3D:
 	if not item.is_inside_tree():
 		return null
@@ -455,7 +459,7 @@ func _copy_visuals(item: Node3D) -> Node3D:
 	var stack: Array[Node] = [item]
 	while not stack.is_empty():
 		var node: Node = stack.pop_back()
-		if node is GeometryInstance3D and not (node as GeometryInstance3D).is_visible_in_tree():
+		if node != item and node is Node3D and not (node as Node3D).visible:
 			continue
 		if node is MeshInstance3D and (node as MeshInstance3D).mesh != null:
 			var src := node as MeshInstance3D
