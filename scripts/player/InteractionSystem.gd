@@ -685,6 +685,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		## check and could lose to it; moved ahead of the shelf check and
 		## given an explicit return so it can't fall through into it.
 		if held_item != null and (held_item.has_method("on_use") or held_item.has_method("on_interact")):
+			## Oct 2026 — before Day 1 (BunkerPhase preparation) supplies are
+			## stored, not used: eating, drinking, refuelling, filter swaps,
+			## cooking, medical items and planting all wait. Bottle refills,
+			## the flashlight switch and reloads opt back in.
+			if held_item.has_method("on_use") and BunkerPhase.block_use(get_tree(), held_item):
+				get_viewport().set_input_as_handled()
+				return
 			# _is_holding_e stays true only to drive per-frame continuous
 			# actions (e.g. FuelCan.refuel_tick / bottle refill) — it no
 			# longer gates a store action.
@@ -1148,6 +1155,8 @@ func _update_prompt() -> void:
 			# Use prompt (e.g. water bottle drink line)
 			if held_item.has_method("get_use_prompt"):
 				var up: String = held_item.get_use_prompt()
+				if up != "" and not BunkerPhase.use_allowed(get_tree(), held_item):
+					up = BunkerPhase.gate_prompt(get_tree(), up)   ## "· from Day 1"
 				if up != "": item_lines.append(up)
 
 			# Interact prompt

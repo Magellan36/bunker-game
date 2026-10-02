@@ -128,6 +128,11 @@ func _on_drop_extra() -> void:
 
 ## Interact (E / pad A) dispatch: reloads only on a controller. The keyboard
 ## reload key is R (WeaponController), so E is free for everything else.
+## Oct 2026 — reloading only moves rounds around, so it works before Day 1
+## (BunkerPhase); firing doesn't (see try_attack).
+func allows_use_before_day_one() -> bool:
+	return true
+
 func on_use() -> void:
 	if InputMode.is_controller():
 		reload()
@@ -173,6 +178,9 @@ func sync_held_pose() -> void:
 ## Returns true only for a committed attack. Call from a physics tick.
 func try_attack(direction: Vector3) -> bool:
 	if not is_held or not aiming or _cooldown > 0.0 or _reload_left > 0.0 or direction.length_squared() < 0.001:
+		return false
+	## Oct 2026 — no rounds are spent before Day 1 (BunkerPhase preparation).
+	if is_firearm() and ammo > 0 and BunkerPhase.preparing(get_tree()):
 		return false
 	_cooldown = attack_interval
 	if is_firearm() and ammo > 0:

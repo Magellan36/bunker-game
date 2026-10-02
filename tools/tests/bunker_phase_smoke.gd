@@ -113,7 +113,24 @@ func _run() -> void:
 		player.global_position + Vector3(2.5, 0.0, 0.0), 0.0)
 	_check(tray != null and not bool(tray.call("fill_soil_at_cell", 0)), "no soil before Day 1")
 	_check(String(load("res://scripts/world/core/BunkerPhase.gd").call("gate_prompt", self, "[E] Fill Tray with Soil"))
-		.ends_with("from Day 1"), "planting prompts say they open on Day 1")
+		.ends_with("from Day 1"), "locked use prompts say they open on Day 1")
+	var BP: GDScript = load("res://scripts/world/core/BunkerPhase.gd")
+	var far: Vector3 = player.global_position + Vector3(0.0, 40.0, 0.0)   ## nowhere near a dispenser
+	var can: Node3D = (load("res://scenes/world/FoodCan.tscn") as PackedScene).instantiate()
+	var bottle: Node3D = (load("res://scenes/world/WaterBottle.tscn") as PackedScene).instantiate()
+	var fuel: Node3D = (load("res://scenes/world/FuelCan.tscn") as PackedScene).instantiate()
+	for it: Node3D in [can, bottle, fuel]:
+		world.add_child(it)
+		it.global_position = far
+		it.freeze = true
+	await process_frame
+	_check(not BP.use_allowed(self, can) and not BP.use_allowed(self, bottle) and not BP.use_allowed(self, fuel),
+		"eating, drinking and refuelling wait for Day 1")
+	var dispenser: Node3D = controller.call("_spawn_placed_object", 19,
+		player.global_position + Vector3(-2.0, 0.0, 0.0), 0.0)
+	bottle.global_position = dispenser.global_position + Vector3(0.5, 0.6, 0.0)
+	await process_frame
+	_check(BP.use_allowed(self, bottle), "refilling a bottle at a dispenser is allowed")
 
 	# Save during preparation.
 	var save_ok: bool = root.get_node("SaveManager").call("save_game", 1)
@@ -133,6 +150,10 @@ func _run() -> void:
 	_check(not is_instance_valid(transition) and not paused, "seal transition plays out and unpauses")
 	_check(phase.is_sealed(), "bunker is sealed")
 	_check(int(world.call("get_cash")) == 0, "leftover cash is gone")
+	bottle.global_position = far
+	await process_frame
+	_check(BP.use_allowed(self, can) and BP.use_allowed(self, bottle) and BP.use_allowed(self, fuel),
+		"supplies can be used once sealed")
 	_check(tray != null and bool(tray.call("fill_soil_at_cell", 0)), "soil can go in once sealed")
 	var npcs: Array = get_nodes_in_group("npc")
 	_check(npcs.size() == 2, "both survivors came in (%d)" % npcs.size())

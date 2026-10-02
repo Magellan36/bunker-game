@@ -89,7 +89,7 @@ func get_use_prompt() -> String:
 	var tray: FarmingTray = _find_nearest_tray_needing_soil()
 	if tray == null:
 		return ""
-	return BunkerPhase.gate_prompt(get_tree(), "[E] Fill Tray with Soil")
+	return "[E] Fill Tray with Soil"
 
 ## Aug 2026 per-cell interaction pass — targets the single tray cell
 ## nearest to this held item (== roughly the player's hand position), not
@@ -106,8 +106,6 @@ func on_use() -> void:
 			NotificationManager.Severity.INFO, "No tray needing soil nearby")
 		return
 
-	if BunkerPhase.block_planting(get_tree()):
-		return
 	var cell_index: int = tray.nearest_open_soil_cell_to(global_position)
 	if cell_index < 0:
 		return

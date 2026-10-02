@@ -158,6 +158,11 @@ func get_use_prompt() -> String:
 ## below is now dead code, no longer called — InteractionSystem's
 ## _tick_continuous_bottle_refill() call site was removed the same pass).
 ## Drinking/adding-to-pot are unchanged otherwise.
+## Oct 2026 — refilling at a dispenser is allowed before Day 1 (stockpiling
+## water is fine); drinking and adding to a pot wait (BunkerPhase).
+func allows_use_before_day_one() -> bool:
+	return _find_nearest_dispenser() != null
+
 func on_use() -> void:
 	var dispenser: WaterDispenser = _find_nearest_dispenser()
 	if dispenser != null:

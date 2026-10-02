@@ -112,7 +112,7 @@ func get_use_prompt() -> String:
 	var tray: FarmingTray = _find_nearest_fertilizable_tray()
 	if tray == null:
 		return ""
-	return BunkerPhase.gate_prompt(get_tree(), "[E] Apply Fertilizer (%d/%d)" % [_charges, _max_charges])
+	return "[E] Apply Fertilizer (%d/%d)" % [_charges, _max_charges]
 
 ## Job Progress Bar (Aug 2026) — split into a trigger (this) and a
 ## completion (_finish_fertilize()); the actual fertilize_first_open_cell()
@@ -128,8 +128,6 @@ func on_use() -> void:
 			NotificationManager.Severity.INFO, notice)
 		return
 
-	if BunkerPhase.block_planting(get_tree()):
-		return
 	var isys: Node = _hold_point.get_parent() if _hold_point != null else null
 	if isys == null or not isys.has_method("start_job"):
 		return

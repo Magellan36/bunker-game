@@ -43,7 +43,7 @@ every NPC/build/power/hatch harness and every old save keeps working. F7 →
 | `scripts/world/items/SalvageItem.gd` | Placeholder salvage sphere (one per material, carries a unit count). |
 | `scripts/ui/hatch/HatchLeaveUI.gd` | Pre-apocalypse hatch inspector: readiness check + **Leave** + confirm. |
 | `scripts/ui/hatch/SealTransition.gd` | Full-screen seal moment (archetype D); calls `seal()` behind black. |
-| `tools/tests/bunker_phase_smoke.gd` | Drives the whole flow (46 checks). |
+| `tools/tests/bunker_phase_smoke.gd` | Drives the whole flow (49 checks). |
 
 Touched elsewhere (each change is commented `Oct 2026`):
 `PlayerStats.clock_running` / `get_start_elapsed()`, `SaveManager.register_field(..., on_missing)`,
@@ -83,11 +83,21 @@ Day 11+: hatch [E] → expedition planning (HatchInspectUI, unchanged)
   - Generators run without burning fuel (`PowerManager._tick_generators`).
   - Hookup water quality doesn't drop (`WaterHookup._process`).
   - Purifier filters don't wear (`WaterPurifier._process`).
-  - No soil, seeds, fertilizer or replanted produce go into trays. The
-    tray's own mutators refuse (`FarmingTray.fill_soil_at_cell`,
-    `plant_seed_at_cell`, `fertilize_first_open_cell`), the item prompts end
-    in "· from Day 1" (`BunkerPhase.gate_prompt`), and pressing E shows
-    "Planting starts once the apocalypse begins" (`BunkerPhase.block_planting`).
+  - Flashlight batteries don't drain (`Flashlight._physics_process`).
+  - **Held-item use is gated once** in `InteractionSystem` (the E dispatch)
+    through `BunkerPhase.use_allowed()`: eating, drinking, adding to a pot
+    (so no cooking), refuelling, filter swaps, medical items, soil, seeds,
+    fertilizer and replanting all wait. The prompt ends in "· from Day 1"
+    and pressing E shows "Supplies can't be used until the apocalypse
+    begins". Items opt back in with `allows_use_before_day_one()`:
+    **WaterBottle at a dispenser** (refilling; stockpiling water is fine),
+    **Flashlight** (the switch), **WeaponItem** (reload only).
+  - Firearms don't fire (no rounds spent) — `WeaponItem.try_attack`.
+  - Trays also refuse soil, seeds and fertilizer themselves
+    (`FarmingTray.fill_soil_at_cell`, `plant_seed_at_cell`,
+    `fertilize_first_open_cell`), so no other caller can plant either.
+  - Still allowed: dispensers filling from the hookup, batteries charging,
+    unpacking cases, the stove switch, research and the chute.
 - Save slots made now read **"Preparation · 2 hours ago"** instead of a day
   and time (`SaveManager` meta `preparation`, `SaveSlotFormat.describe`).
 - Survivors picked at New Game are stored in `pending_survivors` (saved) and
@@ -201,19 +211,13 @@ salvage messages.
 - **Wire/pipe cost is linear:** a short run is 1 Metal, a run N lengths long
   is N Metal (as implemented).
 - **Salvage amounts** stay as guesses until playtesting.
-- **No entropy before Day 1** and no planting — see Preparation above.
+- **No entropy before Day 1** and no using supplies (bottle refills excepted) — see Preparation above.
 - **Leftover cash is deleted** at the seal.
 - **Preparation saves** read "Preparation".
 
 ## Open questions (pinned)
-- **Things that still accrue during preparation.** Water still flows into
-  dispensers (and bottles can be refilled from them), batteries still charge
-  from fuel-free generators, and research still progresses. Nothing decays,
-  but water can be stockpiled for free before Day 1. Freeze water delivery
-  too?
-- **Other ways of "using" supplies before Day 1** are still allowed:
-  refuelling a generator, swapping a purifier filter, cooking, eating and
-  drinking (needs are held, so eating is wasted). Lock any of these?
+- **Research and the chute** still work during preparation (research
+  spends materials over real time). Lock them until Day 1 too?
 - **Salvage visuals** are tinted spheres. They need real models (and
   provenance) before release.
 - **Moving the water hookup after the seal** drops its attached pipes as

@@ -28,9 +28,13 @@ const HATCH_LOCK_DAYS: float = 10.0
 const NPC_SCENE_PATH: String = "res://scenes/npc/NPC.tscn"
 const DRAFT_PATH: String = "res://scripts/ui/new_game/SurvivorDraft.gd"
 ## Before Day 1 supplies can be bought and stored but not put to use, and
-## nothing wears out: no fuel burn, no water-quality loss, no filter wear,
-## no planting (Brannon, Oct 2026). Each system asks preparing(tree).
-const PLANTING_LOCKED_TEXT: String = "Planting starts once the apocalypse begins"
+## nothing wears out: no fuel burn, no water-quality loss, no filter or
+## flashlight wear, no planting (Brannon, Oct 2026). Each system asks
+## preparing(tree). Held-item use (eat, drink, refuel, filter swap, cooking,
+## medical, planting...) is gated once in InteractionSystem through
+## use_allowed(); an item opts back in with allows_use_before_day_one()
+## (bottle refills at a dispenser, the flashlight switch, weapon reload).
+const USE_LOCKED_TEXT: String = "Supplies can't be used until the apocalypse begins"
 ## Suffix for use prompts that are locked until Day 1.
 const LOCKED_PROMPT_SUFFIX: String = "  ·  from Day 1"
 
@@ -64,16 +68,22 @@ static func sealed(tree: SceneTree) -> bool:
 	var p: BunkerPhase = of(tree)
 	return p != null and p.phase == Phase.POST_APOCALYPSE
 
-## Use-prompt helper: "[E] Plant Tomato" → "[E] Plant Tomato  ·  from Day 1"
+## Use-prompt helper: "[E] Eat (2/2)" → "[E] Eat (2/2)  ·  from Day 1"
 ## while preparing, so the prompt says why E won't work yet.
 static func gate_prompt(tree: SceneTree, prompt: String) -> String:
 	return prompt + LOCKED_PROMPT_SUFFIX if prompt != "" and preparing(tree) else prompt
 
-## True (and tells the player why) when a planting action must wait for Day 1.
-static func block_planting(tree: SceneTree) -> bool:
-	if not preparing(tree):
+## Whether a held item's E-use may run now.
+static func use_allowed(tree: SceneTree, item: Object) -> bool:
+	if not preparing(tree) or item == null:
+		return true
+	return item.has_method("allows_use_before_day_one") and bool(item.call("allows_use_before_day_one"))
+
+## True (and tells the player why) when a held item's use must wait for Day 1.
+static func block_use(tree: SceneTree, item: Object) -> bool:
+	if use_allowed(tree, item):
 		return false
-	NotificationManager.feedback(UIKit.Domain.FARMING, NotificationManager.Severity.WARNING, PLANTING_LOCKED_TEXT)
+	NotificationManager.feedback(UIKit.Domain.NEUTRAL, NotificationManager.Severity.WARNING, USE_LOCKED_TEXT)
 	return true
 
 

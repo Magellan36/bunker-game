@@ -279,8 +279,8 @@ func _physics_process(delta: float) -> void:
 		_on = false
 		_refresh_state()
 
-	## Battery drain
-	if _on and not _is_dead:
+	## Battery drain (none before Day 1 — BunkerPhase preparation)
+	if _on and not _is_dead and not BunkerPhase.preparing(get_tree()):
 		_battery -= BATTERY_DRAIN * delta
 		if _battery <= 0.0:
 			_battery = 0.0
@@ -362,6 +362,11 @@ func _on_drop_extra() -> void:
 	_player = null
 
 # ─── Use: toggle light ────────────────────────────────────────────────────────
+## Oct 2026 — a light switch, not a supply: works before Day 1, and its
+## battery doesn't drain until then (BunkerPhase).
+func allows_use_before_day_one() -> bool:
+	return true
+
 func on_use() -> void:
 	if _is_dead:
 		return

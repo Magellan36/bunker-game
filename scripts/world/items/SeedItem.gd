@@ -89,8 +89,7 @@ func get_use_prompt() -> String:
 	var tray: FarmingTray = _find_nearest_plantable_tray()
 	if tray == null:
 		return ""
-	return BunkerPhase.gate_prompt(get_tree(),
-		"[E] Plant %s (%d/%d)" % [PlantDatabase.get_display_name(seed_type), _charges, _max_charges])
+	return "[E] Plant %s (%d/%d)" % [PlantDatabase.get_display_name(seed_type), _charges, _max_charges]
 
 ## Aug 2026 per-cell interaction pass — targets the single tray cell
 ## nearest to this held item, not "the tray's first open cell". Note this
@@ -108,8 +107,6 @@ func on_use() -> void:
 			NotificationManager.Severity.INFO, "No tray ready to plant nearby")
 		return
 
-	if BunkerPhase.block_planting(get_tree()):
-		return
 	var cell_index: int = tray.nearest_open_plantable_cell_to(global_position)
 	if cell_index < 0:
 		return
