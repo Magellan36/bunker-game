@@ -1556,8 +1556,9 @@ best first. One shared list, refreshed every 3 s, so residents agree.
 - **Never makes things worse:** no swaps or chains, so storage never passes
   through a messier state.
 - **Hands off:** never what the player placed in the last game day (meta
-  `player_placed_h`, stamped on F-place to shelf or drawer; the UI move
-  should stamp it too), never something a resident has claimed.
+  `player_placed_h`, stamped on F-place to shelf or drawer and by the shelf
+  UI's move; saved with the item by `ItemSaveData`, so it survives save and
+  load), never something a resident has claimed.
 - **No churn:** never the same item twice in 20 minutes, at most two moves
   at a time bunker-wide.
 - **Priority:**

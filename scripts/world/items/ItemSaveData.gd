@@ -16,7 +16,8 @@ class_name ItemSaveData
 ## An item spec looks like:
 ##   { "script": "res://scripts/world/items/SeedItem.gd",
 ##     "scene":  "res://scenes/world/FoodCan.tscn",     # optional
-##     "state":  { ...per-item fields... } }            # optional
+##     "state":  { ...per-item fields... },             # optional
+##     "player_placed_h": 37.5 }                        # optional (see capture)
 
 ## Captures `item`'s identity + per-item state into a JSON-safe Dictionary.
 ## Returns {} if the item has no recognizable script (defensive — callers
@@ -34,6 +35,10 @@ static func capture(item: Node) -> Dictionary:
 		var st: Dictionary = item.call("get_item_save_state")
 		if not st.is_empty():
 			spec["state"] = st
+	## Oct 2026: when the player last put it away (game hours, NPCClock):
+	## residents leave it alone for a game day (NPC StorageProfile.pinned).
+	if item.has_meta("player_placed_h"):
+		spec["player_placed_h"] = float(item.get_meta("player_placed_h"))
 	return spec
 
 ## Spawns a fresh item from a spec returned by capture(). Adds it to `parent`
@@ -59,6 +64,8 @@ static func spawn(spec: Dictionary, parent: Node) -> Node:
 		item = scr.new()
 	if item == null:
 		return null
+	if spec.has("player_placed_h"):
+		item.set_meta("player_placed_h", float(spec["player_placed_h"]))
 	if spec.has("state") and item.has_method("apply_item_save_state"):
 		item.call("apply_item_save_state", spec["state"])
 	parent.add_child(item)
