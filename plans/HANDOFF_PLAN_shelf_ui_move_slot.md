@@ -1,5 +1,12 @@
 # Hand-off: move items between slots from the shelf UI
 
+**Status: done (2026-10-02, UI session).** `Shelving.can_move_slot()` /
+`move_slot()` + `item_moved` signal, StorageUI move mode, test
+`tools/tests/shelf_move_slot_smoke.gd`. Whole stacks move; claimed stacks
+can't. The NPC session's `npc_try_place_item(slot_choice)`,
+`can_place_in_slot()` and stamp are untouched. Details:
+`docs/systems/furniture-items/README.md`.
+
 **For:** the UI session ("Game main menu with apocalyptic scene"), owner of
 `scripts/ui/**` including `scripts/ui/inventory/StorageUI.gd`.
 **From:** NPC system polish review session, 2026-10-02, at Brannon's request.

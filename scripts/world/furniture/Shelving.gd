@@ -120,6 +120,9 @@ static func carry_spawn_position(isys: Node) -> Vector3:
 # ─── Signals ──────────────────────────────────────────────────────────────────
 signal item_placed(slot_index: int, item: RigidBody3D)
 signal item_retrieved(slot_index: int, item: RigidBody3D)
+## Oct 2026: the player moved a stored stack to another slot (StorageUI).
+## Emitted once per item; the item never left storage.
+signal item_moved(from_slot: int, to_slot: int, item: RigidBody3D)
 
 # ─────────────────────────────────────────────────────────────────────────────
 func _ready() -> void:
@@ -528,6 +531,13 @@ func _try_place_item(item: RigidBody3D) -> void:
 ## Uses a Tween for smooth placement — item unfreezes briefly during flight,
 ## then locks solid when it lands.
 func _place_item_in_slot(item: RigidBody3D, slot_idx: int, stack_idx: int) -> void:
+	var pose: Array = _slot_pose(item, slot_idx, stack_idx)
+	var target_pos: Vector3 = pose[0]
+	var target_rot: Vector3 = pose[1]
+	_finish_place_item(item, target_pos, target_rot)
+
+## Final world [position, rotation] of `item` at `stack_idx` in `slot_idx`.
+func _slot_pose(item: RigidBody3D, slot_idx: int, stack_idx: int) -> Array:
 	## Compute final world position
 	var base_pos: Vector3 = _slot_nodes[slot_idx].global_position
 
@@ -565,6 +575,9 @@ func _place_item_in_slot(item: RigidBody3D, slot_idx: int, stack_idx: int) -> vo
 		deg_to_rad(rot_deg.y),
 		deg_to_rad(rot_deg.z)
 	)
+	return [target_pos, target_rot]
+
+func _finish_place_item(item: RigidBody3D, target_pos: Vector3, target_rot: Vector3) -> void:
 
 	## Mark as shelved immediately — before the tween — so the item is blocked
 	## from direct pickup even during the 0.22 s flight animation.
@@ -668,6 +681,7 @@ func npc_retrieve(slot_idx: int, npc_hold_point: Node3D) -> RigidBody3D:
 	if stack.is_empty():
 		return null
 	var item: RigidBody3D = stack.pop_back()
+	_cancel_move(item)
 	if item.is_in_group("shelved"):
 		item.remove_from_group("shelved")
 	if item.has_meta("_was_interactable"):
@@ -792,6 +806,7 @@ func retrieve_to_carry(slot_idx: int, isys: Node) -> bool:
 
 	## Pop from top of stack
 	var item: RigidBody3D = stack.pop_back()
+	_cancel_move(item)
 
 	## Remove shelved guard so pickup is allowed again
 	if item.is_in_group("shelved"):
@@ -835,6 +850,7 @@ func retrieve_to_inventory(slot_idx: int, inv: Node) -> bool:
 		return false
 
 	var item: RigidBody3D = stack.pop_back()
+	_cancel_move(item)
 
 	## Remove shelved guard before handing to inventory
 	if item.is_in_group("shelved"):
@@ -865,6 +881,7 @@ func eject_all_items() -> void:
 	for i: int in slots.size():
 		var stack: Array = slots[i]
 		for item: RigidBody3D in stack:
+			_cancel_move(item)
 			if item == null:
 				continue
 			if item.get_parent() != world_root:
@@ -951,6 +968,91 @@ func _first_empty_slot() -> int:
 	for i: int in slots.size():
 		if slots[i].is_empty(): return i
 	return -1
+
+# ─── Moving a stored stack (Oct 2026, StorageUI "Move") ──────────────────────
+## The whole stack in `from_idx` moves to `to_idx`. Rules (same as placing):
+## the target is empty, or holds the same item type with room for the whole
+## stack. Nothing a resident has claimed (about to fetch) moves, and nothing
+## moves onto a claimed stack.
+const MOVE_CLEARANCE: float = 0.22   ## how far past the shelf face items travel
+const MOVE_OUT_TIME: float = 0.16
+const MOVE_IN_TIME: float = 0.16
+const MOVE_STAGGER: float = 0.04
+
+func can_move_slot(from_idx: int, to_idx: int) -> bool:
+	if from_idx == to_idx or from_idx < 0 or to_idx < 0 \
+			or from_idx >= slots.size() or to_idx >= slots.size():
+		return false
+	var source: Array = slots[from_idx]
+	var target: Array = slots[to_idx]
+	if source.is_empty():
+		return false
+	for item: Variant in source + target:
+		if is_instance_valid(item) and NPCItemUser.is_claimed_by_anyone(item):
+			return false
+	if target.is_empty():
+		return true
+	var lead: RigidBody3D = source[0]
+	return _get_item_type(target[0]) == _get_item_type(lead) \
+		and target.size() + source.size() <= _get_stack_limit(lead)
+
+## Moves the stack and animates each item out past the shelf face (the side
+## nearer `viewer`, so nothing clips the posts or its neighbours), across to
+## the new slot while still clear, then back in. `slots` updates at once, so
+## saves and NPC queries see the new layout immediately.
+func move_slot(from_idx: int, to_idx: int, viewer: Node3D = null) -> bool:
+	if not can_move_slot(from_idx, to_idx):
+		return false
+	var moving: Array = slots[from_idx].duplicate()
+	slots[from_idx].clear()
+	var side: float = 1.0
+	if viewer != null and is_instance_valid(viewer):
+		side = 1.0 if to_local(viewer.global_position).z >= 0.0 else -1.0
+	var face_z: float = side * (unit_d * 0.5 + MOVE_CLEARANCE)
+	for k: int in moving.size():
+		var item: RigidBody3D = moving[k]
+		var stack_idx: int = slots[to_idx].size()
+		slots[to_idx].append(item)
+		## Residents leave what the player arranged alone for a game day.
+		item.set_meta("player_placed_h", NPCClock.now())
+		_animate_move(item, to_idx, stack_idx, face_z, k * MOVE_STAGGER)
+		item_moved.emit(from_idx, to_idx, item)
+	return true
+
+func _animate_move(item: RigidBody3D, slot_idx: int, stack_idx: int, face_z: float,
+		delay: float) -> void:
+	_cancel_move(item)
+	var pose: Array = _slot_pose(item, slot_idx, stack_idx)
+	var target_pos: Vector3 = pose[0]
+	var target_rot: Vector3 = pose[1]
+	var start_local: Vector3 = to_local(item.global_position)
+	var end_local: Vector3 = to_local(target_pos)
+	var out_start: Vector3 = to_global(Vector3(start_local.x, start_local.y, face_z))
+	var out_end: Vector3 = to_global(Vector3(end_local.x, end_local.y, face_z))
+	var across: float = clampf(0.14 + out_start.distance_to(out_end) * 0.22, 0.18, 0.5)
+	var tween: Tween = item.create_tween()
+	item.set_meta("_shelf_move_tween", tween)
+	tween.tween_interval(delay)
+	tween.tween_property(item, "global_position", out_start, MOVE_OUT_TIME) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	tween.tween_property(item, "global_position", out_end, across) \
+		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	tween.parallel().tween_property(item, "global_rotation", target_rot, across)
+	tween.tween_property(item, "global_position", target_pos, MOVE_IN_TIME) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	tween.tween_callback(func() -> void:
+		item.global_position = target_pos
+		item.global_rotation = target_rot
+		item.remove_meta("_shelf_move_tween"))
+
+## An item leaving storage mid-move must not be pulled back to the shelf.
+func _cancel_move(item: Node) -> void:
+	if item == null or not is_instance_valid(item) or not item.has_meta("_shelf_move_tween"):
+		return
+	var tween: Variant = item.get_meta("_shelf_move_tween")
+	if tween is Tween and (tween as Tween).is_valid():
+		(tween as Tween).kill()
+	item.remove_meta("_shelf_move_tween")
 
 # ─── StorageUI contract (Aug 2026 — Storage UI Unification pass) ────────────
 ## Thin wrappers over this file's own pre-existing slot_top_item()/

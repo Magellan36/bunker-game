@@ -418,6 +418,28 @@ text no longer renders anywhere). See
 the full change — this note exists so a furniture-thread reader isn't
 surprised by the config value change if they touch these files next.
 
+## Moving items between shelf slots (Oct 2026)
+`Shelving` only (dressers and end tables store items hidden, so they have no
+slots to move between). From `StorageUI`, **Move** → choose a slot.
+- `can_move_slot(from, to) -> bool`: the target is empty, or the same item
+  type (`_get_item_type`) with room for the **whole** source stack
+  (`_get_stack_limit`). Refused if any item in either stack is claimed by a
+  resident (`NPCItemUser.is_claimed_by_anyone`).
+- `move_slot(from, to, viewer) -> bool`: updates `slots` at once (saves
+  and NPC queries see the new layout immediately) and stamps every moved
+  item with `player_placed_h = NPCClock.now()`, so residents leave it alone
+  for a game day. Each item slides out past the shelf face on the viewer's
+  side (`MOVE_CLEARANCE` 0.22 m), travels across while clear of the posts
+  and neighbours, then slides in (0.16 s out and in, 0.18–0.5 s across,
+  0.04 s stagger per stacked item). Emits `item_moved(from, to, item)` per
+  item.
+- The move tween lives in the item's `_shelf_move_tween` meta. Every path
+  that takes an item off the shelf (`npc_retrieve`, `retrieve_to_*`,
+  `eject_all_items`) kills it first via `_cancel_move()`.
+- Placement is split into `_slot_pose()` (where an item rests) and
+  `_finish_place_item()`. `_place_item_in_slot()` is unchanged in behaviour.
+- Test: `tools/tests/shelf_move_slot_smoke.gd`.
+
 ## Forbidden edits
 - **Don't skip the `from_inventory` flag when adding a new item.** Every
   item needs it set correctly by `InteractionSystem` (world pickup vs.

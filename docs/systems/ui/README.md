@@ -160,6 +160,16 @@ sometimes `toggle()` / `is_open() -> bool`, plus panel-specific setters
 - `StorageUI`: `open(target: Node3D)`, `close()`, `is_open: bool` — shared
   storage overlay (Aug 2026, replaces `ShelfUI`/`BasketUI`), see "Storage
   UI Unification" below.
+- `StorageUI` **move mode** (Oct 2026): shown when the target has
+  `move_slot`/`can_move_slot` (shelves). Move (pad X) on the selected stack →
+  valid slots stay lit, others fade to 35% and drop out of focus → Enter/A or
+  click places it; Esc/E/B cancel the move (the nav's `close_on_cancel` is
+  off while moving), the header Close still closes. The preview glides from
+  the old card to the new one (`UIMotion.duration(0.26)`, instant with
+  reduced motion) and the selection follows it. Move is disabled when the
+  stack is claimed by a resident or has nowhere to go. See
+  `docs/systems/furniture-items/README.md`, "Moving items between shelf
+  slots".
 - `HUD`: `set_health/stamina/food/water/sleep(value)`, `set_cash(amount)`,
   `set_clock(display)`, `set_day(day)`, `set_build_mode(enabled)`,
   `spawn_float_label(...)`, `show_cash_delta(...)`, `show_soft_warning(text)`.

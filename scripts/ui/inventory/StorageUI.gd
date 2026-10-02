@@ -35,6 +35,7 @@ var _state_meter: ItemStateMeter
 var _footer_hint: Label
 var _carry: Button
 var _inventory: Button
+var _move: Button
 var _close: Button
 var _cards: Array[Button] = []
 var _signatures: Array[String] = []
@@ -45,6 +46,12 @@ var _controller_nav: ControllerUINavigation
 var _refresh_elapsed := 0.0
 var _key_hints: HBoxContainer
 var _pad_hints: HBoxContainer
+## Move mode (Oct 2026, shelves only): the visual slot whose stack is being
+## moved, or -1. _arriving is the card the glide lands on (kept faded until
+## the preview gets there).
+var _moving_from := -1
+var _arriving := -1
+var _ghost: TextureRect
 
 func _ready() -> void:
 	layer = 60
@@ -136,6 +143,14 @@ func _build() -> void:
 	_carry.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_carry.pressed.connect(_take_for_carry)
 	actions.add_child(_carry)
+	## Move: only for targets with slot geometry (Shelving.move_slot).
+	_move = Button.new()
+	_move.text = "Move"
+	Q.nav_button(_move, 15, 40.0)
+	_move.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_move.custom_minimum_size.x = 84.0
+	_move.pressed.connect(_toggle_move)
+	actions.add_child(_move)
 	_inventory = Button.new()
 	_inventory.text = "Add to inventory"
 	Q.primary_action(_inventory, 15, 40.0)
@@ -155,13 +170,30 @@ func _build() -> void:
 	_pad_hints.alignment = BoxContainer.ALIGNMENT_END
 	_pad_hints.add_theme_constant_override("separation", 16)
 	body.add_child(_pad_hints)
+	_build_hints()
+
+	get_viewport().size_changed.connect(_layout)
+
+## Hints follow the mode: browsing (select/carry/close) or moving
+## (place/cancel).
+func _build_hints() -> void:
+	for row: HBoxContainer in [_key_hints, _pad_hints]:
+		for child: Node in row.get_children():
+			row.remove_child(child)
+			child.queue_free()
+	if _moving_from >= 0:
+		BunkerUIComponents.key_hint(_key_hints, "ENTER", "Place", "ENTER", "ENTER")
+		BunkerUIComponents.key_hint(_key_hints, "ESC", "Cancel", "ESC", "ESC")
+		BunkerUIComponents.key_hint(_pad_hints, "A", "Place", "A", "A")
+		BunkerUIComponents.key_hint(_pad_hints, "B", "Cancel", "B", "B")
+		return
 	BunkerUIComponents.key_hint(_key_hints, "ENTER", "Select", "ENTER", "ENTER")
 	BunkerUIComponents.key_hint(_key_hints, "ESC", "Close", "ESC", "ESC")
 	BunkerUIComponents.key_hint(_pad_hints, "A", "Carry", "A", "A")
+	if _move != null and _move.visible:
+		BunkerUIComponents.key_hint(_pad_hints, "X", "Move", "X", "X")
 	BunkerUIComponents.key_hint(_pad_hints, "Y", "Inventory", "Y", "Y")
 	BunkerUIComponents.key_hint(_pad_hints, "B", "Close", "B", "B")
-
-	get_viewport().size_changed.connect(_layout)
 
 func _rule() -> HSeparator:
 	var line := HSeparator.new()
@@ -187,8 +219,8 @@ func _ensure_pool(needed: int) -> void:
 		_signatures.append("")
 		_shown_ids.append(0)
 		var card := BunkerItemCard.new()
-		card.pressed.connect(_select.bind(index))
-		card.focus_entered.connect(_select.bind(index))
+		card.pressed.connect(_card_pressed.bind(index))
+		card.focus_entered.connect(_card_focused.bind(index))
 		_grid.add_child(card)
 		_cards.append(card)
 
@@ -210,6 +242,8 @@ func open(target: Node3D) -> void:
 	var primary_word := str(_config.get("primary_button_tooltip", "Carry"))
 	_carry.text = primary_word if "item" in primary_word.to_lower() else primary_word + " item"
 	_selected_visual = -1
+	_move.visible = target.has_method("move_slot") and target.has_method("can_move_slot")
+	_end_move()
 	visible = true
 	is_open = true
 	set_process(true)
@@ -233,6 +267,9 @@ func close() -> void:
 	set_process(false)
 	if _proximity != null:
 		_proximity.unbind()
+	_end_move()
+	if _ghost != null:
+		_end_glide(_ghost)
 	_target = null
 	_selected_visual = -1
 	if interaction_system != null:
@@ -278,6 +315,8 @@ func _refresh(force: bool) -> void:
 			var new_id := item.get_instance_id() if item != null and is_instance_valid(item) else 0
 			if i == _selected_visual and _shown_ids[i] != 0 and new_id != _shown_ids[i]:
 				_selected_visual = -1
+			if i == _moving_from and new_id != _shown_ids[i]:
+				_end_move()   ## the stack left (a resident took it): nothing to move
 			_signatures[i] = sig
 			_shown_ids[i] = new_id
 			if item != null and is_instance_valid(item):
@@ -291,6 +330,7 @@ func _refresh(force: bool) -> void:
 				card.focus_mode = Control.FOCUS_NONE
 		if i == _selected_visual:
 			card.button_pressed = true
+		_apply_move_state(i, card)
 	_configure_focus_neighbors()
 	_refresh_selection()
 	var focus: Control = get_viewport().gui_get_focus_owner()
@@ -312,7 +352,21 @@ func _selection_valid() -> bool:
 		and item.get_instance_id() == _shown_ids[_selected_visual]
 
 func _refresh_selection() -> void:
+	if _moving_from >= 0 and _selection_valid():
+		_selection_eyebrow.text = "MOVING"
+		_selection_eyebrow.visible = true
+		_selection_name.text = ItemPresentation.title(_slot(_moving_from)[0])
+		_selection_detail.text = "Choose a slot."
+		_state_row.hide()
+		_carry.disabled = true
+		_inventory.disabled = true
+		_move.text = "Cancel"
+		_move.disabled = false
+		return
+	_selection_eyebrow.text = "SELECTED"
+	_move.text = "Move"
 	if not _selection_valid():
+		_move.disabled = true
 		_selection_eyebrow.visible = false
 		_selection_name.text = ""
 		_selection_name.visible = false
@@ -334,6 +388,7 @@ func _refresh_selection() -> void:
 	_carry.disabled = hands_blocked
 	_inventory.disabled = inventory == null \
 		or (inventory.has_method("is_full") and inventory.is_full())
+	_move.disabled = not _can_move_from(_selected_visual)
 
 func _has_items() -> bool:
 	for i: int in mini(int(_config.get("slot_count", 0)), _cards.size()):
@@ -451,14 +506,163 @@ func _last_focus_slot(active: Array[int], columns: int, preferred_column: int) -
 	return best if best >= 0 else (active[-1] if not active.is_empty() else -1)
 
 func _input(event: InputEvent) -> void:
-	if not is_open or not (event is InputEventJoypadButton) or not event.pressed:
+	if not is_open or not event.is_pressed() or event.is_echo():
+		return
+	## Move mode: the nav's close-on-cancel is off, so Esc/E/B land here and
+	## cancel the move instead of closing the panel.
+	if _moving_from >= 0 and ((event is InputEventKey and event.keycode in [KEY_ESCAPE, KEY_E]) \
+			or (event is InputEventJoypadButton and event.button_index == JOY_BUTTON_B)):
+		_cancel_move()
+		get_viewport().set_input_as_handled()
+		return
+	if not (event is InputEventJoypadButton):
 		return
 	var focus := get_viewport().gui_get_focus_owner()
 	if focus == null or not focus in _cards:
 		return
-	if event.button_index == JOY_BUTTON_A:
+	if _moving_from >= 0:
+		if event.button_index == JOY_BUTTON_A:
+			_card_pressed(_cards.find(focus))
+			get_viewport().set_input_as_handled()
+		return
+	if event.button_index == JOY_BUTTON_X and _move.visible:
+		_select(_cards.find(focus))
+		_toggle_move()
+		get_viewport().set_input_as_handled()
+	elif event.button_index == JOY_BUTTON_A:
 		_take_for_carry()
 		get_viewport().set_input_as_handled()
 	elif event.button_index == JOY_BUTTON_Y:
 		_take_for_inventory()
 		get_viewport().set_input_as_handled()
+
+
+# ── Move between slots (shelves) ──────────────────────────────────────────
+
+func _card_pressed(index: int) -> void:
+	if _moving_from < 0:
+		_select(index)
+	elif index == _moving_from:
+		_cancel_move()
+	elif _can_move_to(index):
+		_complete_move(index)
+	else:
+		_cards[index].button_pressed = false
+
+func _card_focused(index: int) -> void:
+	if _moving_from < 0:
+		_select(index)
+
+func _can_move_to(visual: int) -> bool:
+	return _moving_from >= 0 and visual != _moving_from and _target != null \
+		and is_instance_valid(_target) and _target.has_method("can_move_slot") \
+		and bool(_target.can_move_slot(_data_index(_moving_from), _data_index(visual)))
+
+## True when the stack at `visual` has at least one slot it may go to
+## (claimed by a resident, or nowhere free → false).
+func _can_move_from(visual: int) -> bool:
+	if not _move.visible or visual < 0 or _target == null or not is_instance_valid(_target):
+		return false
+	for i: int in int(_config.get("slot_count", 0)):
+		if i != visual and bool(_target.can_move_slot(_data_index(visual), _data_index(i))):
+			return true
+	return false
+
+## Browsing: occupied cards focusable, all at full strength. Moving: the
+## source and valid targets stay lit and focusable; everything else fades.
+func _apply_move_state(i: int, card: Button) -> void:
+	if i == _arriving:
+		return
+	if _moving_from < 0:
+		card.modulate.a = 1.0
+		card.focus_mode = Control.FOCUS_ALL if _shown_ids[i] != 0 else Control.FOCUS_NONE
+		return
+	var valid: bool = i == _moving_from or _can_move_to(i)
+	card.modulate.a = 1.0 if valid else 0.35
+	card.focus_mode = Control.FOCUS_ALL if valid else Control.FOCUS_NONE
+
+func _toggle_move() -> void:
+	if _moving_from >= 0:
+		_cancel_move()
+		return
+	if not _selection_valid() or _move.disabled:
+		return
+	_moving_from = _selected_visual
+	_controller_nav.close_on_cancel = false
+	_build_hints()
+	_refresh(false)
+	## Land on the nearest valid slot so Enter/A places straight away.
+	for offset: int in range(1, _cards.size()):
+		var i: int = (_moving_from + offset) % _cards.size()
+		if i < int(_config["slot_count"]) and _can_move_to(i):
+			_cards[i].grab_focus()
+			return
+
+func _cancel_move() -> void:
+	var from := _moving_from
+	_end_move()
+	if from >= 0 and is_open:
+		_refresh(false)
+		_select(from)
+		_cards[from].grab_focus()
+
+func _end_move() -> void:
+	_moving_from = -1
+	if _controller_nav != null:
+		_controller_nav.close_on_cancel = true
+	if _key_hints != null:
+		_build_hints()
+
+func _complete_move(to: int) -> void:
+	var from := _moving_from
+	var texture: Texture2D = (_cards[from] as BunkerItemCard).preview.texture
+	var start: Rect2 = (_cards[from] as BunkerItemCard).preview.get_global_rect()
+	var end: Rect2 = (_cards[to] as BunkerItemCard).preview.get_global_rect()
+	var viewer := get_tree().get_first_node_in_group("player") as Node3D
+	_end_move()
+	if not bool(_target.move_slot(_data_index(from), _data_index(to), viewer)):
+		_refresh(true)
+		return
+	_selected_visual = to
+	_refresh(true)
+	_select(to)
+	_cards[to].grab_focus()
+	_glide(texture, start, end, to)
+
+## The preview lifts off the old card and settles on the new one, which
+## fades in under it as it lands.
+func _glide(texture: Texture2D, start: Rect2, end: Rect2, to: int) -> void:
+	if UIMotion.reduced() or texture == null:
+		return
+	if _ghost != null and is_instance_valid(_ghost):
+		_ghost.queue_free()
+	if _arriving >= 0 and _arriving < _cards.size():
+		_cards[_arriving].modulate.a = 1.0
+	_ghost = TextureRect.new()
+	_ghost.texture = texture
+	_ghost.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_ghost.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ghost.position = start.position
+	_ghost.size = start.size
+	_root.add_child(_ghost)
+	_arriving = to
+	var card: Button = _cards[to]
+	card.modulate.a = 0.0
+	var time: float = UIMotion.duration(0.26)
+	var tween := _ghost.create_tween()
+	tween.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	tween.tween_property(_ghost, "position", end.position, time)
+	tween.parallel().tween_property(_ghost, "size", end.size, time)
+	tween.tween_property(card, "modulate:a", 1.0, UIMotion.duration(0.12))
+	tween.parallel().tween_property(_ghost, "modulate:a", 0.0, UIMotion.duration(0.12))
+	tween.tween_callback(_end_glide.bind(_ghost))
+
+func _end_glide(ghost: TextureRect) -> void:
+	if is_instance_valid(ghost):
+		ghost.queue_free()
+	if ghost == _ghost:
+		if _arriving >= 0 and _arriving < _cards.size():
+			_cards[_arriving].modulate.a = 1.0
+		_ghost = null
+		_arriving = -1
