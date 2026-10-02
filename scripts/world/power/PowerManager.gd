@@ -3314,11 +3314,15 @@ func _recalculate_capacity() -> void:
 			total_capacity_watts += float(gen.get("watts", 0.0))
 
 
+## Cached once per generator tick — see BunkerPhase (Oct 2026).
+var _time_frozen: bool = false
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # INTERNAL — PROCESS TICKS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 func _tick_generators(delta: float) -> void:
+	_time_frozen = BunkerPhase.preparing(get_tree())
 	## Generators only drain fuel when the grid is live and they are actually
 	## providing power.  TRIPPED / OFFLINE → all generators should already be
 	## stopped; skip entirely to prevent phantom fuel loss.
@@ -3340,6 +3344,10 @@ func _tick_generators(delta: float) -> void:
 		## never drain — they represent an infinite external supply, not a
 		## physical fuel-burning unit.
 		if gen.get("infinite", false):
+			continue
+		## Before Day 1 (BunkerPhase preparation) nothing is used up: the grid
+		## can be tested and batteries charged without burning stored fuel.
+		if _time_frozen:
 			continue
 
 		var gen_w:    float = maxf(float(gen.get("watts", 0.0)), 1.0)

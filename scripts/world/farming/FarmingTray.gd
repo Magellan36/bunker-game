@@ -219,6 +219,8 @@ func is_fully_soiled() -> bool:
 func fill_soil_at_cell(cell_index: int) -> bool:
 	if cell_index < 0 or cell_index >= cell_count:
 		return false
+	if BunkerPhase.preparing(get_tree()):
+		return false   ## Oct 2026: nothing is planted before Day 1 (BunkerPhase)
 	if soil_filled[cell_index]:
 		return false
 	soil_filled[cell_index] = true
@@ -285,6 +287,8 @@ func has_already_fertilized_growing_cell() -> bool:
 ## Also applies to empty-but-soiled cells (preps them for next planting).
 ## Returns true if fertilizer was applied.
 func fertilize_first_open_cell(tier: String) -> bool:
+	if BunkerPhase.preparing(get_tree()):
+		return false   ## Oct 2026: supplies wait for Day 1 (BunkerPhase)
 	for i: int in range(cell_count):
 		var p: FarmPlant = plant_refs[i]
 		if p != null and is_instance_valid(p) and not p.is_ready() and not p.is_fertilized():
@@ -307,6 +311,8 @@ func fertilize_first_open_cell(tier: String) -> bool:
 func plant_seed_at_cell(cell_index: int, plant_type: String) -> bool:
 	if cell_index < 0 or cell_index >= cell_count:
 		return false
+	if BunkerPhase.preparing(get_tree()):
+		return false   ## Oct 2026: nothing is planted before Day 1 (BunkerPhase)
 	if not soil_filled[cell_index] or planted_type[cell_index] != "":
 		return false
 	planted_type[cell_index] = plant_type

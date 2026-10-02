@@ -145,6 +145,8 @@ func _process(delta: float) -> void:
 			_wm = get_tree().get_first_node_in_group("water_manager") as WaterManager
 		if _wm != null:
 			current_flow_mL_per_day = _wm.get_flow_through_purifier_mL(node_key)
+	if BunkerPhase.preparing(get_tree()):
+		return   ## Oct 2026: filters don't wear before Day 1 (BunkerPhase)
 	var quality_mult: float = _compute_wear_multiplier()
 	var flow_mult: float    = _compute_flow_wear_multiplier(current_flow_mL_per_day)
 	var rate: float = _compute_depletion_per_second() * quality_mult * flow_mult

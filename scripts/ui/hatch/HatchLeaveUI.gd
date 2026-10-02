@@ -42,7 +42,7 @@ func _build_content() -> void:
 	_water = W.stat(_details, "Water", "Water")
 	_fuel = W.stat(_details, "Fuel", "Fuel")
 	_cash = W.stat(_details, "Cash", "Unspent cash")
-	_cash_hint = W.label(_details, "CashHint", "Cash can't be spent after you leave.", 14, "secondary")
+	_cash_hint = W.label(_details, "CashHint", "Unspent cash is lost when you leave.", 14, "warning")
 	_leave_btn = W.button(_footer, "Leave", "Leave", _on_leave_pressed, "", true)
 	## The one big action on this surface.
 	_leave_btn.custom_minimum_size.y = 52.0

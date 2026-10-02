@@ -1,14 +1,20 @@
 extends RefCounted
 ## SaveSlotFormat.gd (Sep 2026) — one wording for save slots everywhere
 ## (main menu Continue/Load, pause Save/Load): "Day 3  ·  2:20 PM  ·  2 hours ago".
+## A save from before the apocalypse (BunkerPhase preparation, Oct 2026) has
+## no day or time yet: "Preparation  ·  2 hours ago".
 ## Preload it: const SLOT_FORMAT := preload("res://scripts/ui/common/SaveSlotFormat.gd")
 
 static func describe(info: Dictionary) -> String:
-	var day: Variant = info.get("day", "?")
-	var parts: PackedStringArray = ["Day %s" % (str(int(day)) if day is float or day is int else str(day))]
-	var time_display := str(info.get("time_display", ""))
-	if not time_display.is_empty() and time_display != "?":
-		parts.append(time_display)
+	var parts: PackedStringArray = []
+	if bool(info.get("preparation", false)):
+		parts.append("Preparation")
+	else:
+		var day: Variant = info.get("day", "?")
+		parts.append("Day %s" % (str(int(day)) if day is float or day is int else str(day)))
+		var time_display := str(info.get("time_display", ""))
+		if not time_display.is_empty() and time_display != "?":
+			parts.append(time_display)
 	var ago := relative_time(str(info.get("timestamp", "")))
 	if not ago.is_empty():
 		parts.append(ago)

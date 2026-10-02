@@ -102,9 +102,26 @@ func _run() -> void:
 		_check((leave_ui.get("_leave_btn") as Button).text == "Leave", "big Leave button")
 		leave_ui.call("close")
 
+	# Nothing wears out or gets used before Day 1.
+	var hookup: Node = get_first_node_in_group("water_hookup")
+	var q0: float = float(hookup.get("water_quality"))
+	for i: int in 30:
+		await process_frame
+	_check(is_equal_approx(float(hookup.get("water_quality")), q0), "water quality holds during preparation")
+	var controller: Node = world.get("_build_controller")
+	var tray: Node = controller.call("_spawn_placed_object", 21,
+		player.global_position + Vector3(2.5, 0.0, 0.0), 0.0)
+	_check(tray != null and not bool(tray.call("fill_soil_at_cell", 0)), "no soil before Day 1")
+	_check(String(load("res://scripts/world/core/BunkerPhase.gd").call("gate_prompt", self, "[E] Fill Tray with Soil"))
+		.ends_with("from Day 1"), "planting prompts say they open on Day 1")
+
 	# Save during preparation.
 	var save_ok: bool = root.get_node("SaveManager").call("save_game", 1)
 	_check(save_ok, "save during preparation")
+	var slot_text: String = load("res://scripts/ui/common/SaveSlotFormat.gd").call("describe",
+		root.get_node("SaveManager").call("get_slot_info", 1))
+	_check(slot_text.begins_with("Preparation") and not slot_text.contains("Day"),
+		"preparation save reads \"Preparation\" (%s)" % slot_text)
 
 	# ── Seal ──
 	var transition: CanvasLayer = SEAL.play(self, phase)
@@ -115,6 +132,8 @@ func _run() -> void:
 			break
 	_check(not is_instance_valid(transition) and not paused, "seal transition plays out and unpauses")
 	_check(phase.is_sealed(), "bunker is sealed")
+	_check(int(world.call("get_cash")) == 0, "leftover cash is gone")
+	_check(tray != null and bool(tray.call("fill_soil_at_cell", 0)), "soil can go in once sealed")
 	var npcs: Array = get_nodes_in_group("npc")
 	_check(npcs.size() == 2, "both survivors came in (%d)" % npcs.size())
 	_check(phase.pending_survivors.is_empty(), "nobody left waiting")

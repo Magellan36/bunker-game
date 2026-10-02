@@ -138,7 +138,7 @@ func get_use_prompt() -> String:
 			return "[E] Add to Pot  →  %.1f Filling%s" % [preview["total"], bonus_txt]
 	var tray: FarmingTray = _find_nearest_plantable_tray()
 	if tray != null:
-		return "[E] Plant %s" % get_display_name()
+		return BunkerPhase.gate_prompt(get_tree(), "[E] Plant %s" % get_display_name())
 	return "[E] Eat  %s" % get_display_name()
 
 ## Fully consumed in one call — no charge tracking, no empty-state.
@@ -154,6 +154,8 @@ func on_use() -> void:
 	## same reason (player manual planting is never gated by the lock).
 	var tray: FarmingTray = _find_nearest_plantable_tray()
 	if tray != null:
+		if BunkerPhase.block_planting(get_tree()):
+			return
 		var cell_index: int = tray.nearest_open_plantable_cell_to(global_position)
 		if cell_index >= 0 and tray.plant_seed_at_cell(cell_index, produce_type):
 			queue_free()

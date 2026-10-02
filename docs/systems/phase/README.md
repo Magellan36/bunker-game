@@ -43,7 +43,7 @@ every NPC/build/power/hatch harness and every old save keeps working. F7 →
 | `scripts/world/items/SalvageItem.gd` | Placeholder salvage sphere (one per material, carries a unit count). |
 | `scripts/ui/hatch/HatchLeaveUI.gd` | Pre-apocalypse hatch inspector: readiness check + **Leave** + confirm. |
 | `scripts/ui/hatch/SealTransition.gd` | Full-screen seal moment (archetype D); calls `seal()` behind black. |
-| `tools/tests/bunker_phase_smoke.gd` | Drives the whole flow (41 checks). |
+| `tools/tests/bunker_phase_smoke.gd` | Drives the whole flow (46 checks). |
 
 Touched elsewhere (each change is commented `Oct 2026`):
 `PlayerStats.clock_running` / `get_start_elapsed()`, `SaveManager.register_field(..., on_missing)`,
@@ -78,12 +78,25 @@ Day 11+: hatch [E] → expedition planning (HatchInspectUI, unchanged)
 - `PlayerStats.clock_running = false`: elapsed time, the clock and the
   player's needs all hold. The HUD eyebrow reads **PREPARATION** and the time
   is hidden.
+- **Supplies can be bought and stored, not put to use; nothing wears out**
+  (Brannon, 2026-10-02):
+  - Generators run without burning fuel (`PowerManager._tick_generators`).
+  - Hookup water quality doesn't drop (`WaterHookup._process`).
+  - Purifier filters don't wear (`WaterPurifier._process`).
+  - No soil, seeds, fertilizer or replanted produce go into trays. The
+    tray's own mutators refuse (`FarmingTray.fill_soil_at_cell`,
+    `plant_seed_at_cell`, `fertilize_first_open_cell`), the item prompts end
+    in "· from Day 1" (`BunkerPhase.gate_prompt`), and pressing E shows
+    "Planting starts once the apocalypse begins" (`BunkerPhase.block_planting`).
+- Save slots made now read **"Preparation · 2 hours ago"** instead of a day
+  and time (`SaveManager` meta `preparation`, `SaveSlotFormat.describe`).
 - Survivors picked at New Game are stored in `pending_survivors` (saved) and
   spawned by `seal()`. None exist in the world before then.
 - The hatch opens `HatchLeaveUI` instead of expeditions.
 
 ### The seal (`BunkerPhase.seal()`)
-Closes build mode, clears the build undo stack (nothing bought with cash can
+Closes build mode, **sets cash to 0** (leftover cash is deleted; the Leave
+panel warns "Unspent cash is lost when you leave."), clears the build undo stack (nothing bought with cash can
 be refunded afterwards), resets the clock to Day 1 at the start time and
 starts it, records `sealed_at_elapsed`, spawns the waiting survivors at the
 foot of the ladder (side by side, navmesh-snapped, facing the player), emits
@@ -182,26 +195,29 @@ salvage messages.
 11. **Red cost labels for cash too** before the seal (it was always yellow).
 12. Sealed build mode opens on **Move**; its subtitle reads "Sealed bunker".
 
+## Decided (2026-10-02)
+- **Research storage** will be upgradeable later. Until then the 10-unit cap
+  stands and extra salvage stays as physical spheres in storage.
+- **Wire/pipe cost is linear:** a short run is 1 Metal, a run N lengths long
+  is N Metal (as implemented).
+- **Salvage amounts** stay as guesses until playtesting.
+- **No entropy before Day 1** and no planting — see Preparation above.
+- **Leftover cash is deleted** at the seal.
+- **Preparation saves** read "Preparation".
+
 ## Open questions (pinned)
-- **Metal cap.** The station holds 10 of each material, so one wire run can
-  cost at most 10 Metal (30 m). Raise the cap, or add a storage research?
-- **Wire/pipe rates.** 3 m and 1.5 m per Metal are first guesses. The
-  "+1 Metal each segment" wording was read as a linear cost (N lengths = N
-  Metal), not a growing price per segment. Confirm.
-- **Salvage amounts** (`TILE_SALVAGE`) are placeholders, not balanced.
+- **Things that still accrue during preparation.** Water still flows into
+  dispensers (and bottles can be refilled from them), batteries still charge
+  from fuel-free generators, and research still progresses. Nothing decays,
+  but water can be stockpiled for free before Day 1. Freeze water delivery
+  too?
+- **Other ways of "using" supplies before Day 1** are still allowed:
+  refuelling a generator, swapping a purifier filter, cooking, eating and
+  drinking (needs are held, so eating is wasted). Lock any of these?
 - **Salvage visuals** are tinted spheres. They need real models (and
   provenance) before release.
-- **Systems that keep running in preparation.** Generator fuel burn, water
-  hookup output, purifier quality and farm growth tick by real time, not the
-  held clock. Should they hold until Day 1 too? Growing crops during
-  preparation is currently possible.
-- **Sleep during preparation** has nothing to recover (needs are held).
 - **Moving the water hookup after the seal** drops its attached pipes as
   salvage (same rule as demolishing them).
-- **Cash after the seal** is kept in the save but has no use. Convert it,
-  drop it, or leave it?
-- **Save slot labels** still show "Day 1" for a preparation save. Show
-  "Preparation"?
 - **Pre-existing cash bug, untouched:** before the seal, undoing a pipe run
   refunds the whole run even if some legs were already demolished and
   refunded. After the seal this can't happen (Metal is refunded per

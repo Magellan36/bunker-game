@@ -97,6 +97,7 @@ func get_slot_info(slot: int) -> Dictionary:
 		"day":          meta.get("day", 1),
 		"time_display": meta.get("time_display", "?"),
 		"gender":       meta.get("gender", ""),
+		"preparation":  bool(meta.get("preparation", false)),
 	}
 
 ## Gathers every registered field's current value, writes it to the given slot
@@ -120,6 +121,11 @@ func save_game(slot: int) -> bool:
 		"gender": CharacterCreationData.gender,
 	}
 	var stats: Node = get_tree().get_first_node_in_group("player_stats")
+	## Oct 2026 — a save made before the apocalypse has no day yet; slot
+	## labels read "Preparation" (SaveSlotFormat).
+	var bunker_phase: Node = get_tree().get_first_node_in_group("bunker_phase")
+	if bunker_phase != null and bool(bunker_phase.call("is_preparing")):
+		meta["preparation"] = true
 	if stats != null:
 		meta["day"] = stats.get("current_day")
 		if stats.has_method("get_time_display"):

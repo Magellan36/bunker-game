@@ -27,6 +27,12 @@ const GROUP: StringName = &"bunker_phase"
 const HATCH_LOCK_DAYS: float = 10.0
 const NPC_SCENE_PATH: String = "res://scenes/npc/NPC.tscn"
 const DRAFT_PATH: String = "res://scripts/ui/new_game/SurvivorDraft.gd"
+## Before Day 1 supplies can be bought and stored but not put to use, and
+## nothing wears out: no fuel burn, no water-quality loss, no filter wear,
+## no planting (Brannon, Oct 2026). Each system asks preparing(tree).
+const PLANTING_LOCKED_TEXT: String = "Planting starts once the apocalypse begins"
+## Suffix for use prompts that are locked until Day 1.
+const LOCKED_PROMPT_SUFFIX: String = "  ·  from Day 1"
 
 var phase: int = Phase.LEGACY
 ## PlayerStats elapsed (real seconds) at the moment of the seal.
@@ -57,6 +63,18 @@ static func preparing(tree: SceneTree) -> bool:
 static func sealed(tree: SceneTree) -> bool:
 	var p: BunkerPhase = of(tree)
 	return p != null and p.phase == Phase.POST_APOCALYPSE
+
+## Use-prompt helper: "[E] Plant Tomato" → "[E] Plant Tomato  ·  from Day 1"
+## while preparing, so the prompt says why E won't work yet.
+static func gate_prompt(tree: SceneTree, prompt: String) -> String:
+	return prompt + LOCKED_PROMPT_SUFFIX if prompt != "" and preparing(tree) else prompt
+
+## True (and tells the player why) when a planting action must wait for Day 1.
+static func block_planting(tree: SceneTree) -> bool:
+	if not preparing(tree):
+		return false
+	NotificationManager.feedback(UIKit.Domain.FARMING, NotificationManager.Severity.WARNING, PLANTING_LOCKED_TEXT)
+	return true
 
 
 # ─── Queries ────────────────────────────────────────────────────────────────
@@ -173,6 +191,9 @@ func seal() -> Array[Node]:
 	if is_sealed():
 		return []
 	_close_build_mode()
+	## Cash has no use after the seal; it's gone, not just hidden.
+	if world != null and world.has_method("set_cash"):
+		world.call("set_cash", 0)
 	phase = Phase.POST_APOCALYPSE
 	if player_stats != null:
 		player_stats.set_elapsed(player_stats.get_start_elapsed())

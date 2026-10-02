@@ -100,6 +100,8 @@ func _ready() -> void:
 	call_deferred("_register_deferred")
 
 func _process(delta: float) -> void:
+	if BunkerPhase.preparing(get_tree()):
+		return   ## Oct 2026: water doesn't start going bad until Day 1
 	if _player_stats == null:
 		_player_stats = get_tree().get_first_node_in_group("player_stats")
 	if _player_stats != null and _player_stats._seconds_per_game_hour > 0.0:
