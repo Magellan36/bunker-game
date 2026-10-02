@@ -40,7 +40,7 @@ const THINK_INTERVAL: float = 1.0
 ## cooking, treatment, job-board jobs, going to bed, anything added later)
 ## waits for Day 1. By script file name; commands go through the same gate.
 const PREP_ALLOWED: Array[String] = [
-	"CleaningActivity", "PutAwayHeldItemActivity", "CommandCleaningActivity",
+	"CleaningActivity", "PutAwayHeldItemActivity", "CommandCleaningActivity", "ReorganizeActivity",
 	"WanderActivity", "ForgetfulWanderActivity", "LeisureSitActivity", "LeanActivity",
 	"SitActivity", "RelaxActivity", "RelaxSitActivity", "RelaxLieActivity", "CommandRestActivity",
 	"TalkActivity", "KeepAwayActivity", "HideActivity", "FleeActivity", "BreakUpFightActivity",
@@ -99,6 +99,7 @@ func setup(npc: NPC) -> void:
 		TalkActivity.new(),
 		GiveToFriendActivity.new(),
 		CleaningActivity.new(),
+		preload("res://scripts/npc/activities/ReorganizeActivity.gd").new(),
 		RefuelActivity.new(),
 		PutAwayHeldItemActivity.new(),
 		GardeningActivity.new(),

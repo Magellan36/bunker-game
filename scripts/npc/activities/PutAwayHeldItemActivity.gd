@@ -15,13 +15,18 @@ const SCORE: float = 30.0
 
 var _item: RigidBody3D = null
 var _destination: Node = null
+var _why: String = ""   ## why this storage and not the nearest (StorageProfile reasons)
 var _settled: bool = false
 var _stall: float = 0.0
 var _elapsed: float = 0.0
 const GIVE_UP_SECONDS: float = 30.0
 
 func label() -> String:
-	return "Putting away %s" % NPCSessionActivity.display_name(_item) if _item != null else "Tidying up"
+	if _item == null:
+		return "Tidying up"
+	var where: String = NPCJobQueries.storage_phrase(_why)
+	return "Putting away %s (%s)" % [NPCSessionActivity.display_name(_item), where] if where != "" \
+		else "Putting away %s" % NPCSessionActivity.display_name(_item)
 
 func score(npc: NPC) -> float:
 	return SCORE if NPCItemUser.hands_full(npc) else 0.0
@@ -55,6 +60,8 @@ func enter(npc: NPC) -> void:
 		npc.lock_movement()
 		_settled = true
 		return
+	if not is_trash:
+		_why = NPCJobQueries.announce_storage(npc, _item, _destination)
 	npc.set_nav_target((_destination as Node3D).global_position)
 
 func tick(npc: NPC, delta: float) -> void:

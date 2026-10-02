@@ -31,6 +31,7 @@ const CLUTTER_URGENT: int = 20   ## at/above this, cleaning is a real chore prio
 
 var _item: RigidBody3D = null
 var _destination: Node = null
+var _why: String = ""   ## why this storage and not the nearest (StorageProfile reasons)
 var _is_trash: bool = false
 var _forced_item: RigidBody3D = null
 var _is_forced_session: bool = false
@@ -58,7 +59,10 @@ func label() -> String:
 		return "Tidying up"
 	if _relocating:
 		return "Clearing the way"
-	return "Putting away %s" % display_name(_item) if _destination != null else "Picking up %s" % display_name(_item)
+	if _destination != null:
+		var where: String = NPCJobQueries.storage_phrase(_why)
+		return "Putting away %s (%s)" % [display_name(_item), where] if where != "" else "Putting away %s" % display_name(_item)
+	return "Picking up %s" % display_name(_item)
 
 ## 4 at a tidy bunker → ~30 at a real mess (× work ethic etc.).
 func score(npc: NPC) -> float:
@@ -137,6 +141,7 @@ func _pick_next_target(npc: NPC) -> void:
 	_claim_and_go(npc)
 
 func _claim_and_go(npc: NPC) -> void:
+	_why = ""
 	if not NPCItemUser.claim_item(_item, npc):
 		_skipped_ids[_item.get_instance_id()] = true   ## someone else has it — pick another next tick
 		_item = null
@@ -228,6 +233,7 @@ func _on_picked_up(npc: NPC) -> void:
 	_item.remove_meta("_fetch_s_%d" % npc.get_instance_id())
 	_destination = NPCJobQueries.find_cleaning_destination(npc, _is_trash, _item)
 	if _destination != null:
+		_why = NPCJobQueries.announce_storage(npc, _item, _destination)
 		npc.set_nav_target((_destination as Node3D).global_position)
 		return
 	if _is_forced_session:
@@ -284,7 +290,10 @@ func _tick_carry(npc: NPC, delta: float) -> void:
 		if NPCItemUser.store_held(npc, _destination):
 			_delivered += 1
 			if not was_basket:
-				npc.log_action("Threw away %s" % item_name if _is_trash else "Put away %s" % item_name)
+				var where: String = NPCJobQueries.storage_phrase(_why)
+				npc.log_action("Threw away %s" % item_name if _is_trash \
+					else ("Put away %s %s" % [item_name, where] if where != "" else "Put away %s" % item_name))
+			_why = ""
 		else:
 			NPCItemUser.drop_held(npc)
 			_skipped_ids[_item.get_instance_id()] = true

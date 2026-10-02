@@ -191,6 +191,9 @@ func _try_store_held(item: RigidBody3D) -> void:
 	if "from_inventory" in item: item.from_inventory = false
 
 	_absorb_item(item)
+	## Oct 2026 (NPC re-organizing): residents leave what the player put
+	## away alone for a game day (StorageProfile.pinned).
+	item.set_meta("player_placed_h", NPCClock.now())
 
 ## Shared absorption — used by the F path above. Stored items are invisible:
 ## frozen, collision-off, and excluded from every nearby-item scan via the
@@ -319,6 +322,33 @@ func take_for_carry(slot_idx: int, isys: Node) -> bool:
 	isys.held_item       = item
 	isys._held_from_slot = -1
 	return true
+
+## NPC-side take-out (Oct 2026, re-organizing): take_for_carry() without the
+## player's InteractionSystem. The item goes straight into the resident's
+## hand; returns it, or null if that slot is empty.
+func npc_take(slot_idx: int, npc_hold_point: Node3D) -> RigidBody3D:
+	if slot_idx < 0 or slot_idx >= stored.size() or stored[slot_idx] == null:
+		return null
+	var item: RigidBody3D = stored[slot_idx]
+	stored[slot_idx] = null
+	if item.is_in_group("shelved"):
+		item.remove_from_group("shelved")
+	item.visible = true
+	_reparent_to_world(item)
+	item.freeze           = false
+	item.freeze_mode      = RigidBody3D.FREEZE_MODE_KINEMATIC
+	item.collision_layer  = 2
+	item.collision_mask   = 1
+	item.gravity_scale    = 1.0
+	item.linear_velocity  = Vector3.ZERO
+	item.angular_velocity = Vector3.ZERO
+	if "from_inventory" in item:
+		item.from_inventory = false
+	if npc_hold_point != null:
+		item.global_position = npc_hold_point.global_position   ## not inside the furniture (see take_for_carry)
+	if item.has_method("pickup"):
+		item.pickup(npc_hold_point)
+	return item
 
 ## Secondary "Add to inventory" button — mirrors Shelving.retrieve_to_inventory()
 ## (Shelving.gd:510-532) plus the reparent + visible-restore deltas.

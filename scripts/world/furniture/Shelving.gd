@@ -519,6 +519,9 @@ func _try_place_item(item: RigidBody3D) -> void:
 	slots[slot].append(item)
 	_place_item_in_slot(item, slot, stack_idx)
 	item_placed.emit(slot, item)
+	## Oct 2026 (NPC re-organizing): residents leave what the player put
+	## away alone for a game day (StorageProfile.pinned).
+	item.set_meta("player_placed_h", NPCClock.now())
 
 ## Animate an item flying from the player's hand to its shelf position,
 ## then freeze it in place once it arrives.
@@ -708,8 +711,11 @@ func npc_retrieve(slot_idx: int, npc_hold_point: Node3D) -> RigidBody3D:
 ## doesn't apply to NPCs. Returns false if the shelf has no room — caller
 ## decides what to do next (CleaningActivity just sets the item back
 ## down rather than carrying it forever).
-func npc_try_place_item(npc: Node, item: RigidBody3D) -> bool:
-	var slot: int = _find_slot_for(item)
+## Oct 2026: `slot` (optional) is where the resident wants it
+## (StorageProfile.best_shelf_slot: big things low, its own type beside it);
+## anything invalid falls back to the usual first-free choice.
+func npc_try_place_item(npc: Node, item: RigidBody3D, slot_choice: int = -1) -> bool:
+	var slot: int = slot_choice if slot_choice >= 0 and can_place_in_slot(item, slot_choice) else _find_slot_for(item)
 	if slot == -1:
 		return false
 
@@ -740,6 +746,16 @@ func npc_try_place_item(npc: Node, item: RigidBody3D) -> bool:
 	_place_item_in_slot(item, slot, stack_idx)
 	item_placed.emit(slot, item)
 	return true
+
+## Can this item go in this slot: empty, or a partial stack of the same
+## type with room (the same rules _find_slot_for() applies).
+func can_place_in_slot(item: RigidBody3D, slot_idx: int) -> bool:
+	if item == null or slot_idx < 0 or slot_idx >= slots.size():
+		return false
+	var stack: Array = slots[slot_idx]
+	if stack.is_empty():
+		return true
+	return stack.size() < _get_stack_limit(item) and _get_item_type(stack[0]) == _get_item_type(item)
 
 ## Public capacity check, used so a full shelf isn't chosen as a
 ## destination in the first place — see NPC.find_cleaning_destination().

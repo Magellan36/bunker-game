@@ -5,6 +5,8 @@ class_name NPCItemUser
 ## (Drink/Eat here; Part 4's fetch-based jobs reuse find/pickup/drop as-is).
 ## All world mutation goes through the SAME item methods the player uses.
 
+## Where things belong in storage (Oct 2026): shelf slot choice in store_held().
+const STORAGE_PROFILE: GDScript = preload("res://scripts/npc/queries/StorageProfile.gd")
 const PICKUP_RANGE: float = 1.2      ## must be this close to grab — tuned for small loose items (cans, bottles, tools); left untouched, see SHELF_RANGE's own comment
 const SHELF_RANGE:  float = 2.0      ## Aug 2026 — was 1.6. Brannon: NPCs were visibly walking into/pushing against shelves and other furniture for a second or two before the range check passed. Furniture/job targets got a wider 'close enough' tolerance; small loose-item ranges (PICKUP_RANGE, EatActivity/DrinkActivity's USE_RANGE) deliberately weren't touched — those already felt fine and a single can/bottle looks wrong grabbed from further away.
 
@@ -106,6 +108,13 @@ static func release_item(item: Node) -> void:
 	if item == null:
 		return
 	_claims.erase(item.get_instance_id())
+
+## Claimed by any resident at all (UI: don't move what someone's about to take).
+static func is_claimed_by_anyone(item: Node) -> bool:
+	if item == null:
+		return false
+	var claimant: int = _claims.get(item.get_instance_id(), 0)
+	return claimant != 0 and _owner_alive(claimant)
 
 static func is_claimed_by_other(item: Node, npc: Node) -> bool:
 	if item == null:
@@ -422,8 +431,13 @@ static func store_held(npc: NPC, destination: Node) -> bool:
 		return false
 	if not destination.has_method("npc_try_place_item"):
 		return false
-	if not destination.npc_try_place_item(npc, item):
+	## Oct 2026: on a shelf, a sensible slot (big things low, like beside
+	## like: StorageProfile.best_shelf_slot); drawers and bins take it as is.
+	var placed: bool = destination.npc_try_place_item(npc, item, STORAGE_PROFILE.best_shelf_slot(destination, item)) \
+		if destination.has_method("can_place_in_slot") else destination.npc_try_place_item(npc, item)
+	if not placed:
 		return false
+	STORAGE_PROFILE.invalidate()
 	if npc.held_item == item:
 		npc.held_item = null
 	release_item(item)

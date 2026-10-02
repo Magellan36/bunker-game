@@ -10,6 +10,10 @@ class_name NPCJobQueries
 ## npc.find_cleaning_target(...) etc. anywhere else in the codebase
 ## needs to change — only the implementation moved.
 
+## Where things belong (Oct 2026): size, home area, like with like.
+const STORAGE_PROFILE: GDScript = preload("res://scripts/npc/queries/StorageProfile.gd")
+const CLAIMED_STORAGE_COST: float = 3.0   ## someone's already putting things there (≈ 8 m of walk)
+
 const ORGANIZE_DESTINATION_GROUPS: Dictionary = {
 	"light": ["shelving"],
 	"heavy": ["shelving"],
@@ -117,14 +121,60 @@ static func classify_organizable_item(item: RigidBody3D) -> String:
 static func find_cleaning_destination(npc: NPC, is_trash: bool, item: RigidBody3D = null) -> Node:
 	var group_names: Array = ["trash_receptacle"] if is_trash \
 		else ORGANIZE_DESTINATION_GROUPS.get(classify_organizable_item(item), ["shelving"])
+	if is_trash or item == null:
+		return _nearest_cleaning_destination(npc, group_names, item, is_trash, false)
+	## Oct 2026: not just the nearest with room, but where it belongs (small
+	## things in drawers, fresh food by the kitchen, seeds by the garden, the
+	## stores together...: StorageProfile). Walking still counts. This
+	## replaces the old "light items try drawers first" pass: drawers are
+	## kept for the small things now.
+	return _best_organize_destination(npc, group_names, item)
 
-	var prefer_light_storage: bool = not is_trash and item != null \
-		and classify_organizable_item(item) == "light"
-	if prefer_light_storage:
-		var light_pick: Node = _nearest_cleaning_destination(npc, group_names, item, is_trash, true)
-		if light_pick != null:
-			return light_pick
-	return _nearest_cleaning_destination(npc, group_names, item, is_trash, false)
+static func _best_organize_destination(npc: NPC, group_names: Array, item: RigidBody3D) -> Node:
+	var best: Node = null
+	var best_c: float = INF
+	for group_name: String in group_names:
+		for candidate: Node in npc.get_tree().get_nodes_in_group(group_name):
+			if not is_instance_valid(candidate) or not (candidate is Node3D) or candidate.is_in_group("trash_receptacle"):
+				continue
+			if bool(candidate.get("_is_preview_only")):
+				continue
+			if candidate.has_method("has_room_for") and not candidate.has_room_for(item):
+				continue
+			if npc.job_state.is_unreachable(candidate):
+				continue
+			var c: float = STORAGE_PROFILE.place_cost(item, candidate, npc.global_position)
+			if NPCItemUser.is_claimed_by_other(candidate, npc):
+				c += CLAIMED_STORAGE_COST
+			if c < best_c:
+				best_c = c
+				best = candidate
+	return best
+
+## Brannon (Oct 2026): make it clear why someone walks across the bunker
+## instead of to the nearest storage. Returns the reason key ("" = nearest
+## anyway) and says so now and then (at most every 2 real minutes each).
+const STORAGE_REMARK_GAP_MS: int = 120000
+
+static func announce_storage(npc: NPC, item: Node, destination: Node) -> String:
+	var why: String = storage_reason(npc, item, destination)
+	if why == "":
+		return ""
+	var now: int = Time.get_ticks_msec()
+	if now - int(npc.get_meta("_storage_remark_ms", -STORAGE_REMARK_GAP_MS)) >= STORAGE_REMARK_GAP_MS:
+		npc.set_meta("_storage_remark_ms", now)
+		npc.bark(NPCDialogue.bark_line("organize_" + why))
+	return why
+
+static func storage_phrase(why: String) -> String:
+	return String(STORAGE_PROFILE.PHRASES.get(why, ""))
+
+## Why the resident is taking it there rather than to nearer storage
+## ("by the garden", "in a drawer"...; "" when it's simply the nearest).
+static func storage_reason(npc: NPC, item: Node, destination: Node) -> String:
+	if item == null or destination == null or not (destination is Node3D) or destination.is_in_group("trash_receptacle"):
+		return ""
+	return STORAGE_PROFILE.why_here(npc.global_position, item, destination as Node3D)
 
 static func _nearest_cleaning_destination(npc: NPC, group_names: Array, item: RigidBody3D, is_trash: bool, light_storage_only: bool) -> Node:
 	var best: Node = null

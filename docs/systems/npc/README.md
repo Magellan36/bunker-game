@@ -1517,6 +1517,72 @@ the stall, so it's fair game regardless of what it technically is).
 The `is_trash_item()` classification is only for which log line fires
 ("Threw away" vs "Put away"), not a gate.
 
+**Where things go: organizing storage (Oct 2026, Brannon).** Tidying used to
+take each item to the nearest storage with room, into the first free slot,
+so shelves came out jumbled. `queries/StorageProfile.gd` (no class_name,
+preloaded) gives every item type a size and a family, and storage a sense:
+- **Size:** small things (medicine, filters, seeds, fertilizer, flashlight)
+  go in drawers (End Table, Dresser); bigger things go on shelves (a medium
+  item in a drawer costs as much as walking 12 m, so drawers stay free for
+  small things).
+- **Home area** (bonus fades from full at 2.5 m to none at 7.5 m from the
+  anchor): fresh produce, pots and dishes by the kitchen (stove); seeds,
+  soil and fertilizer by the garden (trays); fuel by the generator; filters
+  by the purifier. Medicine has no home, just small storage.
+- **Stores** (food and water cases, cans, bottles) are one family:
+  long-term bulk storage. It's kept together, leaning slightly toward the
+  kitchen, never split across the bunker because the dispenser is far from
+  the stove. Each type keeps its own rows or shelf.
+- **Like with like:** storage already holding a family or type draws more
+  of it; another type or family on that storage costs a little.
+- **Walking:** 0.4 per metre, so right by a home area is worth about 20 m.
+  A claimed shelf costs about 8 m (residents spread out).
+- **Slot on a shelf** (`best_shelf_slot`, through `NPCItemUser.store_held()`
+  and `Shelving.npc_try_place_item(npc, item, slot)`): top up its own stack
+  first. Otherwise cases low, medium things mid-height, small things on the
+  top tier, beside its own type, and a fresh row rather than a mixed one.
+  The player's F-place stays first-free (Brannon). Moving items between
+  slots from the shelf UI is with the UI session
+  (`plans/HANDOFF_PLAN_shelf_ui_move_slot.md`).
+- **Saying why:** when they walk past nearer storage that had room (4 m+),
+  the label says where and why ("Putting away Onion Seed (by the garden)"),
+  the action log does too, and they remark on it at most every 2 minutes
+  each (`organize_*` lines).
+
+**Re-organizing** (`ReorganizeActivity`, Oct 2026): an organized eye on
+what's already put away. `StorageProfile.moves()` lists single moves into
+free space that make storage clearly tidier (worth at least 4 cost points),
+best first. One shared list, refreshed every 3 s, so residents agree.
+- **Never makes things worse:** no swaps or chains, so storage never passes
+  through a messier state.
+- **Hands off:** never what the player placed in the last game day (meta
+  `player_placed_h`, stamped on F-place to shelf or drawer; the UI move
+  should stamp it too), never something a resident has claimed.
+- **No churn:** never the same item twice in 20 minutes, at most two moves
+  at a time bunker-wide.
+- **Priority:**
+  - normal play: 6 (just above wandering, only when fed and rested,
+    1-2.5 min apart per resident);
+  - preparation: 25 (after putting purchases away, before idling).
+- **Shown:** label "Moving Bandage to the dresser (in a drawer)", log line,
+  occasional remark.
+- **Plumbing:** takes from shelves (`npc_retrieve`) and drawers
+  (`LightStorage.npc_take`, new). If the destination filled up or can't be
+  reached, it hands over to put-away.
+- In-shelf re-arranging into neat rows of what's already stored (pass 3)
+  is on hold (Brannon).
+
+Measured in the real game (slot 2 in preparation, emptied shelves, a
+dresser and an end table added, a 31-item mixed delivery, a second dresser
+by the garden after 200 s):
+- **Stores:** food cases on the bottom row, the 3 water cases in a row above
+  them, cans and bottles on the next row.
+- **Kitchen-side shelf:** produce, pot and dish.
+- **Drawers:** medicine.
+- **Garden dresser:** seeds and fertilizer moved into it once it appeared.
+- **Re-organizing:** 12 moves in preparation, none repeated; in normal play,
+  about 3% of residents' time.
+
 **Time limits and taking turns (human-likeness pass, Sep 2026).** Watching
 the real game showed residents carrying a jerry can or seed bag for
 minutes and five of them jamming one shelf in a corner nook.

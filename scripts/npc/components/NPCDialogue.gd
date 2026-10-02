@@ -247,6 +247,15 @@ const BARKS: Dictionary = {
 	"done_fighting": ["Stay away from me.", "We're done here.", "Don't ever — ever — do that again."],
 	"treat_self":    ["*hisses* Come on...", "Ow — okay, okay.", "This is going to sting.", "Hold it together..."],
 	"treat_other":   ["Hold still.", "Let me see that.", "This'll sting.", "Easy. I've got you."],
+	## Organizing (StorageProfile): why they walk past nearer storage, and
+	## why they move something that's already put away.
+	"organize_garden":    ["Seeds and soil go by the garden.", "Garden things stay by the garden.", "This belongs by the trays."],
+	"organize_kitchen":   ["Fresh food goes by the kitchen.", "This belongs by the stove.", "Kitchen things stay in the kitchen."],
+	"organize_stores":    ["Keeping the stores together.", "Supplies go with the supplies.", "All the stores in one place."],
+	"organize_drawer":    ["Small things go in a drawer.", "This goes in a drawer, not on a shelf.", "Drawers are for the small stuff."],
+	"organize_generator": ["Fuel lives by the generator.", "Fuel goes by the generator."],
+	"organize_purifier":  ["Filters go by the purifier.", "Keeping the filters by the water."],
+	"organize_same":      ["Keeping like with like.", "These go with the others."],
 	## Before the seal (BunkerPhase preparation): an order to use supplies.
 	"prep_refuse":   ["Not yet. That's for after we seal up.", "We're saving that for Day 1.", "Let's not touch the supplies yet."],
 	## Neglect (NPCSocial._tick_neglect): days of it, said to the player's face.
