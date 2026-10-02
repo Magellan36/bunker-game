@@ -37,6 +37,18 @@ const AMBER: Color = Color("dda42e")
 const RED: Color = Color("df5a52")
 const EMPTY: Color = Color("48504d")
 
+## Occupied-slot backdrop: a soft warm pool of light behind the item, so dark
+## items (flashlight, crowbar) read against the scrim. No edge, no ring — a
+## radial falloff that reaches zero inside the slot. Brightens a touch with
+## the selection lift. The preview and the pool fade in together when an item
+## arrives and out when it leaves; the empty ring cross-fades the other way.
+const POOL_TINT: Color = Color(0.949, 0.91, 0.812)   ## IVORY family, warm
+const POOL_ALPHA: float = 0.16
+const POOL_ALPHA_SELECTED: float = 0.22
+const POOL_DIAMETER: float = 66.0
+const POOL_LIFT: float = 2.0     ## centred slightly above the slot middle, where the item sits
+const FILL_TIME: float = 0.22
+
 ## Set by MainWorld after ready.
 var inventory: Node = null
 
@@ -54,6 +66,9 @@ var _vp_textures: Array[Texture2D] = [null, null, null, null]
 var _charge_watched: Array[Node] = []
 var _charge_callbacks: Dictionary = {}
 var _font: Font = null
+var _fill: Array[float] = [0.0, 0.0, 0.0, 0.0]          ## 0 empty .. 1 preview shown
+var _shown_tex: Array[Texture2D] = [null, null, null, null]   ## kept to fade out
+var _pool_tex: Texture2D = null
 
 
 func _ready() -> void:
@@ -62,7 +77,27 @@ func _ready() -> void:
 	_font = UIKit.font()
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS   ## 256 px renders drawn at 60 px
 	PreviewStudio.preview_ready.connect(_on_preview_ready)
+	_pool_tex = _make_pool_texture()
 	set_process(true)
+
+
+## White radial falloff with a long, gentle tail (several stops so the 8-bit
+## alpha never bands); tinted and faded at draw time.
+static func _make_pool_texture() -> Texture2D:
+	var gradient := Gradient.new()
+	gradient.offsets = PackedFloat32Array([0.0, 0.18, 0.38, 0.58, 0.78, 1.0])
+	gradient.colors = PackedColorArray([
+		Color(1, 1, 1, 1.0), Color(1, 1, 1, 0.86), Color(1, 1, 1, 0.55),
+		Color(1, 1, 1, 0.26), Color(1, 1, 1, 0.07), Color(1, 1, 1, 0.0)])
+	gradient.interpolation_mode = Gradient.GRADIENT_INTERPOLATE_CUBIC
+	var tex := GradientTexture2D.new()
+	tex.gradient = gradient
+	tex.fill = GradientTexture2D.FILL_RADIAL
+	tex.fill_from = Vector2(0.5, 0.5)
+	tex.fill_to = Vector2(1.0, 0.5)
+	tex.width = 128
+	tex.height = 128
+	return tex
 
 
 func _on_preview_ready(key: String, tex: Texture2D) -> void:
@@ -82,6 +117,19 @@ func _process(delta: float) -> void:
 		var before: float = _slot_lift[i]
 		_slot_lift[i] = move_toward(before, target, delta * 9.0)
 		needs_redraw = needs_redraw or not is_equal_approx(before, _slot_lift[i])
+
+	var slots: Array = _slots()
+	var fill_step: float = 1.0 if UIMotion.reduced() else delta / FILL_TIME
+	for i: int in SLOT_COUNT:
+		var item: Variant = slots[i] if i < slots.size() else null
+		var present: bool = is_instance_valid(item) and _vp_textures[i] != null
+		if present:
+			_shown_tex[i] = _vp_textures[i]
+		var before_fill: float = _fill[i]
+		_fill[i] = move_toward(before_fill, 1.0 if present else 0.0, fill_step)
+		if _fill[i] <= 0.0:
+			_shown_tex[i] = null
+		needs_redraw = needs_redraw or before_fill != _fill[i]
 
 	if _drawer_slot >= 0:
 		_drawer_age += delta
@@ -207,11 +255,19 @@ func _draw_slot(index: int, item: Node) -> void:
 		draw_rect(Rect2(Vector2(rect.get_center().x - underline_w * 0.5, rect.end.y - 3.0),
 			Vector2(underline_w, 2.0)), Color(ACCENT, lift_t), true)
 
-	if is_instance_valid(item) and index < _vp_textures.size() and _vp_textures[index] != null:
-		var preview_rect: Rect2 = Rect2(rect.position + Vector2(6.0, 6.0), Vector2(60.0, 60.0))
-		draw_texture_rect(_vp_textures[index], preview_rect, false)   ## mipmapped studio render
-	elif not is_instance_valid(item):
-		_draw_empty_slot(rect)   ## the dashed ring marks an EMPTY slot only
+	var fill: float = _smooth(_fill[index])
+	if fill > 0.001 and _shown_tex[index] != null:
+		var pool_alpha: float = lerpf(POOL_ALPHA, POOL_ALPHA_SELECTED, lift_t) * fill
+		var pool_center: Vector2 = rect.get_center() - Vector2(0.0, POOL_LIFT)
+		draw_texture_rect(_pool_tex, Rect2(pool_center - Vector2.ONE * POOL_DIAMETER * 0.5,
+			Vector2.ONE * POOL_DIAMETER), false, Color(POOL_TINT, pool_alpha))
+		## Settles in from 2 px low and 4 % small as it fades in.
+		var size: float = 60.0 * lerpf(0.96, 1.0, fill)
+		var preview_rect: Rect2 = Rect2(rect.get_center() - Vector2.ONE * size * 0.5
+			+ Vector2(0.0, (1.0 - fill) * 2.0), Vector2(size, size))
+		draw_texture_rect(_shown_tex[index], preview_rect, false, Color(1, 1, 1, fill))   ## mipmapped studio render
+	if not is_instance_valid(item) and fill < 0.999:
+		_draw_empty_slot(rect, 1.0 - fill)   ## the dashed ring marks an EMPTY slot only
 
 	_draw_slot_number(rect, index + 1, selected)
 	if is_instance_valid(item):
@@ -225,12 +281,12 @@ func _draw_slot_number(rect: Rect2, number: int, selected: bool) -> void:
 	draw_string(_font, at, value, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, IVORY if selected else HEADING)
 
 
-func _draw_empty_slot(rect: Rect2) -> void:
+func _draw_empty_slot(rect: Rect2, alpha: float = 1.0) -> void:
 	var center: Vector2 = rect.get_center()
 	for i: int in 12:
 		var start_angle: float = -PI * 0.5 + TAU * float(i) / 12.0
 		var end_angle: float = start_angle + TAU / 36.0
-		draw_arc(center, 12.0, start_angle, end_angle, 3, Color(HEADING, 0.3), 1.2, true)
+		draw_arc(center, 12.0, start_angle, end_angle, 3, Color(HEADING, 0.3 * alpha), 1.2, true)
 
 
 func _draw_item_meter(rect: Rect2, item: Node) -> void:
@@ -289,6 +345,10 @@ func _drawer_alpha() -> float:
 	if _drawer_age < DRAWER_IN + DRAWER_HOLD:
 		return 1.0
 	return 1.0 - _ease_in((_drawer_age - DRAWER_IN - DRAWER_HOLD) / DRAWER_OUT)
+
+
+func _smooth(value: float) -> float:
+	return smoothstep(0.0, 1.0, value)
 
 
 func _ease_out(value: float) -> float:

@@ -218,7 +218,10 @@ calm identity tints (health `#b8746a`, food `#c49a62`, stamina `#93a97f`,
 water `#7c9db5`, sleep `#9a8db3`) → WARNING below 25 %, RED below 12 %,
 blended over a 4 % band (`NeedsGauge.need_color`). Hotbar: scrim slots, brass
 number, selection = lift + wash + ACCENT underline, name reveal as shadowed
-text. Prompts: scrim (no border), nominal states `● WORD` with a steel dot
+text. An occupied slot sits its 3D preview in a soft warm light pool (IVORY
+radial falloff, 16 %, 22 % when selected, no edge) so dark items read; the
+preview and pool fade in over 0.22 s, and the dotted ring marks empty slots
+only. Prompts: scrim (no border), nominal states `● WORD` with a steel dot
 and muted word, warnings/faults coloured. The HUD's needs/effects fade out in
 build mode (the HUD yields to tool panels).
 
