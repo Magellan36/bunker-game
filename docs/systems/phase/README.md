@@ -9,11 +9,13 @@ changing anything that spends or refunds cash.**
 A run has two acts.
 
 1. **Pre-Apocalypse (preparation).** The player spends cash in the shop,
-   builds, wires and plumbs the bunker. The clock holds before Day 1, needs
-   don't drain, and the survivors picked at New Game wait outside.
+   builds, wires and plumbs the bunker. The clock holds before Day 1 and
+   needs don't drain. The survivors picked at New Game are already inside,
+   helping put purchases away (NPC behaviour during preparation is owned by
+   the NPC system — see `docs/systems/npc/README.md`).
 2. **Post-Apocalypse (sealed).** Started by pressing **Leave** at the
-   Surface Hatch. The shop closes for good, nothing new can be built, the
-   survivors come in, and Day 1 begins. The bunker runs on what was
+   Surface Hatch. The shop closes for good, nothing new can be built, and
+   Day 1 begins. The bunker runs on what was
    prepared. Demolishing drops salvage; wire and pipe cost Metal from the
    Research Station. The hatch can't be used for 10 days.
 
@@ -27,7 +29,7 @@ salvage keeps repair possible).
 | Value | When | Rules |
 |---|---|---|
 | `LEGACY` (0) | Saves written before this feature, `MainWorld.tscn` run directly, test harnesses | Exactly the old game: cash economy, clock runs, construct allowed, hatch open. |
-| `PRE_APOCALYPSE` (1) | A New Game (`WorldManager.pending_new_game` at MainWorld startup) | Cash economy, clock held, survivors queued, hatch shows Leave. |
+| `PRE_APOCALYPSE` (1) | A New Game (`WorldManager.pending_new_game` at MainWorld startup) | Cash economy, clock held, residents tidy, hatch shows Leave. |
 | `POST_APOCALYPSE` (2) | After `BunkerPhase.seal()` | Salvage economy, build/duplicate/shop locked, hatch locked for `HATCH_LOCK_DAYS` (10). |
 
 `LEGACY` exists so nothing that isn't a real New Game changes behaviour:
@@ -59,14 +61,15 @@ Touched elsewhere (each change is commented `Oct 2026`):
 
 ```
 New Game → character → loading (MainWorld: begin_preparation)
-  → survivor selection → Confirm → BunkerPhase.queue_survivors()
-  → "Survivors will join when the apocalypse begins." → bunker, PREPARATION
+  → survivor selection → Confirm → residents spawned beside the player
+  → "Your chosen survivors will assist you in setting up the bunker."
+  → bunker, PREPARATION (residents mostly tidy and put purchases away)
   … shop / build / wire / pipe with cash …
 Surface Hatch [E] → HatchLeaveUI → Leave → "Are you certain you're ready?"
   → Leave → SealTransition: fade to black → pause → BunkerPhase.seal():
        close build mode, clear the undo stack, clock → Day 1 6:00 AM,
-       spawn survivors at the ladder facing the player, phase_changed
-     → "DAY 1 / The hatch is sealed. / Mara and Ode came in with you."
+       phase_changed (NPCs return to normal behaviour)
+     → "DAY 1 / The hatch is sealed. / Mara and Ode are in here with you."
      → unpause → black lifts
 Day 1–10: hatch [E] → toast "N days until it is safe to travel"
 Day 11+: hatch [E] → expedition planning (HatchInspectUI, unchanged)
@@ -112,8 +115,15 @@ Day 11+: hatch [E] → expedition planning (HatchInspectUI, unchanged)
   for wire and pipe.
 - Save slots made now read **"Preparation · 2 hours ago"** instead of a day
   and time (`SaveManager` meta `preparation`, `SaveSlotFormat.describe`).
-- Survivors picked at New Game are stored in `pending_survivors` (saved) and
-  spawned by `seal()`. None exist in the world before then.
+- **Survivors join during preparation** (Brannon, 2026-10-02, reversing the
+  first design): `SurvivorSelectScreen.spawn_selected()` spawns them on
+  Confirm. While `BunkerPhase.preparing()` the NPC system freezes their
+  needs/morale with the clock, keeps them off every supply (no eating,
+  drinking, refuelling, gardening, cooking, treatment), heavily favours
+  tidying/putting away loose items, and idles otherwise; no autonomous
+  crash-outs. `pending_survivors` / `queue_survivors()` remain only for
+  preparation saves made before this change: `seal()` still spawns them.
+  The Leave panel and seal screen list everyone via `resident_names()`.
 - The hatch opens `HatchLeaveUI` instead of expeditions.
 
 ### The seal (`BunkerPhase.seal()`)

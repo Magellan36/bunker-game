@@ -3,8 +3,8 @@ extends CanvasLayer
 ## The moment the player leaves through the Surface Hatch (archetype D, the
 ## same language as the new-game survivor selection): the bunker fades to
 ## black, the world pauses, BunkerPhase.seal() runs behind the black (shop
-## closed, build locked, survivors brought in at the ladder, clock reset to
-## Day 1), a short message names who came in, and the black lifts on Day 1.
+## closed, build locked, clock reset to Day 1), a short message names who is
+## inside with the player, and the black lifts on Day 1.
 ##
 ## Copy here is functional and flagged for Brannon to rewrite
 ## (docs/systems/phase/README.md "Copy").
@@ -131,19 +131,19 @@ func _run() -> void:
 ## residents pop in or the clock jump.
 func _seal_behind_black() -> void:
 	get_tree().paused = true
-	var arrived: Array[Node] = []
-	if phase != null and is_instance_valid(phase):
-		arrived = phase.seal()
 	var names: Array[String] = []
-	for npc: Node in arrived:
-		names.append(String(npc.get("npc_name")))
+	if phase != null and is_instance_valid(phase):
+		phase.seal()
+		## Everyone inside now: residents who helped set up, plus any who
+		## were still waiting (older preparation saves) and came in now.
+		names = phase.resident_names()
 	_line.text = arrival_text(names)
 
 
-## "Mara, Finch and Ode came in with you." / "It's just you." (flagged copy)
+## "Mara, Finch and Ode are in here with you." / "It's just you." (flagged copy)
 static func arrival_text(names: Array[String]) -> String:
 	if names.is_empty():
 		return "It's just you."
 	if names.size() == 1:
-		return "%s came in with you." % names[0]
-	return "%s and %s came in with you." % [", ".join(names.slice(0, names.size() - 1)), names[-1]]
+		return "%s is in here with you." % names[0]
+	return "%s and %s are in here with you." % [", ".join(names.slice(0, names.size() - 1)), names[-1]]

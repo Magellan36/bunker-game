@@ -945,8 +945,15 @@ func _sync_connectable_dot_positions() -> void:
 				power_points[device_id] = data.get("pos", Vector3.ZERO)
 	var wm: Node = get_tree().get_first_node_in_group("water_manager")
 	for obj: Variant in _connectable_dots.keys():
-		var dot: MeshInstance3D = _connectable_dots[obj] as MeshInstance3D
-		if dot == null or not is_instance_valid(dot):
+		## A demolished device frees its dot with it (the dot is its child).
+		## Check the raw values BEFORE any `as` cast — casting a freed object
+		## errors — and drop the dead entry.
+		var raw_dot: Variant = _connectable_dots[obj]
+		if not is_instance_valid(obj) or not is_instance_valid(raw_dot):
+			_connectable_dots.erase(obj)
+			continue
+		var dot: MeshInstance3D = raw_dot as MeshInstance3D
+		if dot == null:
 			continue
 		var point: Vector3 = _connection_point_for(obj as Node3D,
 			int(dot.get_meta("tile_id", -1)), power_points, wm)

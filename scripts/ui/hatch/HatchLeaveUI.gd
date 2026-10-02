@@ -69,7 +69,7 @@ func _refresh_data() -> void:
 		close()
 		return
 	W.set_status(_phase_status, "Before the apocalypse", "success")
-	var names: Array[String] = phase.pending_names()
+	var names: Array[String] = phase.resident_names()
 	W.set_stat(_people, "Just you" if names.is_empty() else _join_names(names))
 	var supply: Dictionary = phase.supply_snapshot()
 	_set_supply(_food, float(supply["cans"]), "can", float(supply["food_days"]))

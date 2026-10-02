@@ -123,10 +123,22 @@ func pending_names() -> Array[String]:
 			out.append(String((c as Dictionary).get("name", "")))
 	return out
 
+## Everyone who will be in the bunker after the seal besides the player:
+## residents already inside (since Oct 2026 the New Game picks arrive during
+## preparation) plus anyone still waiting (preparation saves from before).
+func resident_names() -> Array[String]:
+	var out: Array[String] = []
+	for npc: Node in get_tree().get_nodes_in_group("npc"):
+		if is_instance_valid(npc) and not npc.is_queued_for_deletion() \
+				and not (npc.has_method("is_dead") and bool(npc.call("is_dead"))):
+			out.append(String(npc.get("npc_name")))
+	out.append_array(pending_names())
+	return out
+
 
 ## What the bunker holds right now, for the Leave panel's readiness check:
 ## full-can, full-bottle and full-fuel-can equivalents (fractional) plus the
-## people who will be eating — the player and every waiting survivor.
+## people who will be eating — the player and every resident.
 func supply_snapshot() -> Dictionary:
 	var seen: Dictionary = {}
 	var items: Array = []
@@ -154,7 +166,7 @@ func supply_snapshot() -> Dictionary:
 				bottles += float(obj.get("bottle_count"))
 			"fuel_can":
 				fuel += float(obj.get("_fuel_remaining")) / float(_const(obj, "FUEL_UNITS_TOTAL", 100.0))
-	var people: int = pending_survivors.size() + 1
+	var people: int = resident_names().size() + 1
 	var draft: GDScript = load(DRAFT_PATH) as GDScript
 	var use: Dictionary = draft.call("daily_consumption", people) if draft != null else {}
 	return {
@@ -180,7 +192,9 @@ func begin_preparation() -> void:
 	_apply_clock()
 	phase_changed.emit(phase)
 
-## Survivor selection hands its picks here instead of spawning them.
+## Survivors waiting outside until the seal. Since Oct 2026 New Game spawns
+## its picks straight away (they help set up), so this only matters for
+## preparation saves made before that change, F7 and tests.
 func queue_survivors(candidates: Array) -> void:
 	pending_survivors.clear()
 	for c: Variant in candidates:

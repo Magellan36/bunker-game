@@ -70,12 +70,14 @@ func _run() -> void:
 		and not (hud.get("clock_label") as Label).visible, "HUD reads PREPARATION, no time")
 	_check(phase.hatch_days_remaining() == 0 and not phase.hatch_open(), "hatch isn't for travel while preparing")
 
-	# Survivors wait outside.
+	# Survivors still waiting outside (preparation saves from before Oct
+	# 2026; New Game now spawns its picks straight away — see
+	# survivor_select_smoke) come in at the seal.
 	var draft: GDScript = load("res://scripts/ui/new_game/SurvivorDraft.gd")
 	var rolled: Array = draft.call("roll", 2)
 	phase.queue_survivors(rolled)
 	_check(get_nodes_in_group("npc").is_empty() and phase.pending_names().size() == 2,
-		"picked survivors are absent until the seal")
+		"queued survivors stay outside until the seal")
 
 	# Preparation still builds with cash.
 	world.call("_toggle_build_mode")
@@ -227,6 +229,21 @@ func _run() -> void:
 	await process_frame
 	_check(int(bhud.get("active_tool")) == 3 and not bool(ws.call("menu_open")), "locked tabs can't be opened")
 	_check(String((hud.get("cash_label") as Label).text).ends_with("Metal"), "build HUD shows Metal instead of cash")
+	## Regression (Brannon, 2026-10-02): demolishing a device whose
+	## connection dot is live used to error "Trying to cast a freed object"
+	## in _sync_connectable_dot_positions().
+	var dot_dev: Node3D = controller.call("_spawn_placed_object", 6,
+		player.global_position + Vector3(3.0, 0.0, 2.0), 0.0)
+	(controller.get("_placed_objects") as Array).append({"node": dot_dev, "tile_id": 6, "price": 1200,
+		"world_pos": dot_dev.global_position, "angle_deg": 0.0, "player_placed": true})
+	controller.call("_refresh_connectable_dots")
+	var dots_before: int = (controller.get("_connectable_dots") as Dictionary).size()
+	_check((controller.get("_connectable_dots") as Dictionary).has(dot_dev), "the generator shows a connection dot")
+	controller.call("remove_placed_object", dot_dev)   ## what demolish does, then frees it
+	dot_dev.free()
+	controller.call("_sync_connectable_dot_positions")
+	_check(dots_before > 0 and (controller.get("_connectable_dots") as Dictionary).size() == dots_before - 1,
+		"a demolished device's dot is dropped without error")
 	world.call("_toggle_build_mode")
 	await process_frame
 	_check(is_zero_approx((hud.get("cash_label") as Label).modulate.a), "cash hidden after the seal")

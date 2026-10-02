@@ -3,8 +3,8 @@ extends SceneTree
 ##   godot --headless --path . --script res://tools/tests/survivor_select_smoke.gd
 ## Drives the real path: pending_new_game → LoadingScreen → MainWorld startup
 ## → SurvivorSelectScreen (world paused) → pick limits → Confirm → residents
-## wait outside with the shown identity (BunkerPhase) → message → reveal
-## (unpaused, screen gone); they come in at the seal.
+## spawned with the shown identity (in preparation, to help set up) →
+## message → reveal (unpaused, screen gone).
 
 const DRAFT_PATH := "res://scripts/ui/new_game/SurvivorDraft.gd"
 var failures: int = 0
@@ -102,25 +102,23 @@ func _run() -> void:
 
 	(screen.get_node("Content/Confirm") as Button).emit_signal("pressed")
 	await process_frame
-	## A New Game is in preparation (BunkerPhase): the picks wait outside and
-	## come in when the player leaves through the hatch.
-	_check(get_nodes_in_group("npc").is_empty(), "nobody spawns before the apocalypse")
+	## A New Game is in preparation (BunkerPhase); since Oct 2026 the picks
+	## come in straight away to help set the bunker up.
 	var phase: Node = get_first_node_in_group("bunker_phase")
-	var waiting: Array = phase.get("pending_survivors") if phase != null else []
-	_check(waiting.size() == 3, "three survivors wait for the seal (%d)" % waiting.size())
+	_check(phase != null and bool(phase.call("is_preparing")), "the bunker is in preparation")
+	var npcs: Array = get_nodes_in_group("npc")
+	_check(npcs.size() == 3, "three residents spawned on Confirm (%d)" % npcs.size())
 	var matched := 0
 	for c: Dictionary in picked:
-		for w: Dictionary in waiting:
-			if String(w["name"]) == String(c["name"]) and int(w["age"]) == int(c["age"]) \
-					and String(w["gender"]) == String(c["gender"]) \
-					and (w["personality"] as Dictionary) == (c["personality"] as Dictionary):
+		for n: Node in npcs:
+			if String(n.get("npc_name")) == String(c["name"]) and int(n.get("age")) == int(c["age"]) \
+					and String(n.get_meta("_adventurer_random_gender", "")) == String(c["gender"]) \
+					and (n.get("personality") as Dictionary) == (c["personality"] as Dictionary):
 				matched += 1
-	_check(matched == 3, "they keep the name, age, body and traits shown on their cards")
-	var arrived: Array = phase.call("seal") if phase != null else []
-	_check(arrived.size() == 3 and get_nodes_in_group("npc").size() == 3, "all three come in at the seal")
+	_check(matched == 3, "residents keep the name, age, body and traits shown on their cards")
 	var message := screen.get_node("Message") as Label
 	await create_timer(0.6, true).timeout
-	_check(message.modulate.a > 0.5 and message.text == "Survivors will join when the apocalypse begins.",
+	_check(message.modulate.a > 0.5 and message.text == "Your chosen survivors will assist you in setting up the bunker.",
 		"message fades in")
 	for i: int in 70:
 		await create_timer(0.1, true).timeout
