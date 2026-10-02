@@ -43,7 +43,7 @@ every NPC/build/power/hatch harness and every old save keeps working. F7 →
 | `scripts/world/core/BunkerPhase.gd` | Owner. Phase, seal time, waiting survivors, supply snapshot, `seal()`, save data. Child of MainWorld, group `bunker_phase`. Static `BunkerPhase.preparing(tree)` / `sealed(tree)` read as LEGACY when no node exists. |
 | `scripts/world/build/BuildEconomy.gd` | Static rules: Metal prices for wire/pipe, the reserve (Research Station), salvage tables, `drop_salvage()`, float text. |
 | `scripts/world/items/SalvageItem.gd` | Placeholder salvage sphere (one per material, carries a unit count). |
-| `scripts/ui/hatch/HatchLeaveUI.gd` | Pre-apocalypse hatch inspector: readiness check + **Leave** + confirm. |
+| `scripts/ui/hatch/HatchLeaveUI.gd` | Pre-apocalypse hatch inspector: readiness check (counts supplies loose, carried, and put away on shelves / light storage / baskets — `BunkerPhase.supply_snapshot`) + **Leave** + confirm. |
 | `scripts/ui/hatch/SealTransition.gd` | Full-screen seal moment (archetype D); calls `seal()` behind black. |
 | `tools/tests/bunker_phase_smoke.gd` | Drives the whole flow (54 checks). |
 

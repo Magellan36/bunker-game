@@ -136,13 +136,18 @@ func resident_names() -> Array[String]:
 	return out
 
 
-## What the bunker holds right now, for the Leave panel's readiness check:
+## What the bunker holds right now — loose, stored or carried — for the Leave
+## panel's readiness check:
 ## full-can, full-bottle and full-fuel-can equivalents (fractional) plus the
 ## people who will be eating — the player and every resident.
 func supply_snapshot() -> Dictionary:
 	var seen: Dictionary = {}
+	## Loose items are "pickup"; anything put away on a shelf, in light
+	## storage (dresser, end table...) or in a basket leaves "pickup" and
+	## joins "shelved" — both count. Trash-bag records are trash, not stock.
 	var items: Array = []
 	items.append_array(get_tree().get_nodes_in_group("pickup"))
+	items.append_array(get_tree().get_nodes_in_group("shelved"))
 	var inventory: Node = world.get("inventory_manager") as Node if world != null else null
 	if inventory != null and "slots" in inventory:
 		items.append_array(inventory.get("slots") as Array)

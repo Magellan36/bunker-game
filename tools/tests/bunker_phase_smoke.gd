@@ -163,6 +163,23 @@ func _run() -> void:
 	_check(int(world.call("get_cash")) - before_undo == 24, "pipe undo refunds only the standing leg (+$%d)"
 		% (int(world.call("get_cash")) - before_undo))
 
+	# The Leave panel counts stored supplies, not just loose ones.
+	var snap0: Dictionary = phase.call("supply_snapshot")
+	var shelf: Node = controller.call("_spawn_placed_object", 3,
+		player.global_position + Vector3(-3.0, 0.0, 3.0), 0.0)
+	var shelved_can: Node3D = (load("res://scenes/world/FoodCan.tscn") as PackedScene).instantiate()
+	world.add_child(shelved_can)
+	shelved_can.global_position = shelf.global_position + Vector3(0.0, 1.0, 0.0)
+	await process_frame
+	var placer := Node.new()   ## stand-in for the NPC argument; nothing of it is used here
+	var placed: bool = bool(shelf.call("npc_try_place_item", placer, shelved_can))
+	placer.free()
+	await create_timer(0.6, true).timeout   ## the shelf's 0.22 s placement tween
+	var snap1: Dictionary = phase.call("supply_snapshot")
+	_check(placed and shelved_can.is_in_group("shelved") and not shelved_can.is_in_group("pickup")
+		and is_equal_approx(float(snap1["cans"]) - float(snap0["cans"]), 1.0),
+		"a can put away on a shelf still counts (%.1f -> %.1f)" % [float(snap0["cans"]), float(snap1["cans"])])
+
 	# Save during preparation.
 	var save_ok: bool = root.get_node("SaveManager").call("save_game", 1)
 	_check(save_ok, "save during preparation")
