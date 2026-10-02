@@ -27,6 +27,7 @@ const SCREENS: Array[Dictionary] = [
 		"open_args": ["Exit to desktop?", "Unsaved progress will be lost.", "Exit game", "Stay here", "danger"]},
 	{"name": "Pause", "kind": "canvas_script", "path": "res://scripts/ui/menus/PauseMenuUI.gd", "open": true},
 	{"name": "Game over", "kind": "canvas_script", "path": "res://scripts/ui/menus/GameOverUI.gd"},
+	{"name": "Survivor selection", "kind": "canvas_script", "path": "res://scripts/ui/new_game/SurvivorSelectScreen.gd"},
 	{"name": "Character creation", "kind": "scene",
 		"path": "res://scenes/ui/character_creation/CharacterCreation.tscn", "root": "Interface"},
 	## Pass 3 — HUD, docked inspectors (runtime-styled, so linted through

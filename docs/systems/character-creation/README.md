@@ -53,7 +53,9 @@ Built in the main menu's composition and the quiet language
    old model is `remove_child()` + `free()`d synchronously so two survivors
    never coexist (see docs/systems/player-model).
 3. Randomise picks one of those bodies through the same path.
-4. Begin / Esc / B / the Esc hint curtain to black and change scene. A failed
+4. Begin sets `WorldManager.pending_new_game` (the loading screen then shows
+   the survivor selection, `docs/systems/new-game/README.md`). Begin / Esc /
+   B / the Esc hint curtain to black and change scene. A failed
    change restores the screen and shows a red line under the actions.
 
 ## Layout and performance contract

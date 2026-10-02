@@ -318,6 +318,9 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _on_complete_pressed() -> void:
+	var world_manager: Node = get_node_or_null(^"/root/WorldManager")
+	if world_manager != null:
+		world_manager.set("pending_new_game", true)   ## survivor selection after loading
 	_leave(NEXT_SCENE_PATH)
 
 

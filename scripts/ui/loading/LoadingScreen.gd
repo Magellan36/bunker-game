@@ -23,6 +23,7 @@ const C: GDScript = preload("res://scripts/ui/common/BunkerUIComponents.gd")
 const FADE: GDScript = preload("res://scripts/ui/common/UIFade.gd")
 const NAV_SCRIPT: GDScript = preload("res://scripts/ui/common/ControllerUINavigation.gd")
 const INDICATOR_SCRIPT: GDScript = preload("res://scripts/ui/loading/LoadingIndicator.gd")
+const SURVIVOR_SELECT_SCRIPT: String = "res://scripts/ui/new_game/SurvivorSelectScreen.gd"
 
 var _root: Control = null
 var _content: Control = null
@@ -130,7 +131,25 @@ func _finish_world_startup() -> void:
 		if not SaveManager.load_game(slot):
 			push_warning("LoadingScreen: save slot %d could not be restored." % slot)
 	_subtitle_label.text = "Shelter ready"
+	if slot <= 0 and bool(WorldManager.get("pending_new_game")):
+		# New game: the screen goes to black (the field stays) and the survivor
+		# selection takes over above it; the world is revealed after Confirm.
+		WorldManager.set("pending_new_game", false)
+		FADE.fade_out(_content, 0.3, Callable(self, "_hand_to_survivor_select"))
+		return
 	FADE.fade_out(_root, 0.18, Callable(self, "_complete_world_handoff"))
+
+
+func _hand_to_survivor_select() -> void:
+	if _world == null or not is_instance_valid(_world):
+		return
+	var screen: CanvasLayer = (load(SURVIVOR_SELECT_SCRIPT) as GDScript).new()
+	screen.set("world", _world)
+	get_tree().root.add_child(screen)
+	# The selection layer (1001) paints black over this one; hand the world
+	# over once its own black is fully up, then leave.
+	await get_tree().create_timer(0.45, true, false, true).timeout
+	_complete_world_handoff()
 
 
 func _complete_world_handoff() -> void:

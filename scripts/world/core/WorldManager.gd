@@ -14,6 +14,10 @@ var player_data: Dictionary = {}  # Expand this as you add inventory, stats, etc
 ## Save slot the next MainWorld should restore once it reports startup_ready
 ## (set by the main menu's Continue/Load, consumed by LoadingScreen). 0 = none.
 var pending_load_slot: int = 0
+## Set by character creation's Begin, consumed by LoadingScreen: a brand-new
+## game shows the survivor selection (SurvivorSelectScreen) before the world
+## is revealed. Continue/Load and every other route leave it false.
+var pending_new_game: bool = false
 
 # ─── Scene Transition ─────────────────────────────────────────────────────────
 ## Sep 2026 — leave the running MainWorld for another scene (game over →

@@ -231,7 +231,7 @@ build mode (the HUD yields to tool panels).
 | **A. Workspace** | Settings, Pause, Status, Power Terminal, Research, NPC, Shop | Shell ≤ 1240×760 (≤ 1420×820 where an older contract allows), margins 56/42, modal blur backdrop, left rail (brand eyebrow, 40 px title, text sections, Back at bottom) **or** top text tabs, scrolling content with `SmoothScroll`, footer = hint line · Saved · key hints. |
 | **B. Docked inspector** | Generator, battery, breaker, priority, water, farm tray, storage, trash bag | Keep approved behaviour: 500 px @1080p (storage 440), right margin 24, no backdrop, player can move, walk-away close, height by content. Quiet shell, inspector header, groups + rows, one primary action at the bottom. |
 | **C. HUD** | Needs, clock/cash, hotbar, status effects, prompts, toasts | No shells. Text with a soft shadow directly over the world, 24 px safe margins, never covers the centre third. Only deviation gets colour. |
-| **D. Full-screen moment** | Loading, sleep, game over, character creation | Main-menu language: black/scrim, left-weighted typography, one accent, curtain transitions. |
+| **D. Full-screen moment** | Loading, sleep, game over, character creation, new-game survivor selection (`docs/systems/new-game/README.md`) | Main-menu language: black/scrim, left-weighted typography, one accent, curtain transitions. |
 | **E. Tool overlay** | Build mode toolbar, catalog, cursor | Minimal edge strips; the world stays the focus; toolbar = segmented text control with optional glyphs (§8). |
 | **F. Dev tools** | Admin menu, debug overlay | Functional quiet skin only; lowest priority; never shipped as player UI. |
 
