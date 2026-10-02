@@ -247,6 +247,11 @@ const BARKS: Dictionary = {
 	"done_fighting": ["Stay away from me.", "We're done here.", "Don't ever — ever — do that again."],
 	"treat_self":    ["*hisses* Come on...", "Ow — okay, okay.", "This is going to sting.", "Hold it together..."],
 	"treat_other":   ["Hold still.", "Let me see that.", "This'll sting.", "Easy. I've got you."],
+	## Neglect (NPCSocial._tick_neglect): days of it, said to the player's face.
+	"neglect_light": ["How long are you going to leave us in the dark?", "Days in the dark. Days.", "Are you ever fixing the lights?"],
+	"neglect_water": ["We can't keep drinking this.", "When's there going to be clean water?", "I'm sick of being thirsty."],
+	"neglect_food":  ["We're starving down here. You know that, right?", "When did any of us last eat properly?", "Hungry again. Still."],
+	"neglect_rest":  ["Another night on the floor.", "I can't remember the last time I slept properly.", "A bed. That's all I'm asking."],
 	"keep_away":     ["Don't come any closer.", "I'm going, I'm going.", "Just... stay over there.", "Please. Not me."],
 	"hide_run":      ["Get down! Everybody get down!", "They've got a weapon!", "Run! RUN!", "Oh God, oh God—"],
 	"hide_cower":    ["Stay quiet... stay quiet...", "Is it over?", "Please let it be over.", "*breathing hard*"],

@@ -200,7 +200,17 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   afraid, angry, miserable, low, okay, happy.
 - **Mood engine** (`components/NPCMorale.gd`, internal "morale"): slow, 0–100. It follows rolling
   averages of eight bunker conditions (light, power, water quality, food
-  quality, rest, space, safety, company), each trait-weighted. Displayed
+  quality, rest, space, safety, company), each trait-weighted, plus
+  **Reliability** (Oct 2026, Brannon). Reliability catches what the
+  averages hide: supplies that keep cutting out. Each lapse counts (the grid
+  dropping out, hunger or thirst falling under 30, a bad drink after good
+  ones), and each fades over ~2 game days (`LAPSE_TAU` 48 h). It saturates
+  at about 3 lapses a day per kind and is worth up to −22 morale (more for
+  neurotic residents). One lapse barely registers; a bunker where something
+  fails every few hours wears people down even when they get enough on
+  average. Panel reason names the worst offender ("The power keeps cutting
+  out", "Never sure when we'll eat next", "The water's never the same
+  twice"). It never touches how they feel about the player. Displayed
   **mood** = morale + a capped share of feelings (thoughts, including
   Hungry/Starving, Thirsty/Parched, Exhausted). There's no random drift. A
   badly run bunker puts its first resident at crash-out risk around day
@@ -216,7 +226,34 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
   pitching in, favouritism, hoarding, bed intrusion, daily leadership
   blame; Talk choices (check in, encourage, joke, vent, insult, threaten)
   with trait-dependent reception and daily cooldowns; promises (kept +7,
-  broken −9); taking sides in feuds. Ready hooks: `on_treated_by_player()`,
+  broken −9); taking sides in feuds.
+- **Neglect** (`NPCSocial._tick_neglect`, Oct 2026, Brannon): living
+  conditions the player is plainly leaving unfixed cost the relationship,
+  steadily. That means days in the dark, going without clean water, going
+  hungry, or no proper place to sleep. It only starts once that condition's
+  rolling average is past its line (−0.4; rest −0.6), which takes most of a
+  day of real deprivation. A blackout, a hungry night or flaky power never
+  gets there; that wears down mood through Reliability instead, with no
+  blame. Charged by how far past the line it is (full deprivation of one
+  condition ≈ −20 a day once set in), applied in steps of 3 with a log line
+  ("You left us in the dark for days (−3.0)"), a memory at most every 2
+  days, and a remark at most twice a day (`neglect_*` lines). A promise to
+  fix that condition pauses it; work they've seen you do today softens it.
+  Measured on the real code (scripted days, slot 2): total neglect takes a
+  friendly resident (+30) to −45 in 3 days. A well-run bunker with one
+  blackout and one hungry night: no change.
+- **Good relationship, still breaking** (by design). Crash-outs are rolled
+  from mood alone (< 25); the relationship only picks the kind: HOSTILE at
+  whoever they hate (≤ −40, which can be another resident), OVERDRIVE if they
+  like the player (≥ 40, 75%), otherwise BREAKDOWN. A player who keeps things
+  running but keeps losing power, food and water to shortages isn't blamed
+  (no neglect), but Reliability still drags mood. Measured, a week of that
+  with the usual bad moodlets and some clutter: an average resident settles
+  around 28 ("Strained": warnings, no crash), a sensitive one around 21
+  with crash risk 0.3–0.44 a day, still +30 with the player. So a
+  positive playthrough can rarely end in a breakdown or overdrive; it only
+  turns on the player if something else (insults, threats, violence,
+  neglect) has already soured them. Ready hooks: `on_treated_by_player()`,
   `on_rescued_by_player()`.
 - **Work drive & laziness** (NPCSocial): Work Ethic shapes autonomy.
   Lazy residents still work, just noticeably less and on their own terms

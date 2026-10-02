@@ -40,6 +40,26 @@ const WORKED_ALONGSIDE_GAP_HOURS: float = 0.33
 const HOARD_GAP_HOURS: float = 8.0
 const BLAME_THRESHOLD: float = -10.0       ## morale points from the bunker itself
 const PROMISE_HOURS: float = 48.0
+
+## Neglect (Oct 2026, Brannon): living conditions the leader is plainly
+## leaving unfixed cost the relationship, steadily: days in the dark, going
+## without clean water, going hungry, no proper place to sleep. A blackout,
+## a hungry night or a run of flaky power doesn't. The morale values are
+## rolling averages (20-30 game hours), so only sustained deprivation pushes
+## one past its line (a flaky-but-tended bunker wears down mood through
+## NPCMorale's "stability" instead, without blame). Charged per game hour by
+## how far past the line it is; a promise to fix that condition pauses it,
+## and work they've seen you do today softens it. Full deprivation of one
+## condition costs about 20 relationship a day once it has set in.
+const NEGLECT: Dictionary = {
+	"light": {"line": -0.4, "rate": 1.0, "reason": "left us in the dark for days", "bark": "neglect_light"},
+	"water": {"line": -0.4, "rate": 0.9, "reason": "let us go without clean water for days", "bark": "neglect_water"},
+	"food":  {"line": -0.4, "rate": 1.0, "reason": "let us go hungry for days", "bark": "neglect_food"},
+	"rest":  {"line": -0.6, "rate": 0.4, "reason": "left us without a proper place to sleep for days", "bark": "neglect_rest"},
+}
+const NEGLECT_APPLY_AT: float = 3.0        ## points gathered before they're applied (one log line each)
+const NEGLECT_MEMORY_GAP_HOURS: float = 48.0
+const NEGLECT_BARK_GAP_HOURS: float = 12.0
 const TALK_COOLDOWN_HOURS: float = 20.0
 
 const TALK_CHOICES: Array[Dictionary] = [
@@ -79,6 +99,9 @@ var _last_bed_intrusion: float = -100.0
 var _talk_last: Dictionary = {}            ## choice id -> NPCClock hours
 var promise: Dictionary = {}               ## {condition, text, deadline}
 var _blame_day: int = -1
+var _neglect: Dictionary = {}              ## condition -> points gathered, not yet applied
+var _neglect_said: Dictionary = {}         ## condition -> NPCClock hours of the last remark
+var _neglect_remembered: Dictionary = {}   ## condition -> NPCClock hours of the last memory
 
 var _npc: NPC = null
 
@@ -202,6 +225,29 @@ func tick(_h: float) -> void:
 	_npc.thoughts.set_condition("under_pressure", drive() >= 0.3, _npc.thought_weight(-1.0))
 	_npc.thoughts.set_condition("cowed", is_cowed(), _npc.thought_weight(-1.0))
 	_tick_promise(now)
+	_tick_neglect(_h, now)
+
+func _tick_neglect(h: float, now: float) -> void:
+	var m: NPCMorale = _npc.morale_sys
+	var softened: float = maxf(0.3, 1.0 - 0.2 * float(_effort_today))
+	for id: String in NEGLECT.keys():
+		var n: Dictionary = NEGLECT[id]
+		var line: float = float(n["line"])
+		var severity: float = clampf((line - float(m.values.get(id, 0.0))) / (1.0 + line), 0.0, 1.0)
+		if severity <= 0.0 or (String(promise.get("condition", "")) == id and now < float(promise.get("deadline", -1.0))):
+			continue
+		var acc: float = float(_neglect.get(id, 0.0)) + float(n["rate"]) * severity * softened * h
+		if acc < NEGLECT_APPLY_AT:
+			_neglect[id] = acc
+			continue
+		_neglect[id] = 0.0
+		var remember: bool = now - float(_neglect_remembered.get(id, -1000.0)) >= NEGLECT_MEMORY_GAP_HOURS
+		if remember:
+			_neglect_remembered[id] = now
+		_npc.bonds.relate("player", -acc, String(n["reason"]), "", remember)
+		if now - float(_neglect_said.get(id, -1000.0)) >= NEGLECT_BARK_GAP_HOURS:
+			_neglect_said[id] = now
+			_npc.bark(NPCDialogue.bark_line(String(n["bark"])))
 
 ## Once a game day: blame the leader for sustained bad living conditions,
 ## unless they've visibly been working on it.
@@ -398,7 +444,8 @@ func take_side_against(other_id: String) -> String:
 func to_save() -> Dictionary:
 	return {"fear": fear, "pressure": pressure, "cowed": cowed_until, "pushes": _pushes_today, "orders_day": _orders_day, "orders": _orders_today, "bad_orders": _bad_orders,
 		"effort": _effort_today, "talk": _talk_last.duplicate(), "promise": promise.duplicate(),
-		"blame_day": _blame_day, "hoard": _last_hoard, "bed": _last_bed_intrusion}
+		"blame_day": _blame_day, "hoard": _last_hoard, "bed": _last_bed_intrusion,
+		"neglect": _neglect.duplicate(), "neglect_said": _neglect_said.duplicate(), "neglect_mem": _neglect_remembered.duplicate()}
 
 func from_save(d: Dictionary) -> void:
 	if d.is_empty():
@@ -416,3 +463,6 @@ func from_save(d: Dictionary) -> void:
 	_blame_day = int(d.get("blame_day", -1))
 	_last_hoard = float(d.get("hoard", -100.0))
 	_last_bed_intrusion = float(d.get("bed", -100.0))
+	_neglect = (d.get("neglect", {}) as Dictionary).duplicate()
+	_neglect_said = (d.get("neglect_said", {}) as Dictionary).duplicate()
+	_neglect_remembered = (d.get("neglect_mem", {}) as Dictionary).duplicate()

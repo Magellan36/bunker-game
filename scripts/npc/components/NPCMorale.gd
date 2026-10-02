@@ -16,6 +16,13 @@ class_name NPCMorale
 ##
 ## Every condition is a rolling average in [-1, 1] (0 = acceptable), so a
 ## single blackout barely registers while days of darkness weigh heavily.
+## "Reliability" (Oct 2026, Brannon) is the exception that catches what the
+## averages miss: supplies that keep cutting out. Each lapse (the power
+## going down, going hungry, needing a drink, a bad drink after good ones)
+## counts, and the count fades over a couple of days. One lapse is nothing;
+## a bunker where something fails every few hours wears people down even
+## when, on average, they get what they need. It never touches how they
+## feel about the player (that's NPCSocial's neglect: sustained, not flaky).
 ## Traits set sensitivity: Neurotic residents feel bad conditions more,
 ## Level-Headed ones less, Optimists enjoy good ones more, Open (sociable)
 ## ones care more about company.
@@ -41,7 +48,17 @@ const CONDITIONS: Dictionary = {
 	"space":   {"label": "Space",   "weight": 8.0,  "tau": 36.0},
 	"safety":  {"label": "Safety",  "weight": 10.0, "tau": 36.0},
 	"company": {"label": "Company", "weight": 9.0,  "tau": 36.0},
+	"stability": {"label": "Reliability", "weight": 22.0, "tau": 4.0},
 }
+
+## Lapses (see header): kind -> share of "stability" when saturated. A
+## kind saturates at LAPSE_SATURATE lapses in the fading window (≈ three a
+## day, kept up).
+const LAPSE_SHARE: Dictionary = {"power": 0.35, "food": 0.35, "water": 0.3}
+const LAPSE_SATURATE: float = 6.0
+const LAPSE_TAU: float = 48.0               ## game hours for a lapse to fade
+const NEED_LAPSE_BELOW: float = 30.0        ## hunger/thirst under this = going without
+const NEED_LAPSE_CLEAR: float = 45.0        ## …and back over this before the next one counts
 
 ## Plain-language reason per condition and band (for the panel and log).
 const REASONS: Dictionary = {
@@ -53,6 +70,13 @@ const REASONS: Dictionary = {
 	"space":   {"great": "The bunker feels livable", "bad": "Cramped and messy", "terrible": "No bed, no room, no order"},
 	"safety":  {"great": "Feeling safe", "bad": "Feeling unsafe", "terrible": "Scared for my life"},
 	"company": {"great": "Good people around", "bad": "Lonely down here", "terrible": "Surrounded by people I can't stand"},
+	"stability": {"great": "Everything's been working", "bad": "Things keep breaking down", "terrible": "Nothing down here works for long"},
+}
+## The reliability reason names what keeps failing most (reason_text).
+const LAPSE_REASONS: Dictionary = {
+	"power": {"bad": "The power keeps cutting out", "terrible": "The power never stays on"},
+	"food": {"bad": "Never sure when we'll eat next", "terrible": "Meals come and go, mostly go"},
+	"water": {"bad": "The water's never the same twice", "terrible": "Never sure there'll be water to drink"},
 }
 
 ## Morale bands (low → high) — crossings are logged.
@@ -76,6 +100,11 @@ var _day_start: float = -1.0
 var _day_index: int = -1
 var _history: Array[float] = []      ## morale at the last few game hours (trend)
 var _hour_accum: float = 0.0
+var _lapses: Dictionary = {"power": 0.0, "food": 0.0, "water": 0.0}
+var _power_ok: bool = true
+var _hungry: bool = false
+var _thirsty: bool = false
+var _last_drink_ok: bool = true
 
 var _npc: NPC = null
 ## Tests only: condition id -> fixed sample, used instead of the live world.
@@ -97,6 +126,16 @@ func note_meal(kind: String) -> void:
 
 func note_drink(quality: float) -> void:
 	_event_scores["water"] = lerpf(float(_event_scores["water"]), clampf((quality - 70.0) / 30.0, -1.0, 0.5), EVENT_ALPHA)
+	## A bad drink after good ones is a lapse (steady bad water is the
+	## "water" condition's job, not this).
+	var ok: bool = quality >= 70.0
+	if not ok and _last_drink_ok:
+		note_lapse("water")
+	_last_drink_ok = ok
+
+## Something they rely on just failed (see header). Public for tests.
+func note_lapse(kind: String) -> void:
+	_lapses[kind] = float(_lapses.get(kind, 0.0)) + 1.0
 
 func note_sleep(kind: String) -> void:
 	var s: float = {"slept_in_bed": 0.5, "slept_in_chair": -0.4, "slept_on_floor": -0.8, "collapsed": -1.0}.get(kind, 0.0)
@@ -117,6 +156,8 @@ func tick(h: float, feelings: float) -> void:
 		var tau: float = float(CONDITIONS[id]["tau"])
 		values[id] = lerpf(float(values[id]), float(samples[id]), 1.0 - exp(-h / tau))
 	_shock = maxf(0.0, _shock - h / 48.0)
+	for k: String in _lapses.keys():
+		_lapses[k] = float(_lapses[k]) * exp(-h / LAPSE_TAU)
 	_feelings_avg = lerpf(_feelings_avg, feelings, 1.0 - exp(-h / FEELINGS_TAU))
 
 	var target: float = get_target()
@@ -152,7 +193,8 @@ func _sample() -> Dictionary:
 	var asleep: bool = _npc.brain != null and _npc.brain.is_sleeping()
 	if not asleep:
 		out["light"] = _sample_light()
-	out["power"] = _sample_power()
+	out["power"] = float(sample_override.get("power", _sample_power()))
+	_track_lapses(float(out["power"]))
 	## Event-driven conditions, pulled down while the need goes unmet.
 	out["food"] = _with_need(float(_event_scores["food"]), _npc.hunger)
 	out["water"] = _with_need(float(_event_scores["water"]), _npc.thirst)
@@ -160,9 +202,35 @@ func _sample() -> Dictionary:
 	out["space"] = _sample_space()
 	out["safety"] = _sample_safety()
 	out["company"] = _sample_company()
+	out["stability"] = -instability()
 	for k: String in sample_override.keys():
 		out[k] = float(sample_override[k])
 	return out
+
+## 0 (nothing failing) .. 1 (everything failing several times a day).
+func instability() -> float:
+	var s: float = 0.0
+	for k: String in LAPSE_SHARE.keys():
+		s += float(LAPSE_SHARE[k]) * minf(1.0, float(_lapses.get(k, 0.0)) / LAPSE_SATURATE)
+	return clampf(s, 0.0, 1.0)
+
+## Lapses seen in the live world: the grid dropping out, and going hungry
+## or thirsty (with a margin, so hovering at the line counts once).
+func _track_lapses(power_sample: float) -> void:
+	var power_ok: bool = power_sample >= 0.0
+	if _power_ok and not power_ok:
+		note_lapse("power")
+	_power_ok = power_ok
+	if not _hungry and _npc.hunger < NEED_LAPSE_BELOW:
+		_hungry = true
+		note_lapse("food")
+	elif _hungry and _npc.hunger > NEED_LAPSE_CLEAR:
+		_hungry = false
+	if not _thirsty and _npc.thirst < NEED_LAPSE_BELOW:
+		_thirsty = true
+		note_lapse("water")
+	elif _thirsty and _npc.thirst > NEED_LAPSE_CLEAR:
+		_thirsty = false
 
 static func _with_need(score: float, need: float) -> float:
 	if need >= 30.0:
@@ -276,6 +344,12 @@ static func _cond_band_of(v: float) -> String:
 
 func reason_text(id: String) -> String:
 	var band: String = _cond_band_of(float(values.get(id, 0.0)))
+	if id == "stability" and band in ["bad", "terrible"]:
+		var worst: String = ""
+		for k: String in LAPSE_SHARE.keys():
+			if worst == "" or float(LAPSE_SHARE[k]) * float(_lapses[k]) > float(LAPSE_SHARE[worst]) * float(_lapses[worst]):
+				worst = k
+		return String(LAPSE_REASONS[worst][band])
 	return String(REASONS[id].get(band, CONDITIONS[id]["label"]))
 
 ## [{id, text, points}] sorted by impact (largest first), non-trivial only.
@@ -348,7 +422,8 @@ static func _band_index(name: String) -> int:
 func to_save() -> Dictionary:
 	return {"morale": morale, "values": values.duplicate(), "events": _event_scores.duplicate(),
 		"feel": _feelings_avg, "shock": _shock, "cond_band": _cond_band.duplicate(), "band": _band,
-		"day": _day_index, "day_start": _day_start}
+		"day": _day_index, "day_start": _day_start, "lapses": _lapses.duplicate(),
+		"lapse_state": [_power_ok, _hungry, _thirsty, _last_drink_ok]}
 
 func from_save(d: Dictionary) -> void:
 	if d.is_empty():
@@ -367,3 +442,12 @@ func from_save(d: Dictionary) -> void:
 	_band = String(d.get("band", ""))
 	_day_index = int(d.get("day", -1))
 	_day_start = float(d.get("day_start", morale))
+	var l: Dictionary = d.get("lapses", {})
+	for k: String in _lapses.keys():
+		_lapses[k] = float(l.get(k, 0.0))
+	var st: Array = d.get("lapse_state", [])
+	if st.size() == 4:
+		_power_ok = bool(st[0])
+		_hungry = bool(st[1])
+		_thirsty = bool(st[2])
+		_last_drink_ok = bool(st[3])
