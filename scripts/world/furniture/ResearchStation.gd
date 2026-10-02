@@ -29,6 +29,30 @@ var _consumed: Dictionary        = {}   ## material -> amount already drained fr
 ## New. Active research + is_paused together fully describe the 3 states.
 var is_paused: bool = false
 
+## Oct 2026 — before the apocalypse (BunkerPhase preparation) research is
+## bought with cash, all of it when it starts, and drains no materials. A
+## research paid that way keeps running without materials after the seal.
+var _paid_with_cash: bool = false
+
+## True while new research is paid in cash rather than materials.
+func research_uses_cash() -> bool:
+	return BunkerPhase.preparing(get_tree())
+
+## True when the active research was bought with cash.
+func active_research_paid_in_cash() -> bool:
+	return active_upgrade != null and _paid_with_cash
+
+## Whether `upgrade`'s next tier can be paid for right now, in whichever
+## currency the act uses.
+func can_afford(upgrade: UpgradeDef) -> bool:
+	if research_uses_cash():
+		var world: Node = get_tree().get_first_node_in_group("main_world")
+		return world != null and int(world.call("get_cash")) >= upgrade.get_cash_cost()
+	for material: String in upgrade.material_costs.keys():
+		if int(stored_materials.get(material, 0)) < int(upgrade.material_costs[material]):
+			return false
+	return true
+
 ## Persisted per-station, NOT on the UpgradeDef resource itself (Resources
 ## can be shared/reloaded refs — mutating a "completed" bool directly on one
 ## would be a correctness footgun). This is the real source of truth for
@@ -76,8 +100,8 @@ func add_material(material: String, amount: int) -> int:
 ## (BuildEconomy). Running research has first claim on what it still needs,
 ## so building can never starve a research that's already under way.
 func reserved_material(material: String) -> int:
-	if active_upgrade == null or not active_upgrade.material_costs.has(material):
-		return 0
+	if active_upgrade == null or _paid_with_cash or not active_upgrade.material_costs.has(material):
+		return 0   ## cash-bought research needs no materials
 	return maxi(0, int(active_upgrade.material_costs[material]) - int(_consumed.get(material, 0)))
 
 func available_material(material: String) -> int:
@@ -340,9 +364,16 @@ func start_research(upgrade: UpgradeDef) -> bool:
 		return false   ## something else already running — see design note
 	if tier_progress.get(upgrade.id, 0) >= upgrade.get_max_tier():
 		return false   ## fully maxed
-	for material: String in upgrade.material_costs.keys():
-		if stored_materials.get(material, 0) < upgrade.material_costs[material]:
-			return false   ## not enough — button should already be greyed out, this is the authoritative re-check
+	var pay_cash: bool = research_uses_cash()
+	if pay_cash:
+		var world: Node = get_tree().get_first_node_in_group("main_world")
+		if world == null or not bool(world.call("spend_cash", upgrade.get_cash_cost())):
+			return false   ## not enough cash — the button should already say so
+	else:
+		for material: String in upgrade.material_costs.keys():
+			if stored_materials.get(material, 0) < upgrade.material_costs[material]:
+				return false   ## not enough — button should already be greyed out, this is the authoritative re-check
+	_paid_with_cash = pay_cash
 	active_upgrade = upgrade
 	_elapsed   = 0.0
 	_consumed  = {}
@@ -365,6 +396,10 @@ func _process(delta: float) -> void:
 
 	_elapsed += delta
 	var progress: float = clampf(_elapsed / active_upgrade.duration_seconds, 0.0, 1.0)
+	if _paid_with_cash:
+		if progress >= 1.0:
+			_complete_research()
+		return   ## bought outright before the apocalypse: no materials drain
 
 	## Incremental drain — only the DELTA since last tick leaves storage,
 	## matching the "60% done = 3/5 used" example exactly. floor() keeps
@@ -388,6 +423,7 @@ func _complete_research() -> void:
 	var next_tier: int = tier_progress.get(finished.id, 0) + 1
 	tier_progress[finished.id] = next_tier
 	active_upgrade = null
+	_paid_with_cash = false
 	_elapsed  = 0.0
 	_consumed = {}
 	is_paused = false   ## polish-pass bug fix — stale true would stall the next research (flagged)
@@ -419,6 +455,7 @@ func get_research_save_data() -> Dictionary:
 			"id":      active_upgrade.id,
 			"elapsed": _elapsed,
 			"consumed": _consumed.duplicate(),
+			"paid_cash": _paid_with_cash,
 		}
 	return data
 
@@ -433,6 +470,7 @@ func restore_research_save_data(data: Dictionary) -> void:
 	active_upgrade   = null
 	_elapsed         = 0.0
 	_consumed        = {}
+	_paid_with_cash  = false
 	if data.has("active_upgrade"):
 		var au: Dictionary = data["active_upgrade"]
 		var path: String = String(au.get("path", ""))
@@ -442,6 +480,7 @@ func restore_research_save_data(data: Dictionary) -> void:
 		if upgrade != null:
 			active_upgrade = upgrade
 			_elapsed = float(au.get("elapsed", 0.0))
+			_paid_with_cash = bool(au.get("paid_cash", false))
 			var consumed: Dictionary = au.get("consumed", {})
 			for k: Variant in consumed:
 				_consumed[k] = int(consumed[k])

@@ -1873,14 +1873,18 @@ func _run_cost(length: float) -> int:
 
 ## After a run is placed: the spend float, and — when paid in Metal — each
 ## leg's share so demolishing or undoing part of it returns exactly that.
+## Either way each leg records an exact share of what the run cost, so
+## demolishing a leg and undoing the rest returns exactly what was paid.
 func _charge_feedback(segs: Array, midpoint: Vector3, cost: int) -> void:
-	if not BuildEconomy.salvage_rules(get_tree()):
-		_spawn_float_label(midpoint, cost, false)
-		return
 	var lengths: Array[float] = []
 	for seg: Variant in segs:
 		lengths.append((seg as WaterPipeSegment).point_a.distance_to((seg as WaterPipeSegment).point_b))
 	var shares: Array[int] = BuildEconomy.split(cost, lengths)
+	if not BuildEconomy.salvage_rules(get_tree()):
+		for i: int in segs.size():
+			(segs[i] as WaterPipeSegment).placement_cost = shares[i]
+		_spawn_float_label(midpoint, cost, false)
+		return
 	for i: int in segs.size():
 		(segs[i] as Node).set_meta("metal_paid", shares[i])
 		(segs[i] as WaterPipeSegment).placement_cost = 0

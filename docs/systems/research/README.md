@@ -81,6 +81,11 @@ player's hand. See `ResearchStation.gd`'s `_feed_single_item()` /
 `_feed_bag()` for the exact logic. The F7 debug button is unaffected —
 still there for quick testing.
 
+**Cash research before the apocalypse (Oct 2026):** during BunkerPhase
+preparation `start_research()` charges `UpgradeDef.get_cash_cost()` up front
+and drains no materials (`_paid_with_cash`, saved as `paid_cash`). LEGACY
+worlds and the sealed act use materials. See `docs/systems/phase/README.md`.
+
 **Sealed-bunker reserve (Oct 2026):** after the seal, wire and pipe are paid
 in Metal straight from `stored_materials` — `available_material()` (stored
 minus what the running research still needs), `spend_material()`. Salvage

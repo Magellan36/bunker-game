@@ -293,12 +293,16 @@ func _undo() -> void:
 		## machinery here since the water system has no zones/breakers (see
 		## docs/systems/water/README.md Non-responsibilities).
 		var seg_nodes: Array = entry.get("seg_nodes", [])
-		## Sealed: only legs still standing give their Metal back (a leg
-		## demolished since already dropped its share as salvage).
+		## Only legs still standing are refunded: a leg demolished since
+		## placement already returned its own share (cash, or salvage after
+		## the seal). Refunding the whole run here used to pay that share out
+		## twice — a repeatable free-cash loop (fixed Oct 2026).
 		var pipe_metal_back: int = 0
+		var pipe_cash_back: int = 0
 		for n: Variant in seg_nodes:
-			if n != null and is_instance_valid(n):
+			if n != null and is_instance_valid(n) and not (n as Node).is_queued_for_deletion():
 				pipe_metal_back += int((n as Node).get_meta("metal_paid", 0))
+				pipe_cash_back += int((n as Node).get("placement_cost"))
 				(n as Node3D).queue_free()
 		var elbow_nodes: Array = entry.get("elbow_nodes", [])
 		for n: Variant in elbow_nodes:
@@ -330,9 +334,9 @@ func _undo() -> void:
 		if _is_metal(entry):
 			BuildEconomy.return_metal(_owner.get_tree(), pipe_metal_back, entry.get("world_pos", Vector3.ZERO))
 		else:
-			if pipe_cost > 0 and _owner.world_node != null:
-				_owner.world_node.add_cash(pipe_cost)
-			_owner._spawn_float_label_at_pos(entry.get("world_pos", Vector3.ZERO), pipe_cost, true)
+			if pipe_cash_back > 0 and _owner.world_node != null:
+				_owner.world_node.add_cash(pipe_cash_back)
+			_owner._spawn_float_label_at_pos(entry.get("world_pos", Vector3.ZERO), pipe_cash_back, true)
 		## Flow-direction arrows (Jul 2026) — recompute after undoing a pipe run.
 		if wm != null:
 			wm.recompute_flow_directions()

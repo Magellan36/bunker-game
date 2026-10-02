@@ -15,6 +15,21 @@ class_name UpgradeDef
 @export var duration_seconds: float = 10.0
 @export var material_costs: Dictionary = {}   ## e.g. {"metal": 5, "plastic": 5} — keys match get_trash_material()'s return values
 
+## Price per tier in cash while the bunker is being prepared (BunkerPhase
+## PRE_APOCALYPSE, Oct 2026): research is bought outright before the
+## apocalypse and paid in materials after it. 0 = derived from the material
+## cost (CASH_PER_MATERIAL per unit). First-pass guess, balance later.
+@export var cash_cost: int = 0
+const CASH_PER_MATERIAL: int = 150
+
+func get_cash_cost() -> int:
+	if cash_cost > 0:
+		return cash_cost
+	var units: int = 0
+	for material: Variant in material_costs.keys():
+		units += int(material_costs[material])
+	return units * CASH_PER_MATERIAL
+
 ## Total completions in this chain. Flat cost/duration across all tiers
 ## this pass (per direction — balance later).
 @export var max_tier: int = 1

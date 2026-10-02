@@ -43,7 +43,7 @@ every NPC/build/power/hatch harness and every old save keeps working. F7 →
 | `scripts/world/items/SalvageItem.gd` | Placeholder salvage sphere (one per material, carries a unit count). |
 | `scripts/ui/hatch/HatchLeaveUI.gd` | Pre-apocalypse hatch inspector: readiness check + **Leave** + confirm. |
 | `scripts/ui/hatch/SealTransition.gd` | Full-screen seal moment (archetype D); calls `seal()` behind black. |
-| `tools/tests/bunker_phase_smoke.gd` | Drives the whole flow (49 checks). |
+| `tools/tests/bunker_phase_smoke.gd` | Drives the whole flow (54 checks). |
 
 Touched elsewhere (each change is commented `Oct 2026`):
 `PlayerStats.clock_running` / `get_start_elapsed()`, `SaveManager.register_field(..., on_missing)`,
@@ -97,7 +97,19 @@ Day 11+: hatch [E] → expedition planning (HatchInspectUI, unchanged)
     (`FarmingTray.fill_soil_at_cell`, `plant_seed_at_cell`,
     `fertilize_first_open_cell`), so no other caller can plant either.
   - Still allowed: dispensers filling from the hookup, batteries charging,
-    unpacking cases, the stove switch, research and the chute.
+    unpacking cases, the stove switch and the chute.
+- **Research is bought with cash** (Brannon, 2026-10-02): the whole price is
+  charged when it begins (`UpgradeDef.get_cash_cost()` — `cash_cost`, or
+  $150 per material unit when unset; Water Hookup Output = $1,500 a tier,
+  a guess). No materials are drained or reserved. A cash-bought research
+  that is still running at the seal finishes without materials. After the
+  seal, new research uses materials as before. The research panel shows a
+  Cash requirement row ("$1,500 required · $48,500 available") and "Not
+  Enough Cash" instead of the material rows.
+- **Materials can still be loaded:** the chute (F-hold, its own path, not
+  the E-use gate) accepts shop-bought items, so cash → items → materials
+  works before the apocalypse, and that Metal carries into the sealed act
+  for wire and pipe.
 - Save slots made now read **"Preparation · 2 hours ago"** instead of a day
   and time (`SaveManager` meta `preparation`, `SaveSlotFormat.describe`).
 - Survivors picked at New Game are stored in `pending_survivors` (saved) and
@@ -214,17 +226,15 @@ salvage messages.
 - **No entropy before Day 1** and no using supplies (bottle refills excepted) — see Preparation above.
 - **Leftover cash is deleted** at the seal.
 - **Preparation saves** read "Preparation".
+- **Pipe undo fixed:** Undo refunds only the legs still standing (cash or
+  Metal), and every leg records an exact share of its run's price
+  (`BuildEconomy.split`), so demolish-then-undo returns exactly what was
+  paid. It used to refund the whole run again — a free-cash loop.
 
 ## Open questions (pinned)
-- **Research and the chute** still work during preparation (research
-  spends materials over real time). Lock them until Day 1 too?
 - **Salvage visuals** are tinted spheres. They need real models (and
   provenance) before release.
 - **Moving the water hookup after the seal** drops its attached pipes as
   salvage (same rule as demolishing them).
-- **Pre-existing cash bug, untouched:** before the seal, undoing a pipe run
-  refunds the whole run even if some legs were already demolished and
-  refunded. After the seal this can't happen (Metal is refunded per
-  standing leg).
 - **Controller hint for locked tools:** hover tooltips need a pointer;
   controller players get a toast if they try a locked tool via the cursor.

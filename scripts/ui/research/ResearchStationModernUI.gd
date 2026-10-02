@@ -55,6 +55,9 @@ var _zoom_label: Label = null
 var _detail_scroll: ScrollContainer = null
 var _detail_content: VBoxContainer = null
 var _requirement_stored: Dictionary = {}
+## Oct 2026 — "$48,500 available" on the cash requirement row (BunkerPhase
+## preparation: research is bought with cash).
+var _requirement_cash: Label = null
 var _research_time_value: Label = null
 var _research_progress_bar: ProgressBar = null
 var _research_progress_label: Label = null
@@ -606,7 +609,7 @@ func _update_water_node_text(button: Button) -> void:
 	var maximum: int = WATER_UPGRADE.get_max_tier()
 	var state_text: String = _research_state().replace("_", " ").to_upper()
 	if state_text == "MATERIALS":
-		state_text = "MATERIALS REQUIRED"
+		state_text = "CASH REQUIRED" if _shows_cash() else "MATERIALS REQUIRED"
 	button.text = "Water Hookup Output\nTier %d / %d     %s" % [completed, maximum, state_text]
 
 
@@ -622,6 +625,7 @@ func _rebuild_detail() -> void:
 		return
 	_clear(_detail_content)
 	_requirement_stored.clear()
+	_requirement_cash = null
 	_research_time_value = null
 	_research_progress_bar = null
 	_research_progress_label = null
@@ -638,12 +642,15 @@ func _rebuild_detail() -> void:
 	_detail_content.add_child(description)
 	_detail_content.add_child(_effect_comparison(completed, maximum))
 	C.section_header(_detail_content, "REQUIREMENTS")
-	for material: String in ResearchStation.MATERIAL_TYPES:
-		if not WATER_UPGRADE.material_costs.has(material):
-			continue
-		_detail_content.add_child(
-			_requirement_row(material, int(WATER_UPGRADE.material_costs.get(material, 0)))
-		)
+	if _shows_cash():
+		_detail_content.add_child(_cash_requirement_row(WATER_UPGRADE.get_cash_cost()))
+	else:
+		for material: String in ResearchStation.MATERIAL_TYPES:
+			if not WATER_UPGRADE.material_costs.has(material):
+				continue
+			_detail_content.add_child(
+				_requirement_row(material, int(WATER_UPGRADE.material_costs.get(material, 0)))
+			)
 	C.section_header(_detail_content, "RESEARCH TIME")
 	var time_row: HBoxContainer = HBoxContainer.new()
 	time_row.add_theme_constant_override("separation", 8)
@@ -664,7 +671,11 @@ func _rebuild_detail() -> void:
 	_action_button.pressed.connect(_on_research_action)
 	_detail_content.add_child(_action_button)
 	_style_research_action()
-	var helper: Label = _label("Materials are consumed as research progresses.", 11, S.MUTED)
+	var helper_text: String = "Materials are consumed as research progresses."
+	if _shows_cash():
+		helper_text = "Paid in cash." if _active_paid_in_cash() \
+			else "Before the apocalypse, research is paid in full in cash when it begins."
+	var helper: Label = _label(helper_text, 11, S.MUTED)
 	helper.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	helper.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_detail_content.add_child(helper)
@@ -722,6 +733,37 @@ func _requirement_row(material: String, cost: int) -> PanelContainer:
 	return card
 
 
+## Cash price row, used instead of the material rows before the apocalypse.
+func _cash_requirement_row(cost: int) -> PanelContainer:
+	var card: PanelContainer = _card(Color("1a201f"))
+	var row: HBoxContainer = HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	card.add_child(C.inset(row, 10, 7, 10, 7))
+	var name_label: Label = _label("Cash", 13, S.IVORY)
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(name_label)
+	row.add_child(_label("%s required" % UIFormat.money(cost), 12, S.MUTED))
+	_requirement_cash = _label("", 12, S.GREEN)
+	_requirement_cash.custom_minimum_size.x = 120.0
+	_requirement_cash.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(_requirement_cash)
+	return card
+
+
+## True when this upgrade's cost reads in cash: the act is preparation, or
+## the running research was bought with cash.
+func _shows_cash() -> bool:
+	if _current_station == null:
+		return false
+	if _current_station.active_upgrade == WATER_UPGRADE:
+		return _active_paid_in_cash()
+	return _current_station.research_uses_cash()
+
+
+func _active_paid_in_cash() -> bool:
+	return _current_station != null and _current_station.active_research_paid_in_cash()
+
+
 func _tier_segments(completed: int, maximum: int) -> HBoxContainer:
 	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 7)
@@ -759,7 +801,7 @@ func _style_research_action() -> void:
 			S.button(_action_button)
 			_action_button.disabled = true
 		"materials":
-			_action_button.text = "Materials Required"
+			_action_button.text = "Not Enough Cash" if _shows_cash() else "Materials Required"
 			_action_button.icon = null  ## quiet: text-first (was S.icon("warning"))
 			S.button(_action_button)
 			_action_button.disabled = true
@@ -809,6 +851,13 @@ func _refresh_live_data() -> void:
 
 
 func _refresh_materials() -> void:
+	if _requirement_cash != null and _current_station != null:
+		var world: Node = _current_station.get_tree().get_first_node_in_group("main_world")
+		var cash: int = int(world.call("get_cash")) if world != null else 0
+		_requirement_cash.text = "%s available" % UIFormat.money(cash)
+		var paid_or_enough: bool = _active_paid_in_cash() or cash >= WATER_UPGRADE.get_cash_cost()
+		_requirement_cash.add_theme_color_override("font_color",
+			S.BLUE if _active_paid_in_cash() else (S.GREEN if paid_or_enough else S.RED))
 	for material: String in ResearchStation.MATERIAL_TYPES:
 		var stored: int = 0
 		if _current_station != null:
@@ -863,7 +912,10 @@ func _research_state_signature() -> String:
 	var active_id: String = ""
 	if _current_station.active_upgrade != null:
 		active_id = _current_station.active_upgrade.id
-	return "%s|%s|%d" % [active_id, str(_current_station.is_paused), _completed_tiers()]
+	## Affordability and the act are part of the signature so the action
+	## button re-styles the moment cash/materials arrive or the bunker seals.
+	return "%s|%s|%d|%s|%s" % [active_id, str(_current_station.is_paused), _completed_tiers(),
+		str(_can_afford()), str(_current_station.research_uses_cash())]
 
 
 func _completed_tiers() -> int:
@@ -875,12 +927,7 @@ func _completed_tiers() -> int:
 func _can_afford() -> bool:
 	if _current_station == null:
 		return false
-	for material: String in WATER_UPGRADE.material_costs.keys():
-		var stored: int = int(_current_station.stored_materials.get(material, 0))
-		var needed: int = int(WATER_UPGRADE.material_costs.get(material, 0))
-		if stored < needed:
-			return false
-	return true
+	return _current_station.can_afford(WATER_UPGRADE)
 
 
 func _water_output_for_tier(tier: int) -> String:

@@ -132,6 +132,35 @@ func _run() -> void:
 	await process_frame
 	_check(BP.use_allowed(self, bottle), "refilling a bottle at a dispenser is allowed")
 
+	# Research is bought with cash before the apocalypse.
+	var upgrade: Resource = load("res://data/upgrades/bunker_water_output_2x.tres")
+	var price: int = int(upgrade.call("get_cash_cost"))
+	station.set("stored_materials", {"metal": 0, "plastic": 0, "paper": 0, "organic": 0})
+	var cash_before: int = int(world.call("get_cash"))
+	_check(price > 0 and bool(station.call("can_afford", upgrade)), "research is affordable with cash alone ($%d)" % price)
+	_check(bool(station.call("start_research", upgrade)) and int(world.call("get_cash")) == cash_before - price
+		and bool(station.call("active_research_paid_in_cash")), "starting research charges cash up front")
+	station.set("_elapsed", float(upgrade.get("duration_seconds")) - 0.05)
+	for i: int in 20:
+		await process_frame
+	_check(station.get("active_upgrade") == null and int(station.get("tier_progress").get(upgrade.get("id"), 0)) == 1
+		and int(station.get("stored_materials")["metal"]) == 0, "cash research completes without materials")
+
+	# Pipe undo refunds only the legs still standing.
+	var leg_a: Node3D = WaterPipeSegment.new()
+	var leg_b: Node3D = WaterPipeSegment.new()
+	for leg: Node3D in [leg_a, leg_b]:
+		world.add_child(leg)
+		leg.set("placement_cost", 24)
+	(controller.get("_undo_stack") as Array).append({"type": "pipe", "seg_nodes": [leg_a, leg_b],
+		"edge_ids": [], "elbow_nodes": [], "cost": 48, "world_pos": player.global_position, "currency": "cash"})
+	leg_a.queue_free()   ## demolished earlier (it refunded its own $24 then)
+	await process_frame
+	var before_undo: int = int(world.call("get_cash"))
+	controller.call("_undo")
+	_check(int(world.call("get_cash")) - before_undo == 24, "pipe undo refunds only the standing leg (+$%d)"
+		% (int(world.call("get_cash")) - before_undo))
+
 	# Save during preparation.
 	var save_ok: bool = root.get_node("SaveManager").call("save_game", 1)
 	_check(save_ok, "save during preparation")
@@ -150,6 +179,8 @@ func _run() -> void:
 	_check(not is_instance_valid(transition) and not paused, "seal transition plays out and unpauses")
 	_check(phase.is_sealed(), "bunker is sealed")
 	_check(int(world.call("get_cash")) == 0, "leftover cash is gone")
+	_check(not bool(station.call("research_uses_cash")) and not bool(station.call("can_afford", upgrade)),
+		"after the seal research needs materials again")
 	bottle.global_position = far
 	await process_frame
 	_check(BP.use_allowed(self, can) and BP.use_allowed(self, bottle) and BP.use_allowed(self, fuel),
