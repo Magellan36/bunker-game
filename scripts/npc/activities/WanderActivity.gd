@@ -156,3 +156,6 @@ func _tick_look(npc: NPC, delta: float) -> void:
 	## gently, to face the player walking up.
 	if _look_target != null and is_instance_valid(_look_target) and _look_target.is_in_group("player"):
 		npc.face_toward(_look_target.global_position, delta * 1.5)
+
+func is_leisure() -> bool:
+	return true   ## gives way to work after a short wrap-up (NPCBrain)

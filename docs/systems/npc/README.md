@@ -510,6 +510,36 @@ Design and rationale: `plans/NPC_MORALE_CRASHOUT_PLAN.md`.
 - Harness: `--scenario=morale` (a fast-forward week, bad/average/good
   bunkers), `--verbs=<t>`, `--force=hostile|breakdown|overdrive`.
 
+### Free time gives way to work: a short wrap-up (Oct 2026, Brannon)
+Leaning, sitting, a break and wandering (`NPCActivity.is_leisure()`) end for
+work after a 2-4 s wrap-up (`NPCBrain.WRAP_UP_S`, brain-clock seconds, so it
+follows game speed): not instantly, and not after the whole lean or break.
+Before this, a seated break only gave way to urgent work (35+), so a resident
+on a break finished it first (measured: 2 min 15 s). Leaning only gave way
+to a job beating it by the usual margin.
+- **When:** the best candidate is work and scores above the leisure
+  activity's own value (a seated leisure sit now reports its real value,
+  not 0). Whether a lazy resident wants a small chore at all is still the
+  job's own score; the wrap-up itself is the same for everyone.
+- **Flicker grace:** while winding down, the job dropping out of first place
+  for under 2 s (someone grabbed that item) doesn't restart the countdown
+  (`WRAP_GRACE_S`). A real need still takes over normally.
+- **No false starts:** tidying only scores when there's something *this*
+  resident can take (`CleaningActivity._has_own_target`, cached half a
+  second). Without it, a resident got up for clutter others had already
+  claimed, found nothing and sat straight back down.
+- **New clutter lifts the tidying bench:** a resident benched from tidying
+  for finding nothing is let back in as soon as the clutter count rises (a
+  delivery).
+- **Back-off keys:** activities without a class_name (leisure sit,
+  re-organize, treat, hide, keep-away) used to share the back-off key "",
+  so one finding nothing benched the others. They now use the script's name.
+- **Measured** (slot 2, a 12-item pile dropped beside settled residents):
+  from wrap-up start to switching, 2-4 s; walking straight away from a lean,
+  about 2.3 s later from a chair (the stand-up). The rest of the time from
+  the drop is the job becoming available: 5 s of lying still plus the job
+  board's 2 s scan, and others claiming items first.
+
 ### Free time: settle, then wander (human-likeness pass, Sep 2026)
 Watching the real game showed residents wandering about half of their free
 time in 15 s bursts, switching activity 3–4 times a real minute. Free time

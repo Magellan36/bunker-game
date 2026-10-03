@@ -43,6 +43,10 @@ func take_handoff() -> NPCActivity: return null
 func accepts_held_item(_npc: NPC, _item: Node) -> bool: return false
 func is_need() -> bool: return false
 func is_work() -> bool: return false
+## Free time (leaning, sitting, a break, wandering): gives way to work after
+## a short wrap-up (NPCBrain.WRAP_UP_S), not instantly and not after the
+## whole lean or break.
+func is_leisure() -> bool: return false
 func can_yield_to_need(_npc: NPC) -> bool: return false
 func backoff_on_futile() -> bool: return true
 ## A challenger must score at least this to interrupt (on top of the brain's

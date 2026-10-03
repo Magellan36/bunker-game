@@ -31,6 +31,13 @@ class_name NPCBrain
 ## on any score scale.
 
 const THINK_INTERVAL: float = 1.0
+## Free time gives way to work after a short wrap-up (Oct 2026, Brannon: not
+## instantly, but they used to finish the whole break first, over 2 minutes).
+## Brain-clock seconds: they follow the game-speed setting.
+const WRAP_UP_S: Vector2 = Vector2(2.0, 4.0)
+## Once winding down, a job dropping out of first place for a moment (someone
+## else grabbed that item) doesn't restart it; only this long without one does.
+const WRAP_GRACE_S: float = 2.0
 
 ## Before the seal (BunkerPhase preparation, Oct 2026, Brannon): nothing in
 ## the bunker may be used yet and time stands still, so residents only do
@@ -76,6 +83,8 @@ var _candidates: Array[NPCActivity] = []
 var _clock: float = 0.0                  ## brain-local seconds (scaled physics time)
 var _current_started: float = 0.0
 var _backoff: Dictionary = {}            ## activity key -> {"until": float, "streak": int}
+var _wrap_up_at: float = -1.0            ## free time ends for work at this brain-clock time
+var _wrap_miss: float = 0.0              ## seconds the job has been out of first place while winding down
 var last_switch_reason: String = ""      ## surfaced by debug tooling / the talk menu
 
 func setup(npc: NPC) -> void:
@@ -218,7 +227,12 @@ func _score(cand: NPCActivity) -> float:
 		return 0.0
 	var key: String = _key(cand)
 	if _backoff.has(key) and _clock < float(_backoff[key]["until"]):
-		return 0.0
+		## Benched for finding nothing to tidy, but more clutter has turned
+		## up since (a delivery): look again now.
+		if cand is CleaningActivity and JobBoard.get_total_clutter_count() > int(_backoff[key].get("clutter", 1 << 30)):
+			_backoff.erase(key)
+		else:
+			return 0.0
 	return cand.score(_npc)
 
 func _think() -> void:
@@ -248,7 +262,36 @@ func _think() -> void:
 			best = cand
 
 	if best == null:
+		_wrap_up_at = -1.0
+		_wrap_miss = 0.0
 		return
+
+	## Free time gives way to work: a short wrap-up, then up and off. This
+	## skips the usual defence margin, a break's "urgent work only" floor and
+	## a seated break's no-interrupt rule; whether the job beats free time at
+	## all is still the job's own score (lazy residents value chores less).
+	if _current != null and _current.is_leisure() and best.is_work() and best_score > _current.score(_npc):
+		_wrap_miss = 0.0
+		if _wrap_up_at < 0.0:
+			_wrap_up_at = _clock + randf_range(WRAP_UP_S.x, WRAP_UP_S.y)
+		if _clock < _wrap_up_at:
+			return
+		_wrap_up_at = -1.0
+		var job: NPCActivity = best
+		var forget: float = _npc.get_forgetfulness_chance()
+		var forgot: bool = randf() < forget
+		NPCDebug.log_forgetfulness_roll(_npc, forget, forgot)
+		if forgot:
+			job = ForgetfulWanderActivity.new()
+		_start_fresh(job, "wrapped up %s for %s (%.1f)" % [_current.label(), best.label(), best_score])
+		_think_timer = THINK_INTERVAL
+		return
+	if _wrap_up_at >= 0.0 and _current != null and _current.is_leisure() and not best.is_need():
+		_wrap_miss += THINK_INTERVAL
+		if _wrap_miss <= WRAP_GRACE_S:
+			return   ## still winding down; the job will likely be back next think
+	_wrap_up_at = -1.0
+	_wrap_miss = 0.0
 
 	## Forgetfulness (Part 14) — only ever second-guesses a JOB about to be
 	## started, never the NPC's own needs. Rolled once, here.
@@ -300,6 +343,8 @@ func _switch_to(activity: NPCActivity, reason: String) -> void:
 	last_switch_reason = reason
 	_current = activity
 	_current_started = _clock
+	_wrap_up_at = -1.0
+	_wrap_miss = 0.0
 	## Hands policy — never let an activity inherit an item it can't use.
 	if NPCItemUser.hands_full(_npc) and not activity.accepts_held_item(_npc, _npc.held_item):
 		if NPCDebug.enabled:
@@ -319,7 +364,7 @@ func _exit_current(finished_naturally: bool) -> void:
 	if finished_naturally and ran < FUTILE_SEC and act.backoff_on_futile():
 		var streak: int = int(_backoff.get(key, {}).get("streak", 0)) + 1
 		var wait: float = minf(BACKOFF_MAX, BACKOFF_BASE * pow(2.0, float(streak - 1)))
-		_backoff[key] = {"until": _clock + wait, "streak": streak}
+		_backoff[key] = {"until": _clock + wait, "streak": streak, "clutter": JobBoard.get_total_clutter_count()}
 		if NPCDebug.enabled:
 			NPCDebug.log_cleaning(_npc, "futile activity benched", "%s ended after %.2fs — benched %.0fs (streak %d)" % [key, ran, wait, streak])
 	elif ran >= FUTILE_SEC * 4.0 and _backoff.has(key):
@@ -327,4 +372,9 @@ func _exit_current(finished_naturally: bool) -> void:
 
 func _key(act: NPCActivity) -> String:
 	var s: Script = act.get_script()
-	return s.get_global_name() if s != null else "?"
+	if s == null:
+		return "?"
+	## Scripts without a class_name (LeisureSit, Reorganize, Treat, Hide...)
+	## used to share the key "" and bench each other.
+	var g: String = String(s.get_global_name())
+	return g if g != "" else s.resource_path.get_file().get_basename()

@@ -66,13 +66,29 @@ func label() -> String:
 
 ## 4 at a tidy bunker → ~30 at a real mess (× work ethic etc.).
 func score(npc: NPC) -> float:
-	if _is_forced_session or not NPCJobQueries.has_cleaning_target_available(npc):
+	if _is_forced_session or not NPCJobQueries.has_cleaning_target_available(npc) or not _has_own_target(npc):
 		return 0.0
 	if npc.is_preparing():
 		return PREP_TIDY_SCORE * lerpf(0.85, 1.15, npc._trait("work_ethic"))
 	var clutter: float = float(JobBoard.get_total_clutter_count())
 	var t: float = clampf((clutter - CLUTTER_CALM) / float(CLUTTER_URGENT - CLUTTER_CALM), 0.0, 1.0)
 	return npc.work_score("CLEANING", 1.0, 4.0 + 26.0 * t * t * (3.0 - 2.0 * t))
+
+## Something THIS resident can take: not claimed by someone else, not given
+## up on, reachable (Oct 2026). "There's clutter" alone isn't enough: others
+## may have claimed it all, or the new pile is still settling, and then a
+## resident got up for it (NPCBrain wrap-up), found nothing and sat straight
+## back down. Path checks, so cached per resident for half a second.
+const OWN_TARGET_CACHE_FRAMES: int = 30
+
+static func _has_own_target(npc: NPC) -> bool:
+	var f: int = Engine.get_physics_frames()
+	var cached: Array = npc.get_meta("_tidy_target_check", [])
+	if not cached.is_empty() and f - int(cached[0]) < OWN_TARGET_CACHE_FRAMES:
+		return bool(cached[1])
+	var ok: bool = not NPCJobQueries.find_cleaning_target(npc).is_empty()
+	npc.set_meta("_tidy_target_check", [f, ok])
+	return ok
 
 ## Safe window: between items, hands empty.
 func interruptible() -> bool:

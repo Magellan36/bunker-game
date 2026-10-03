@@ -32,6 +32,10 @@ func is_need() -> bool:
 func score(npc: NPC) -> float:
 	if npc.is_night_for_me() or NPCItemUser.hands_full(npc) or npc.crash.active() or npc.social.drive() >= 0.4:
 		return 0.0
+	if _state == SState.SEATED and _chair != null:
+		## Already sitting (the running one): worth what sitting is worth, so
+		## only a job that beats it ends it (NPCBrain wrap-up), not any job.
+		return BASE_SCORE * npc.get_work_ethic_passive_mult() * npc.leisure_bias("sit")
 	if Time.get_ticks_msec() < int(npc.get_meta("_leisure_sit_cooldown_msec", 0)):
 		return 0.0
 	if pick_chair(npc) == null:
@@ -82,3 +86,6 @@ static func pick_chair(npc: NPC) -> Node:
 			best_cost = cost
 			best = c
 	return best
+
+func is_leisure() -> bool:
+	return true   ## gives way to work after a short wrap-up (NPCBrain)

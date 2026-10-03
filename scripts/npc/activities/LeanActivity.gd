@@ -278,3 +278,6 @@ static func _spot_free(npc: NPC, spot: Dictionary) -> bool:
 		if other != npc and NPCItemUser.flat_distance((other as Node3D).global_position, spot["stand"]) < SPOT_SPACING:
 			return false
 	return true
+
+func is_leisure() -> bool:
+	return true   ## gives way to work after a short wrap-up (NPCBrain)

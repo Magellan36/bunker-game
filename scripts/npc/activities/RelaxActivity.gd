@@ -84,3 +84,6 @@ func exit(npc: NPC) -> void:
 	if _inner != null:
 		_inner.exit(npc)
 		_inner = null
+
+func is_leisure() -> bool:
+	return true   ## gives way to work after a short wrap-up (NPCBrain)
